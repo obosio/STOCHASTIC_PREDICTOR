@@ -72,6 +72,20 @@ Ciclo de actualización paso a paso en tiempo $t$.
         \item El nuevo dato disponible en $t$.
         \item Se utiliza para alimentar los núcleos ($K_A, K_B, K_C, K_D$) y generar las predicciones para $t+1$.
         \item \textbf{Gestión de Errores de Dominio:} Si $|y_t| > 20\sigma$ (respecto a la normalización histórica), el dato se clasifica como \textit{Outlier Catastrófico}. El sistema debe descartar la entrada, mantener el estado inercial y emitir una alerta crítica de validación, protegiendo los núcleos de divergencia numérica.
+        \item \textbf{Detección de Señales Congeladas (Frozen Signal Validation):} Si el stream inyecta exactamente el mismo valor durante $N_{freeze} \geq 5$ pasos consecutivos, el sistema debe:
+        \begin{enumerate}
+            \item Calcular la varianza de los últimos $N_{freeze}$ valores: $\text{Var}([y_{t-4}, y_{t-3}, y_{t-2}, y_{t-1}, y_t]) = 0$
+            \item Identificar esto como falla de sensor o corrupción de fuente de datos
+            \item Emitir \texttt{FrozenSignalAlarmEvent} con timestamp del evento
+            \item \textbf{Impacto matemático:} El exponente de Hölder en Rama D requiere variabilidad: $H_t = \lim_{s \to 0} \frac{\log |\gamma(t+s) - \gamma(t)|}{\log s}$. Con señal congelada, el numerador es cero, causando singularidades o indeterminaciones ($0/\log s$). Esto invalida el espectro multifractal. El sistema debe:
+            \begin{itemize}
+                \item Congelar la Rama Topológica (Kernel D) en último valor válido
+                \item NO actualizar pesos del orquestador (mantener inercia)
+                \item Activar modo de inferencia degradada
+                \item Continuar predicciones usando Ramas A, B, C solamente
+            \end{itemize}
+            \item \textbf{Recuperación:} Una vez que se detecte varianza $> 0.1 \times \text{Var}_{histórica}$ durante 2 pasos consecutivos, liberar el bloqueo de Rama D y reanudar normalidad.
+        \end{enumerate}
     \end{itemize}
     \item \textbf{Malla de Inferencia (Anti-Aliasing Input):}
     \begin{itemize}

@@ -19,6 +19,7 @@
 % Entornos
 \newtheorem{testcase}{Caso de Prueba}[chapter]
 \newtheorem{implementation}{Implementación}[chapter]
+\newtheorem{criterion}{Criterio}[chapter]
 
 % Configuración de listings para Python
 \definecolor{codegreen}{rgb}{0,0.6,0}
@@ -1273,6 +1274,64 @@ def test_walk_forward_regime_change():
 \chapter{Validación de Causalidad Estricta}
 
 Esta sección implementa tests que verifican, mediante inspección de memoria y marcas temporales, que el predictor no tiene \textbf{look-ahead bias}: no accede a datos posteriores al tiempo de inferencia actual.
+
+\subsection{Test de Máscara Causal: Envenenamiento Intencional de Datos Futuros}
+
+Técnica avanzada: "envenenar" intencionadamente los datos futuros con valores \texttt{NaN}. Esta es la prueba más rigurosa de causalidad.
+
+\begin{criterion}
+Configurable iterativamente:
+
+\begin{enumerate}
+    \item \textbf{Generar serie limpia:} Datos de validación con 500 timesteps y 4 ramas (multivariado).
+    \item \textbf{Crear máscara causal:} Para cada tiempo $t$, establecer datos en $t' > t$ a \texttt{NaN} (Not-a-Number en JAX):
+    \[
+    \tilde{y}[t:t+H] = \text{NaN} \quad \forall H > 0, \forall t \in [0, 500]
+    \]
+    \item \textbf{Ejecutar predicción:} Alimentar serie envenenada al modelo. Si accede a esos datos, se propagará \texttt{NaN}.
+    \item \textbf{Verificar salida:}
+    \[
+    \text{Resultado}_{t} = \begin{cases}
+        \text{Numérico válido} & \text{(✓ Causalidad respetada)} \\
+        \text{NaN} & \text{(✗ Look-ahead bias detectado!)}
+    \end{cases}
+    \]
+    \item \textbf{Condición de fallo:} Si en más del 0.1\% de las muestras se detecta \texttt{NaN} en la salida $\hat{y}_t$, la prueba de causalidad **FALLA**. El predictor tiene fuga de información temporal.
+\end{enumerate}
+
+\textbf{Fortaleza de esta prueba:} NaN es viral en aritmética flotante: cualquier operación con \texttt{NaN} produce \texttt{NaN}. Es imposible "esconderlo" con offset o normalización. Si el modelo respeta causalidad, puede simplemente ignorar columnas \texttt{NaN}, lo que resulta en salidas numéricas.
+\end{criterion}
+
+\subsection{Fuzzing de SDE: Variación Drástica del Paso de Tiempo}
+
+Test de robustez para Rama C (integradores Itô/Lévy).
+
+\begin{criterion}
+La Rama C resuelve SDEs numéricamente. Los integradores (Euler-Maruyama, Milstein) tienen propiedades de estabilidad que dependen del paso temporal $\Delta t$:
+
+\begin{enumerate}
+    \item \textbf{Regime 1 (Non-Stiff):} $\Delta t = 0.01$ (paso pequeño, suavidad esperada)
+    \item \textbf{Regime 2 (Moderately Stiff):} $\Delta t = 0.1$ (transición, posible inestabilidad)
+    \item \textbf{Regime 3 (Stiff):} $\Delta t = 0.5$ (paso gigante, exige solver robusto)
+    \item \textbf{Regime 4 (Pathological):} $\Delta t = 1.0$ (prácticamente no hay discretización)
+\end{enumerate}
+
+Para cada régimen, ejecutar 1000 trayectorias (Monte Carlo) y medir:
+
+\[
+\text{Stability Metric} = \max_n \left| |X_n^{(\Delta t_1)} - X_n^{(\Delta t_2)}| - \mathcal{O}((\Delta t_1 - \Delta t_2)^{p}) \right|
+\]
+
+where $p$ es el order del integrador (1 para Euler-Maruyama, 1.5 para Milstein).
+
+\textbf{Criterio de aceptación:} En régimen stiff ($\Delta t = 0.5$), la respuesta debe ser **acotada** (no explotar a infinito):  
+
+\[
+\mathbb{E}[|X_T|] < 10 \times \mathbb{E}[|X_T|^{(\Delta t=0.01)}]
+\]
+
+Esto garantiza que el solver mantiene estabilidad incluso cuando se "fuerza" con pasos gigantes. Si $\Delta t$ agiganta sin control, se activa automáticamente un reductor adaptativo en la Rama C (similar al gradient clipping en Rama B).
+\end{criterion}
 
 \section{Test de No-Clairvoyance mediante Inspección de Punteros}
 

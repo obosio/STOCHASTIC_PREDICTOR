@@ -707,15 +707,15 @@ class JKO_Discreto:
         Variante robusta del algoritmo JKO con Recocido Entrópico (Entropy Annealing).
         
         Bajo condiciones de mercado extremas (ej. gaps de precio, vol explota), el algoritmo
-        de Sinkhorn puede divergir si epsilon es muy pequeno. Este metodo implementa:
+        de Sinkhorn puede divergir si epsilon es muy pequeno. Este metodo implementa 3 intentos:
         
         1. Intenta convergencia con epsilon nominal
-        2. Si falla (iteraciones alcanzadas sin tolerancia), duplica epsilon
-        3. Retorna solucion suavizada pero garantizada (mejor que error)
+        2. Si falla, duplica epsilon (entropy annealing)
+        3. Si sigue fallando, retorna Safe Weight Fallback: pesos uniformes [0.25, 0.25, 0.25, 0.25]
+           con flag InferenciaDegradada activado
         
-        Teoria: El recocido entropico intercambia precision por robustez. La solucion
-        con epsilon mayor es una proyeccion Wasserstein menos precisa pero numericamente
-        estable. Aceptable para "circuit breaker" o modos degradados.
+        Teoria: El recocido entropico intercambia precision por robustez. Si todo falla,
+        la distribucion uniforme es el estado de maxima incertidumbre (Jaynes). Mejor que crash.
         """
         
         # 1. Paso exponencial (Gradient Descent en espacio de probabilidad)
@@ -731,24 +731,43 @@ class JKO_Discreto:
         out = solver(prob)
         
         # Diagnosticar convergencia: Si n_iterations >= max_iter_sinkhorn, reintentar
-        converged = out.n_iterations < max_iter_sinkhorn
+        converged_nominal = out.n_iterations < max_iter_sinkhorn
         
-        def fallback_annealed():
-            """Plan B: Epsilon annealing para convergencia robusta."""
+        def try_annealed():
+            """Plan B: Epsilon annealing (2x) para convergencia robusta."""
             epsilon_annealed = self.epsilon * 2.0
             geom_anneal = geometry.Geometry(cost_matrix=C, epsilon=epsilon_annealed)
             prob_anneal = linear_problem.LinearProblem(geom_anneal, a=weights_prev, b=weights_target)
             solver_anneal = sinkhorn.Sinkhorn(lse_mode=True, max_iterations=max_iter_sinkhorn)
             out_anneal = solver_anneal(prob_anneal)
-            return out_anneal
+            converged_anneal = out_anneal.n_iterations < max_iter_sinkhorn
+            return out_anneal, converged_anneal
         
-        # Seleccionar solucion basada en convergencia
-        out = jax.lax.cond(converged, lambda: out, lambda: fallback_annealed())
+        def safe_uniform_fallback():
+            """Plan C: Fallback uniforme ante fallo catastrófico de Sinkhorn.
+            Retorna pesos uniformes [0.25, 0.25, 0.25, 0.25] (máxima entropía).
+            El flag InferenciaDegradada se activa en el orquestador principal.
+            """
+            n_branches = len(weights_prev)
+            uniform_weights = jnp.ones(n_branches) / n_branches
+            return uniform_weights, False  # False = degraded mode
         
-        transported_weights = jnp.sum(out.matrix, axis=0)
-        transported_weights = transported_weights / jnp.sum(transported_weights)
+        # Ejecutar lógica de fallback
+        if converged_nominal:
+            transported_weights = jnp.sum(out.matrix, axis=0)
+            transported_weights = transported_weights / jnp.sum(transported_weights)
+            converged_final = True
+        else:
+            out_anneal, converged_anneal = try_annealed()
+            if converged_anneal:
+                transported_weights = jnp.sum(out_anneal.matrix, axis=0)
+                transported_weights = transported_weights / jnp.sum(transported_weights)
+                converged_final = True
+            else:
+                # Ultimo recurso: pesos uniformes
+                transported_weights, converged_final = safe_uniform_fallback()
         
-        return transported_weights, converged
+        return transported_weights, converged_final
 \end{lstlisting}
 
 \section{Integración con Optax para Aprendizaje de Metaparametros}
@@ -1256,59 +1275,55 @@ class WalkForwardValidator:
 
     def run(self, data, hyperparams):
         """
-        Ejecuta el protocolo de validacion sin data leakage.
+        Ejecuta el protocolo de validacion sin data leakage, vectorizado con jax.vmap
+        para evaluar múltiples horizontes en paralelo.
         data: serie temporal completa [T, Features]
         """
+        # Recolectar todas las ventanas de entrenamiento/validacion en arrays
         t = self.window_size
-        errors = []
+        train_windows = []
+        test_windows = []
         
-        # Ajuste de Horizonte Estructural:
-        # Para validar H pasos adelante, necesitamos H+1 datos reales.
-        # El dato extra al final es el target real para la ultima prediccion.
         while t + self.horizon + 1 <= len(data):
-            # 1. Definir ventanas (Rolling si max_memory esta definido)
             start_idx = 0
             if self.max_memory is not None:
                 start_idx = max(0, t - self.max_memory)
-                
-            train_data = data[start_idx:t]
-            
-            # Extraemos una ventana de prueba extendida (H+1)
-            # test_data incluye: [Obs_t, Obs_t+1, ..., Obs_t+H]
-            # Esto nos permite:
-            # - Alimentar [Obs_t, ..., Obs_t+H-1] al modelo para generar predicciones
-            # - Usar [Obs_t+1, ..., Obs_t+H] como vector de verdad (Ground Truth)
-            
-            test_window_full = data[t : t + self.horizon + 1]
-            input_data = test_window_full[:-1] # Lo que ve el modelo
-            target_data = test_window_full[1:] # La realidad futura
-            
-            # 2. Instanciar y Entrenar (Reset del estado)
+            train_windows.append(data[start_idx:t])
+            test_windows.append(data[t : t + self.horizon + 1])
+            t += self.horizon
+        
+        # Vectorizar: procesar todas las ventanas en paralelo usando jax.vmap
+        def compute_error_for_window(train_data, test_data):
+            """Función escalar que procesa una sola ventana de validación."""
+            # 1. Instanciar modelo
             model = self.model_factory(hyperparams)
+            model.fit(train_data)
             
-            # Ejecucion del entrenamiento (Warm-up / Fitting)
-            model.fit(train_data) 
+            # 2. Extraer inputs/targets de ventana de test
+            input_data = test_data[:-1]
+            target_data = test_data[1:]
             
-            # 3. Inferencia Fuera de Muestra
-            # El modelo recibe N inputs y genera N predicciones one-step-ahead
+            # 3. Predecir
             preds = model.predict(input_data)
             
-            # Correction Data Leakage (Off-by-One) SOLUCIONADA:
-            # preds[i] es la prediccion hecha en t+i para t+i+1
-            # target_data[i] es el valor real en t+i+1
-            # Ahora ambos arrays tienen longitud exacta self.horizon (incluso si H=1)
+            # 4. Evaluar error
+            if len(preds) > 0:
+                error = self.metric_fn(preds, target_data)
+            else:
+                error = jnp.inf
             
-            valid_preds = preds
-            valid_targets = target_data
-            
-            if len(valid_preds) > 0:
-                error = self.metric_fn(valid_preds, valid_targets)
-                errors.append(error)
-            
-            # 4. Avanzar
-            t += self.horizon
-            
-        return np.mean(errors)
+            return error
+        
+        # Crear función vectorizada (vmap sobre el eje de ventanas)
+        # Nota: En JAX radicalmente compilable, esto permite XLA fusionar operaciones
+        # - Si los modelos son stateless (pytree), vmap compila múltiples horizontes en paralelo
+        # - Reduce tiempo de validación de O(n_windows) a O(1) en GPU/TPU
+        errors_vectorized = jax.vmap(compute_error_for_window, in_axes=(0, 0))(
+            jnp.array(train_windows),
+            jnp.array(test_windows)
+        )
+        
+        return jnp.mean(errors_vectorized)
 \end{lstlisting}
 
 \section{Optimización Bayesiana con Optuna}
