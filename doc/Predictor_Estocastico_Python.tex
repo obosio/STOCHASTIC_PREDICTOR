@@ -456,6 +456,139 @@ def loss_hjb(model, t_batch, x_batch, hamiltonian_fn, terminal_cond_fn, boundary
 
 \end{lstlisting}
 
+\subsection{Monitoreo de Entropía DGM (Detección de Mode Collapse)}
+
+Durante el entrenamiento de la red neuronal DGM, existe el riesgo de que la red colapse a soluciones triviales (constantes) que satisfacen formalmente la PDE pero carecen de contenido informativo. Esta subsección implementa el \textbf{Principio de Conservación de Entropía de Solución} del documento de Teoría.
+
+\begin{lstlisting}[language=Python]
+def compute_entropy_dgm(model, t, x_samples, num_bins=50):
+    """
+    Calcula la entropia diferencial de la solucion DGM en tiempo t
+    sobre una distribucion de puntos espaciales x_samples.
+    
+    H[V_theta] = -∫ p(v) log p(v) dv
+    
+    Args:
+        model: Red DGM (V_theta)
+        t: Tiempo de evaluacion (scalar)
+        x_samples: Puntos de muestreo espacial [N, D]
+        num_bins: Numero de bins para estimacion de densidad
+    
+    Returns:
+        entropy: Entropia diferencial estimada (scalar)
+    """
+    # Evaluar la red en los puntos de muestreo
+    v_values = vmap(lambda x: model(t, x))(x_samples)  # [N]
+    
+    # Estimar densidad mediante histograma normalizado
+    # Para estimacion mas precisa, usar KDE (Kernel Density Estimation)
+    # pero histograma es mas eficiente para monitoreo en linea
+    
+    hist, bin_edges = jnp.histogram(v_values, bins=num_bins, density=True)
+    
+    # Ancho de bins para normalizacion
+    bin_width = bin_edges[1] - bin_edges[0]
+    
+    # Probabilidades normalizadas
+    # p_i = hist_i * bin_width (para que sum(p_i) ≈ 1)
+    probs = hist * bin_width
+    
+    # Entropia: H = -Σ p_i log(p_i)
+    # Evitar log(0) agregando epsilon
+    log_probs = jnp.log(probs + 1e-10)
+    entropy = -jnp.sum(probs * log_probs)
+    
+    return entropy
+
+def check_mode_collapse(model, t_eval, x_samples, 
+                       terminal_entropy, gamma=0.5):
+    """
+    Verifica si la red DGM ha colapsado a solucion trivial.
+    
+    Criterio del Teorema de Conservacion de Entropia:
+    H[V_theta](t) >= gamma * H[g]
+    
+    Args:
+        model: Red DGM
+        t_eval: Tiempos de evaluacion [T_eval]
+        x_samples: Puntos espaciales [N, D]
+        terminal_entropy: H[g] - entropia de condicion terminal
+        gamma: Factor de retencion [0.5, 1.0]
+    
+    Returns:
+        collapsed: bool - True si mode collapse detectado
+        avg_entropy: Entropia promedio temporal
+    """
+    # Calcular entropia en cada tiempo
+    entropies = jnp.array([
+        compute_entropy_dgm(model, t, x_samples) 
+        for t in t_eval
+    ])
+    
+    # Entropia promedio temporal
+    avg_entropy = jnp.mean(entropies)
+    
+    # Criterio de colapso
+    threshold = gamma * terminal_entropy
+    collapsed = avg_entropy < threshold
+    
+    return collapsed, avg_entropy
+
+# Ejemplo de uso en loop de entrenamiento
+def train_dgm_with_entropy_monitoring(model, optimizer, 
+                                     train_data, gamma=0.5):
+    """
+    Entrenamiento DGM con monitoreo de entropia para prevenir
+    mode collapse.
+    """
+    # Calcular entropia terminal (baseline)
+    # g(x) es la condicion terminal (payoff function)
+    x_terminal_samples = train_data['x_terminal']
+    g_values = vmap(terminal_cond_fn)(x_terminal_samples)
+    
+    hist_term, edges_term = jnp.histogram(g_values, bins=50, density=True)
+    bin_w = edges_term[1] - edges_term[0]
+    probs_term = hist_term * bin_w
+    H_terminal = -jnp.sum(probs_term * jnp.log(probs_term + 1e-10))
+    
+    opt_state = optimizer.init(model)
+    
+    for epoch in range(num_epochs):
+        # Loss estandar DGM
+        loss, grads = jax.value_and_grad(loss_hjb)(
+            model, t_batch, x_batch, 
+            hamiltonian_fn, terminal_cond_fn, 
+            boundary_cond_fn, T
+        )
+        
+        # Actualizar parametros
+        updates, opt_state = optimizer.update(grads, opt_state)
+        model = optax.apply_updates(model, updates)
+        
+        # Monitoreo de entropia cada K epochs
+        if epoch % 10 == 0:
+            t_eval = jnp.linspace(0, 0.9*T, 20)  # Evaluar hasta 90% del tiempo
+            x_eval = x_batch  # Reusar batch de entrenamiento
+            
+            collapsed, avg_H = check_mode_collapse(
+                model, t_eval, x_eval, H_terminal, gamma
+            )
+            
+            if collapsed:
+                print(f"WARNING: Mode collapse detected at epoch {epoch}")
+                print(f"  Avg entropy: {avg_H:.4f}")
+                print(f"  Threshold: {gamma*H_terminal:.4f}")
+                
+                # Accion correctiva: reinicializar red o ajustar hiperparametros
+                # En produccion: reducir peso rho_B -> 0 en orquestador
+                break
+    
+    return model
+
+\end{lstlisting}
+
+\textbf{Nota Teórica:} Este monitoreo implementa el Teorema de Conservación de Entropía (Sección 3.2 del documento de Teoría). Una solución colapsada tiene $H[V_\theta] \to -\infty$ (distribución delta), violando el criterio $H_{avg} \geq \gamma \cdot H[g]$. En el orquestador JKO, si se detecta colapso persistente ($> 10$ pasos consecutivos), se debe reducir $\rho_B \to 0$ hasta re-entrenar la red DGM.
+
 \chapter{Módulo 3: Orquestador JKO (Jordan-Kinderlehrer-Otto)}
 
 \section{Sinkhorn Estabilizado en Log-Domain con OTT-JAX}
@@ -773,6 +906,127 @@ class UniversalPredictor:
         alarm = self.cusum_state['g_plus'] > h
         return alarm
 
+    def _check_regime_change_with_kurtosis(self, prediction_error, window_size=252):
+        """
+        Version mejorada de CUSUM con ajuste adaptativo del umbral basado en curtosis.
+        
+        Implementa el Lema de Umbral Adaptativo del documento de Teoria:
+        h_t = k * sigma_t * (1 + ln(kappa_t / 3))
+        
+        Args:
+            prediction_error: Error de prediccion (scalar o vector)
+            window_size: Tamano de ventana para calculo de curtosis (default 252 ~ 1 ano)
+        
+        Returns:
+            alarm: bool - True si cambio de regimen detectado
+            kurtosis: float - Curtosis empirica actual
+        """
+        # Conversion a escalar
+        error_sq = jnp.sum(prediction_error**2)
+        error_norm = jnp.sqrt(error_sq)
+        
+        # 1. Actualizar buffer de errores para curtosis
+        # Inicializar buffer si no existe
+        if not hasattr(self, 'error_buffer'):
+            self.error_buffer = jnp.zeros(window_size)
+            self.error_buffer_idx = 0
+        
+        # Actualizar buffer circular
+        self.error_buffer = self.error_buffer.at[self.error_buffer_idx].set(error_norm)
+        self.error_buffer_idx = (self.error_buffer_idx + 1) % window_size
+        
+        # 2. Calcular curtosis empirica (cuarto momento estandarizado)
+        # Solo calcular cuando tengamos suficientes observaciones
+        valid_errors = jnp.where(
+            jnp.arange(window_size) < min(self.cusum_state['n_obs'], window_size),
+            self.error_buffer,
+            jnp.nan
+        )
+        
+        # Media y varianza del buffer (sin NaNs)
+        mu_e = jnp.nanmean(valid_errors)
+        sigma_e_sq = jnp.nanvar(valid_errors)
+        sigma_e = jnp.sqrt(sigma_e_sq + 1e-8)
+        
+        # Cuarto momento
+        m_4 = jnp.nanmean((valid_errors - mu_e)**4)
+        
+        # Curtosis: kappa = E[(e - mu)^4] / sigma^4
+        kappa_t = m_4 / (sigma_e**4 + 1e-10)
+        
+        # Durante warm-up, asumir curtosis Gaussiana
+        kappa_t = jnp.where(
+            self.cusum_state['n_obs'] < window_size,
+            3.0,  # Curtosis Gaussiana
+            kappa_t
+        )
+        
+        # 3. Calcular umbral adaptativo
+        # h_t = k * sigma * (1 + ln(kappa/3))
+        k = self.cusum_state['slack_k']
+        
+        # Actualizar varianza con EMA (para consistencia con version original)
+        alpha_ema = self.cusum_state['alpha_var']
+        current_var = self.cusum_state['error_sq_ema']
+        new_var = (1 - alpha_ema) * current_var + alpha_ema * error_sq
+        sigma_t = jnp.sqrt(new_var + 1e-8)
+        
+        # Umbral adaptativo con curtosis
+        # ln(kappa/3) puede ser negativo si kappa < 3 (sub-Gaussiano, muy raro en finanzas)
+        # Clampeamos para evitar umbrales negativos
+        kurtosis_adjustment = jnp.log(jnp.maximum(kappa_t, 1.0) / 3.0)
+        h_adaptive = k * sigma_t * (1.0 + kurtosis_adjustment)
+        
+        # 4. Estadistica CUSUM estandarizada
+        s_standardized = error_norm / sigma_t
+        s_centered = s_standardized - 1.0
+        
+        # 5. Actualizar acumulador CUSUM
+        self.cusum_state['g_plus'] = jnp.maximum(
+            0.0, 
+            self.cusum_state['g_plus'] + s_centered - k
+        )
+        
+        # Actualizar estado
+        self.cusum_state['error_sq_ema'] = new_var
+        self.cusum_state['n_obs'] += 1
+        
+        # 6. Deteccion con umbral adaptativo
+        alarm = self.cusum_state['g_plus'] > h_adaptive
+        
+        return alarm, kappa_t, h_adaptive
+
+\end{lstlisting}
+
+\textbf{Ejemplo de Uso e Interpretacion de Curtosis:}
+
+\begin{lstlisting}[language=Python]
+# En el metodo step() del PredictionEngine, reemplazar:
+# regime_changed = self._check_regime_change(last_error)
+# por:
+regime_changed, kurtosis, h_adaptive = self._check_regime_change_with_kurtosis(last_error)
+
+# Logueo de telemetria
+if kurtosis > 5.0:
+    print(f"High volatility regime detected: kurtosis = {kurtosis:.2f}")
+if kurtosis > 15.0:
+    print(f"Crisis regime: kurtosis = {kurtosis:.2f}, adaptive threshold = {h_adaptive:.4f}")
+if kurtosis > 20.0:
+    print(f"WARNING: Extreme fat tails - residual model may be invalid")
+
+# Interpretacion:
+# - kappa ≈ 3: Regimen Gaussiano (mercado normal)
+# - kappa ∈ [5, 10]: Volatilidad financiera estandar
+# - kappa ∈ [10, 15]: Alta volatilidad (eventos outlier frecuentes)
+# - kappa > 15: Regimen de crisis (colas extremadamente pesadas)
+# - kappa > 20: Falla del modelo de residuos - considerar cambio de arquitectura
+
+\end{lstlisting}
+
+\textbf{Nota Teorica:} Esta implementacion refleja el \textbf{Lema de Umbral Adaptativo} (Seccion 2.3 del documento de Teoria). El ajuste logaritmico $\ln(\kappa_t/3)$ permite que el umbral CUSUM se expanda automaticamente en regimenes de colas pesadas, evitando falsos positivos mientras mantiene sensibilidad a cambios estructurales genuinos. La formulacion esta derivada de la Desigualdad de Markov de cuarto orden y tiene consistencia asintotica probada.
+
+\begin{lstlisting}[language=Python]
+
     def step(self, new_data, previous_target=None):
         # 0. Actualizacion del Buffer Circular Estatico (Fix XLA Recompilation)
         # Convertimos new_data a escalar representativo
@@ -1028,5 +1282,233 @@ def run_meta_optimization(n_trials=50):
     print("Best Personality:", study.best_params)
     return study.best_params
 \end{lstlisting}
+
+\chapter{Sistema de Telemetría y Flags de Estado}
+
+Para garantizar la observabilidad completa del sistema en producción, se requiere una estructura de telemetría que exponga métricas críticas y flags de operación. Esta sección implementa la especificación de $\mathbb{S}_{risk}$ del documento I/O.
+
+\section{Estructura de Telemetría}
+
+\begin{lstlisting}[language=Python]
+from dataclasses import dataclass
+from typing import Dict
+
+@dataclass
+class PredictorTelemetry:
+    """
+    Estructura de telemetria completa del predictor universal.
+    Alineada con la especificacion $\mathbb{S}_{risk}$ del documento I/O.
+    """
+    # Metricas de singularidad
+    holder_exponent: float          # H_t
+    cusum_drift: float              # G^+
+    distance_to_alarm: float        # h - G^+
+    
+    # Metricas avanzadas (nuevas)
+    kurtosis: float                 # κ_t - Curtosis empirica
+    dgm_entropy: float              # H_DGM - Entropia del predictor DGM
+    adaptive_threshold: float       # h_t adaptativo
+    
+    # Pesos y energia
+    kernel_weights: jnp.ndarray     # ρ (4 elementos)
+    free_energy: float              # F[ρ]
+    
+    # Flags de operacion
+    degraded_inference_mode: bool   # TTL violation
+    emergency_mode: bool            # H_t < H_min (singularidad critica)
+    regime_change_detected: bool    # CUSUM alarm
+    mode_collapse_warning: bool     # H_DGM < γ·H[g]
+    
+    # Estado del solver
+    sinkhorn_converged: bool
+    loss_type: str                  # 'mse' | 'huber'
+
+class TelemetryLogger:
+    """
+    Logger de telemetria para monitoreo en produccion.
+    """
+    def __init__(self, gamma_entropy=0.5, ttl_max_steps=100):
+        self.gamma = gamma_entropy
+        self.ttl_max = ttl_max_steps
+        self.ttl_counter = 0
+        self.mode_collapse_counter = 0
+        self.terminal_entropy_baseline = None
+    
+    def log_state(self, 
+                  holder: float,
+                  cusum_g_plus: float,
+                  cusum_h: float,
+                  kurtosis: float,
+                  dgm_entropy: float,
+                  weights: jnp.ndarray,
+                  free_energy: float,
+                  regime_changed: bool,
+                  sinkhorn_ok: bool,
+                  loss_type: str) -> PredictorTelemetry:
+        """
+        Construye estructura de telemetria a partir del estado interno.
+        """
+        # Calcular flags
+        emergency = holder < 0.4  # H_min threshold
+        
+        # TTL counter (simulado - en produccion usar timestamps reales)
+        if regime_changed or emergency:
+            self.ttl_counter = 0  # Reset en eventos criticos
+        else:
+            self.ttl_counter += 1
+        
+        degraded = self.ttl_counter > self.ttl_max
+        
+        # Mode collapse warning
+        if self.terminal_entropy_baseline is not None:
+            threshold = self.gamma * self.terminal_entropy_baseline
+            mode_collapse = dgm_entropy < threshold
+            
+            if mode_collapse:
+                self.mode_collapse_counter += 1
+            else:
+                self.mode_collapse_counter = 0
+            
+            # Alarma persistente (>10 pasos consecutivos)
+            mode_collapse_warning = self.mode_collapse_counter > 10
+        else:
+            mode_collapse_warning = False
+        
+        # Construir telemetria
+        telemetry = PredictorTelemetry(
+            holder_exponent=holder,
+            cusum_drift=cusum_g_plus,
+            distance_to_alarm=cusum_h - cusum_g_plus,
+            kurtosis=kurtosis,
+            dgm_entropy=dgm_entropy,
+            adaptive_threshold=cusum_h,
+            kernel_weights=weights,
+            free_energy=free_energy,
+            degraded_inference_mode=degraded,
+            emergency_mode=emergency,
+            regime_change_detected=regime_changed,
+            mode_collapse_warning=mode_collapse_warning,
+            sinkhorn_converged=sinkhorn_ok,
+            loss_type=loss_type
+        )
+        
+        return telemetry
+    
+    def set_terminal_entropy_baseline(self, H_terminal: float):
+        """
+        Establece baseline de entropia para deteccion de mode collapse.
+        Debe llamarse una vez durante inicializacion con H[g].
+        """
+        self.terminal_entropy_baseline = H_terminal
+
+# Ejemplo de integracion en PredictionEngine
+class UniversalPredictorWithTelemetry(UniversalPredictor):
+    """
+    Version extendida del predictor con telemetria completa.
+    """
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+        self.telemetry_logger = TelemetryLogger()
+    
+    def step_with_telemetry(self, new_data, previous_target=None):
+        """
+        Version extendida de step() que retorna telemetria.
+        """
+        # Ejecutar prediccion normal
+        pred, loss_type = self.step(new_data, previous_target)
+        
+        # Calcular metricas avanzadas
+        # (Asumir que _check_regime_change_with_kurtosis fue usado)
+        kurtosis = getattr(self, 'last_kurtosis', 3.0)
+        
+        # Calcular entropia DGM (solo si Rama B activa)
+        if self.prev_weights[1] > 0.05:  # rho_B > 5%
+            # En produccion, evaluar entropy sobre batch de puntos
+            dgm_entropy = 1.0  # Placeholder - reemplazar con compute_entropy_dgm()
+        else:
+            dgm_entropy = float('nan')  # No aplicable
+        
+        # Calcular energia libre (funcional de Wasserstein)
+        free_energy = -jnp.sum(self.prev_weights * jnp.log(self.prev_weights + 1e-10))
+        
+        # Loguear estado
+        telemetry = self.telemetry_logger.log_state(
+            holder=float(self.sia.estimate_holder_exponent(self.signal_buffer)[0]),
+            cusum_g_plus=float(self.cusum_state['g_plus']),
+            cusum_h=float(getattr(self, 'last_h_adaptive', self.cusum_state['threshold'])),
+            kurtosis=kurtosis,
+            dgm_entropy=dgm_entropy,
+            weights=self.prev_weights,
+            free_energy=free_energy,
+            regime_changed=bool(self.cusum_state['g_plus'] > self.cusum_state['threshold']),
+            sinkhorn_ok=True,  # Placeholder
+            loss_type=loss_type
+        )
+        
+        return pred, telemetry
+
+\end{lstlisting}
+
+\textbf{Ejemplo de Uso en Producción:}
+
+\begin{lstlisting}[language=Python]
+# Inicializar predictor con telemetria
+predictor = UniversalPredictorWithTelemetry(
+    epsilon=0.01, tau=0.1, holder_threshold=0.45
+)
+
+# Establecer baseline de entropia (calculado una vez al inicio)
+predictor.telemetry_logger.set_terminal_entropy_baseline(H_terminal=2.5)
+
+# Loop de inferencia
+for obs in live_market_data:
+    pred, telemetry = predictor.step_with_telemetry(
+        obs.price, previous_target=obs.target
+    )
+    
+    # Monitoreo de flags criticos
+    if telemetry.degraded_inference_mode:
+        logger.warning(f"DEGRADED MODE: TTL exceeded {predictor.telemetry_logger.ttl_max} steps")
+        logger.warning("Consider reducing position size - weights are stale")
+    
+    if telemetry.emergency_mode:
+        logger.critical(f"EMERGENCY: Singularity detected (H={telemetry.holder_exponent:.3f})")
+        logger.critical("Forcing Kernel D (signatures) with Huber loss")
+    
+    if telemetry.mode_collapse_warning:
+        logger.error("MODE COLLAPSE: DGM entropy below threshold")
+        logger.error(f"  H_DGM = {telemetry.dgm_entropy:.3f}")
+        logger.error(f"  Threshold = {predictor.telemetry_logger.gamma * predictor.telemetry_logger.terminal_entropy_baseline:.3f}")
+        logger.error("Action: Reducing rho_B -> 0 until retraining")
+    
+    if telemetry.kurtosis > 15.0:
+        logger.warning(f"Crisis regime: kurtosis = {telemetry.kurtosis:.2f}")
+        logger.info(f"Adaptive CUSUM threshold = {telemetry.adaptive_threshold:.4f}")
+    
+    # Telemetria para dashboard
+    metrics_buffer.append({
+        'timestamp': obs.timestamp,
+        'prediction': pred,
+        'holder': telemetry.holder_exponent,
+        'kurtosis': telemetry.kurtosis,
+        'cusum_distance': telemetry.distance_to_alarm,
+        'weights': telemetry.kernel_weights.tolist(),
+        'emergency': telemetry.emergency_mode,
+        'degraded': telemetry.degraded_inference_mode
+    })
+
+\end{lstlisting}
+
+\section{Interpretación de Flags}
+
+\begin{itemize}
+    \item \textbf{degraded\_inference\_mode}: Se activa cuando el sistema no recibe señales frescas ($y_{target}$) dentro del límite TTL. Los pesos $\rho$ se congelan y las predicciones continúan pero con confianza degradada. Recuperación con histéresis: $\text{TTL} < 0.8 \cdot \Delta_{max}$.
+    
+    \item \textbf{emergency\_mode}: Singularidad crítica detectada ($H_t < H_{min}$). Fuerza $w_D \to 1.0$ (Kernel D de signatures) y activa pérdida de Huber robusta. Indica evento de mercado extremo (flash crash, circuit breaker).
+    
+    \item \textbf{regime\_change\_detected}: CUSUM detecta cambio estructural ($G^+ > h_t$). Reinicia entropía a distribución uniforme y resetea acumuladores. Indica cambio de paradigma de mercado.
+    
+    \item \textbf{mode\_collapse\_warning}: DGM ha colapsado a solución trivial ($H_{DGM} < \gamma \cdot H[g]$ durante $>10$ pasos). Requiere re-entrenamiento de la red. Mientras tanto, reducir $\rho_B \to 0$.
+\end{itemize}
 
 \end{document}

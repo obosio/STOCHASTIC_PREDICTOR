@@ -103,13 +103,22 @@ class PredictionResult:
     distance_to_collapse: Float[Array, "1"] # h - G^+
     free_energy: Float[Array, "1"]      # F (Energía JKO)
     
+    # Telemetría Avanzada (Nuevas Adiciones)
+    kurtosis: Float[Array, "1"]         # κ_t - Curtosis empírica de errores
+    dgm_entropy: Float[Array, "1"]      # H_DGM - Entropía del predictor DGM (NaN si inactivo)
+    adaptive_threshold: Float[Array, "1"] # h_t - Umbral CUSUM adaptativo
+    
     # Estado del Orquestador
     weights: Float[Array, "4"]          # [rho_A, rho_B, rho_C, rho_D] (Simplex)
     
-    # Flags de Salud y Control
+    # Flags de Salud y Control (Explícitos)
     sinkhorn_converged: Bool[Array, "1"] # Convergencia JKO
-    is_stable: bool                     # is_degraded (False si viola TTL)
-    mode: str                           # "Standard" | "Robust"
+    degraded_inference_mode: bool       # TTL violation (congelamiento de pesos)
+    emergency_mode: bool                # H_t < H_min (singularidad crítica)
+    regime_change_detected: bool        # CUSUM alarm (G+ > h_t)
+    mode_collapse_warning: bool         # H_DGM < γ·H[g] (colapso DGM)
+    
+    mode: str                           # "Standard" | "Robust" | "Emergency"
 \end{lstlisting}
 
 \section{Arquitectura Multitenencia (Stateless/Functional Pattern)}
@@ -294,10 +303,23 @@ import msgpack
         state_dict = self._serialize_jax_state(self._state)
         
         # Segmentación Modular (K-Blocks)
+        # IMPORTANTE: Incluir telemetría avanzada y flags para preservar
+        # capacidad de detección de anomalías y mode collapse post-reinicio
         payload = {
             "timestamp": time.time_ns(),
             "config": asdict(self.config),
             "global": state_dict["global"], # rho, G+, ema
+            "telemetry": {
+                "kurtosis": float(self._state.kurtosis),
+                "dgm_entropy": float(self._state.dgm_entropy),
+                "adaptive_threshold": float(self._state.h_adaptive)
+            },
+            "flags": {
+                "degraded_inference": bool(self._state.degraded_mode),
+                "emergency": bool(self._state.emergency_mode),
+                "regime_change": bool(self._state.regime_changed),
+                "mode_collapse": bool(self._state.mode_collapse_warning)
+            },
             "kernels": {
                 "A": state_dict["kernel_a"],
                 "B": state_dict["kernel_b"],
@@ -332,13 +354,178 @@ import msgpack
         self._state = self._deserialize_jax_state(payload)
 \end{lstlisting}
 
+\section{Ajuste Adaptativo del Umbral CUSUM}
+
+El sistema implementa el \textbf{Lema de Umbral Adaptativo} basado en curtosis, permitiendo que el detector CUSUM se ajuste automáticamente a regímenes con colas pesadas.
+
+\subsection{Fórmula de Ajuste}
+
+El umbral de detección de cambio de régimen se calcula dinámicamente:
+
+\[
+h_t = k \cdot \sigma_t \cdot \left(1 + \ln\left(\frac{\kappa_t}{3}\right)\right)
+\]
+
+donde:
+\begin{itemize}
+    \item $k$: Slack calibrado (\texttt{cusum\_k} en configuración)
+    \item $\sigma_t$: Volatilidad EMA del error de predicción
+    \item $\kappa_t$: Curtosis empírica móvil (ventana de 252 pasos)
+    \item $3$: Curtosis de referencia Gaussiana
+\end{itemize}
+
+\subsection{Interpretación de Curtosis}
+
+\begin{table}[h]
+\centering
+\begin{tabular}{|c|l|}
+\hline
+\textbf{Rango $\kappa_t$} & \textbf{Régimen de Mercado} \\
+\hline
+$\kappa_t \approx 3$ & Gaussiano (mercado normal) \\
+$\kappa_t \in [5,10]$ & Volatilidad financiera estándar \\
+$\kappa_t \in [10,15]$ & Alta volatilidad (eventos outlier) \\
+$\kappa_t > 15$ & Régimen de crisis (colas pesadas) \\
+$\kappa_t > 20$ & Falla en modelo de residuos (alerta crítica) \\
+\hline
+\end{tabular}
+\caption{Interpretación de curtosis empírica}
+\end{table}
+
+\textbf{Nota:} El ajuste logarítmico permite que el umbral se expanda automáticamente cuando $\kappa_t > 3$, evitando falsos positivos en regímenes de alta curtosis mientras mantiene sensibilidad a cambios estructurales genuinos.
+
+\section{Flags de Operación y Recuperación}
+
+El sistema mantiene cuatro flags booleanos explícitos que señalizan estados críticos al ejecutor:
+
+\subsection{DegradedInferenceMode}
+
+\textbf{Condición de activación:}
+\[
+\text{TTL}(y_{\text{target}}) = t_{\text{current}} - t_{\text{signal}} > \Delta_{\text{max}}
+\]
+
+\textbf{Implicaciones operacionales:}
+\begin{enumerate}
+    \item Suspende actualización del transporte JKO inmediatamente
+    \item Congela pesos $\rho$ en último valor válido (modo inercial)
+    \item Predicciones continúan generándose pero con confianza degradada
+    \item Riesgo NO está siendo optimizado geométricamente
+\end{enumerate}
+
+\textbf{Recuperación con histéresis:}
+\[
+\text{TTL}(y_{\text{target}}) < 0.8 \cdot \Delta_{\text{max}}
+\]
+
+Se emite \texttt{NormalOperationRestoredEvent} al recuperar.
+
+\subsection{EmergencyMode}
+
+\textbf{Condición:} $H_t < H_{\text{min}}$ (singularidad crítica detectada)
+
+\textbf{Acción:} Fuerza $w_D \to 1.0$ (Kernel D de signatures) y cambia a métrica de Huber robusta.
+
+\subsection{RegimeChangeDetected}
+
+\textbf{Condición:} $G^+ > h_t$ (CUSUM detecta cambio de régimen)
+
+\textbf{Acción:} Reinicio de entropía a distribución uniforme y reset de acumuladores.
+
+\subsection{ModeCollapseWarning}
+
+\textbf{Condición:} $H_{\text{DGM}} < \gamma \cdot H[g]$ durante $> 10$ pasos consecutivos (solo relevante si $\rho_B > 0.05$)
+
+\textbf{Acción correctiva:} Reducir $\rho_B \to 0$ hasta re-entrenar red DGM.
+
 \section{Manejo de Errores y Excepciones}
 
+\subsection{Excepciones Estándar}
+
 \begin{itemize}
-    \item \texttt{DomainError}: Se lanza (o se loguea crítico) si $y_t$ excede los límites (Outlier Catastrófico).
+    \item \texttt{DomainError}: Se lanza (o se loguea crítico) si $y_t$ excede los límites (Outlier Catastrófico $> 20\sigma$).
     \item \texttt{StalenessWarning}: Emitido mediante el sistema de logging estándar de Python cuando se activa la protección TTL.
     \item \texttt{FrequencyWarning}: Alerta si la tasa de arribo de eventos cae por debajo del límite de Nyquist para el análisis de Besov.
     \item \texttt{IntegrityError}: Fallo crítico en la carga de snapshot. El sistema debe abortar y solicitar reinicio en frío.
 \end{itemize}
+
+\subsection{Alertas Específicas Avanzadas}
+
+\begin{itemize}
+    \item \texttt{ModeDegradationAlert}: Se emite cuando $H_{\text{DGM}}$ viola umbral durante $> 10$ pasos consecutivos. Indica colapso de modo en el predictor neuronal DGM (Rama B).
+    
+    \item \texttt{KurtosisOutlierWarning}: Se emite si $\kappa_t > 20$ de forma persistente ($> 5$ pasos consecutivos). Señala falla potencial en el modelo de residuos y sugiere revisión de arquitectura.
+    
+    \item \texttt{NormalOperationRestoredEvent}: Se emite al recuperar de \texttt{DegradedInferenceMode} (cuando TTL vuelve bajo el umbral con histéresis). Señaliza al ejecutor que puede retomar operación normal.
+\end{itemize}
+
+\subsection{Ejemplo de Logging en Producción}
+
+\begin{lstlisting}[language=Python]
+import logging
+
+def process_prediction(predictor, obs):
+    result = predictor.step(obs)
+    
+    # Flags críticos
+    if result.degraded_inference_mode:
+        logging.warning(
+            "DEGRADED MODE: TTL exceeded. Weights frozen. "
+            "Consider reducing position size."
+        )
+    
+    if result.emergency_mode:
+        logging.critical(
+            f"EMERGENCY: Singularity detected (H={result.holder_exponent:.3f}). "
+            "Forcing Kernel D with Huber loss."
+        )
+    
+    if result.mode_collapse_warning:
+        logging.error(
+            f"MODE COLLAPSE: DGM entropy below threshold. "
+            f"H_DGM = {result.dgm_entropy:.3f}. "
+            "Reducing rho_B -> 0."
+        )
+    
+    if result.kurtosis > 20.0:
+        logging.warning(
+            f"KURTOSIS OUTLIER: kappa = {result.kurtosis:.2f} > 20. "
+            "Residual model may be invalid."
+        )
+    
+    return result
+\end{lstlisting}
+
+\section{Detección de Mode Collapse en DGM}
+
+El sistema monitoriza la entropía diferencial del predictor neuronal (Rama B) para detectar colapso a soluciones triviales.
+
+\subsection{Criterio de Detección}
+
+La entropía diferencial de la solución DGM $V_\theta(x,t)$ se calcula como:
+
+\[
+H_{\text{DGM}} = -\int p_V(v) \log p_V(v) \, dv
+\]
+
+se compara contra la entropía de la condición terminal $H[g]$:
+
+\[
+H_{\text{DGM}} \geq \gamma \cdot H[g], \quad \gamma \in [0.5, 1.0]
+\]
+
+Si la violación persiste durante $> 10$ pasos consecutivos, se activa \texttt{mode\_collapse\_warning}.
+
+\subsection{Acción Correctiva}
+
+El orquestador JKO debe reducir el peso de la Rama B:
+
+\[
+\rho_B \to 0
+\]
+
+hasta que se re-entrene la red neuronal DGM con hiperparámetros ajustados (tasa de aprendizaje, arquitectura, inicialización).
+
+\textbf{Nota Teórica:} Una solución colapsada tiene $H[V_\theta] \to -\infty$ (distribución delta), correspondiendo a una política de control degenerada que no responde a variaciones del estado.
 
 \end{document}

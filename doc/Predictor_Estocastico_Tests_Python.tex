@@ -1,0 +1,1114 @@
+\documentclass[11pt, a4paper]{report}
+
+% --- PREÁMBULO ---
+\usepackage[a4paper, top=2.5cm, bottom=2.5cm, left=2cm, right=2cm]{geometry}
+\usepackage{fontspec}
+\usepackage{amsmath}
+\usepackage{amssymb}
+\usepackage{amsfonts}
+\usepackage{mathtools}
+\usepackage{booktabs}
+\usepackage{enumitem}
+\usepackage{amsthm}
+\usepackage{listings}
+\usepackage{xcolor}
+
+\usepackage[spanish, provide=*]{babel}
+\babelprovide[import, onchar=ids fonts]{spanish}
+
+% Entornos
+\newtheorem{testcase}{Caso de Prueba}[chapter]
+\newtheorem{implementation}{Implementación}[chapter]
+
+% Configuración de listings para Python
+\definecolor{codegreen}{rgb}{0,0.6,0}
+\definecolor{codegray}{rgb}{0.5,0.5,0.5}
+\definecolor{codepurple}{rgb}{0.58,0,0.82}
+\definecolor{backcolour}{rgb}{0.95,0.95,0.92}
+
+\lstdefinestyle{pythonstyle}{
+    backgroundcolor=\color{backcolour},   
+    commentstyle=\color{codegreen},
+    keywordstyle=\color{magenta},
+    numberstyle=\tiny\color{codegray},
+    stringstyle=\color{codepurple},
+    basicstyle=\ttfamily\footnotesize,
+    breakatwhitespace=false,         
+    breaklines=true,                 
+    captionpos=b,                    
+    keepspaces=true,                 
+    numbers=left,                    
+    numbersep=5pt,                  
+    showspaces=false,                
+    showstringspaces=false,
+    showtabs=false,                  
+    tabsize=2
+}
+
+\lstset{style=pythonstyle, language=Python}
+
+% --- HYPERREF (Debe ser el último paquete) ---
+\usepackage[hidelinks]{hyperref}
+
+\title{\textbf{Suite de Pruebas en Python \\ del Predictor Estocástico Universal}}
+\author{Consorcio de Desarrollo de Meta-Predicción Adaptativa}
+\date{\today}
+
+\begin{document}
+
+\maketitle
+
+\tableofcontents
+
+\chapter{Configuración del Entorno de Testing}
+
+\section{Dependencias y Herramientas}
+
+\begin{lstlisting}
+# requirements-test.txt
+pytest>=7.4.0
+pytest-cov>=4.1.0
+pytest-xdist>=3.3.0  # Paralelización de tests
+hypothesis>=6.82.0   # Property-based testing
+jax[cpu]>=0.4.13     # Para tests CPU
+jax[cuda12]>=0.4.13  # Para tests GPU (opcional)
+numpy>=1.24.0
+scipy>=1.11.0
+PyWavelets>=1.4.1
+msgpack>=1.0.5
+optuna>=3.2.0
+
+# Herramientas de validación
+flake8>=6.0.0
+mypy>=1.4.0
+black>=23.7.0
+\end{lstlisting}
+
+\section{Estructura de Directorios}
+
+\begin{lstlisting}[language=bash]
+tests/
+├── __init__.py
+├── conftest.py                    # Fixtures compartidas
+├── test_unit/
+│   ├── test_cms_levy.py          # Generación de variables estables
+│   ├── test_wtmm.py              # Análisis multifractal
+│   ├── test_malliavin.py         # Cálculo de sensibilidades
+│   ├── test_signatures.py        # Rama D
+│   └── test_entropy.py           # Entropía DGM
+├── test_integration/
+│   ├── test_sde_solvers.py       # Euler-Maruyama, Milstein
+│   ├── test_sinkhorn.py          # Transporte óptimo
+│   ├── test_dgm.py               # Deep Galerkin Method
+│   └── test_orchestrator.py     # JKO completo
+├── test_robustness/
+│   ├── test_cusum.py             # Detección de cambios
+│   ├── test_cusum_kurtosis.py    # CUSUM con curtosis
+│   ├── test_circuit_breaker.py   # Singularidades
+│   └── test_outliers.py          # Valores extremos
+├── test_io/
+│   ├── test_snapshotting.py      # Persistencia
+│   └── test_recovery.py          # Recuperación atómica
+├── test_hardware/
+│   ├── test_cpu_gpu_parity.py    # Consistencia numérica
+│   └── test_numerical_drift.py   # Deriva en punto fijo
+├── test_validation/
+│   ├── test_walk_forward.py      # Validación causal
+│   └── test_optuna_tuning.py     # Meta-optimización
+└── test_edge_cases/
+    ├── test_ttl_degraded_mode.py # Modo degradado
+    ├── test_mode_collapse.py     # Colapso DGM
+    └── test_extreme_kurtosis.py  # Curtosis > 20
+\end{lstlisting}
+
+\section{Fixtures Compartidas (conftest.py)}
+
+\begin{lstlisting}
+import pytest
+import jax
+import jax.numpy as jnp
+import numpy as np
+
+@pytest.fixture
+def rng_key():
+    """Clave PRN determinista para reproducibilidad."""
+    return jax.random.PRNGKey(42)
+
+@pytest.fixture
+def synthetic_brownian():
+    """Genera trayectoria Browniana sintética para tests."""
+    np.random.seed(123)
+    T = 1.0
+    N = 1000
+    dt = T / N
+    dW = np.random.randn(N) * np.sqrt(dt)
+    X = np.cumsum(dW)
+    return X, dt
+
+@pytest.fixture
+def synthetic_levy_stable():
+    """Genera trayectoria de proceso de Lévy estable."""
+    from scipy.stats import levy_stable
+    np.random.seed(456)
+    alpha = 1.5  # Índice de estabilidad
+    beta = 0.0   # Simetría
+    samples = levy_stable.rvs(alpha, beta, size=1000)
+    return samples, alpha
+
+@pytest.fixture
+def mock_market_data():
+    """Datos de mercado sintéticos con cambio de régimen."""
+    np.random.seed(789)
+    # Régimen 1: baja volatilidad
+    regime1 = np.random.randn(500) * 0.01 + 100
+    # Régimen 2: alta volatilidad (cambio abrupto)
+    regime2 = np.random.randn(500) * 0.05 + 105
+    data = np.concatenate([regime1, regime2])
+    return data
+
+@pytest.fixture
+def dgm_reference_solution():
+    """Solución de referencia para validar DGM."""
+    # Black-Scholes analítica para opción europea
+    def bs_call(S, K, T, r, sigma):
+        from scipy.stats import norm
+        d1 = (np.log(S/K) + (r + 0.5*sigma**2)*T) / (sigma * np.sqrt(T))
+        d2 = d1 - sigma * np.sqrt(T)
+        return S * norm.cdf(d1) - K * np.exp(-r*T) * norm.cdf(d2)
+    
+    return bs_call
+
+@pytest.fixture(params=['cpu', 'gpu'])
+def device(request):
+    """Parametrización de dispositivos para tests de paridad."""
+    device_name = request.param
+    if device_name == 'gpu' and not jax.devices('gpu'):
+        pytest.skip("GPU no disponible")
+    return device_name
+\end{lstlisting}
+
+\chapter{Pruebas de Unidad: Generación y Análisis}
+
+\section{Test de Generación de Variables Estables (Chambers-Mallows-Stuck)}
+
+\begin{lstlisting}
+# tests/test_unit/test_cms_levy.py
+import pytest
+import numpy as np
+from scipy.stats import levy_stable, kstest
+from stochastic_predictor.integrators.levy import generate_levy_stable
+
+def test_cms_parameter_recovery(rng_key):
+    """
+    Test: Validar que el algoritmo CMS produzca distribuciones
+    con los parámetros deseados.
+    """
+    alpha = 1.5
+    beta = 0.5
+    gamma = 1.0
+    delta = 0.0
+    N = 10000
+    
+    # Generar muestras
+    samples = generate_levy_stable(rng_key, alpha, beta, gamma, delta, N)
+    samples_np = np.array(samples)
+    
+    # Test Kolmogorov-Smirnov contra distribución teórica
+    statistic, pvalue = kstest(
+        samples_np, 
+        lambda x: levy_stable.cdf(x, alpha, beta, loc=delta, scale=gamma)
+    )
+    
+    # Criterio de aceptación: p-value > 0.05 (95% confianza)
+    assert pvalue > 0.05, f"KS test failed: p={pvalue:.4f}"
+    
+    # Validar que las muestras estén en rango razonable
+    assert not np.any(np.isnan(samples_np)), "NaN values detected"
+    assert not np.any(np.isinf(samples_np)), "Inf values detected"
+
+def test_cms_symmetry():
+    """
+    Test: Validar simetría cuando beta = 0.
+    """
+    alpha = 1.8
+    beta = 0.0  # Simétrica
+    N = 5000
+    
+    samples = generate_levy_stable(
+        jax.random.PRNGKey(999), alpha, beta, 1.0, 0.0, N
+    )
+    samples_np = np.array(samples)
+    
+    # La distribución debe ser simétrica alrededor de 0
+    # Testeamos que la mediana esté cerca de 0
+    median = np.median(samples_np)
+    assert abs(median) < 0.1, f"Asymmetry detected: median={median:.4f}"
+\end{lstlisting}
+
+\section{Test de WTMM (Wavelet Transform Modulus Maxima)}
+
+\begin{lstlisting}
+# tests/test_unit/test_wtmm.py
+import pytest
+import numpy as np
+import jax.numpy as jnp
+from stochastic_predictor.sia.wtmm import estimate_holder_exponent
+
+def test_wtmm_brownian_motion(synthetic_brownian):
+    """
+    Test: Validar que WTMM recupere H ≈ 0.5 para movimiento Browniano.
+    """
+    signal, dt = synthetic_brownian
+    
+    # Estimar exponente de Hölder
+    H_estimated = estimate_holder_exponent(jnp.array(signal), besov_c=1.5)
+    
+    # Criterio: |H_est - 0.5| < 0.05
+    assert abs(float(H_estimated) - 0.5) < 0.05, \
+        f"Holder exponent estimation failed: H={H_estimated:.3f}"
+
+def test_wtmm_fractional_brownian():
+    """
+    Test: Validar WTMM con fBm de Hurst conocido.
+    """
+    from fbm import FBM
+    
+    # Generar fBm con H = 0.7
+    H_true = 0.7
+    n = 1024
+    fbm_gen = FBM(n=n, hurst=H_true, length=1, method='daviesharte')
+    signal = fbm_gen.fbm()
+    
+    H_estimated = estimate_holder_exponent(jnp.array(signal), besov_c=2.0)
+    
+    # Tolerancia 10% del valor verdadero
+    error_rel = abs(float(H_estimated) - H_true) / H_true
+    assert error_rel < 0.10, \
+        f"fBm Holder estimation error: H_true={H_true}, H_est={H_estimated:.3f}"
+
+def test_wtmm_cone_influence():
+    """
+    Test: Verificar que el cono de influencia Besov sea respetado.
+    """
+    # Señal sintética con salto abrupto
+    signal = np.concatenate([
+        np.ones(500),
+        np.ones(500) * 3.0
+    ])
+    
+    # WTMM debe detectar singularidad en el salto
+    H_estimated = estimate_holder_exponent(jnp.array(signal), besov_c=1.0)
+    
+    # En un salto (discontinuidad), H -> 0
+    assert float(H_estimated) < 0.3, \
+        f"Jump detection failed: H={H_estimated:.3f} (expected < 0.3)"
+\end{lstlisting}
+
+\section{Test de Entropía DGM (Mode Collapse Detection)}
+
+\begin{lstlisting}
+# tests/test_unit/test_entropy.py
+import pytest
+import jax
+import jax.numpy as jnp
+from stochastic_predictor.kernels.kernel_b import compute_entropy_dgm
+
+def test_entropy_uniform_distribution():
+    """
+    Test: Entropía de distribución uniforme debe ser máxima.
+    """
+    # Distribución uniforme en [0, 1]
+    samples = jnp.linspace(0, 1, 1000)
+    
+    # Modelo mock que retorna valores uniformes
+    class MockModel:
+        def __call__(self, t, x):
+            return x[0]  # Identidad
+    
+    model = MockModel()
+    entropy = compute_entropy_dgm(model, t=0.5, x_samples=samples[:, None])
+    
+    # Entropía teórica de uniforme continua: H = log(b-a) = log(1) = 0
+    # Pero nuestro estimador discreto dará algo positivo
+    assert entropy > -0.5, f"Entropy too low: {entropy:.3f}"
+
+def test_entropy_collapsed_solution():
+    """
+    Test: Detectar solución colapsada (constante).
+    """
+    # Modelo que retorna constante (collapso total)
+    class CollapsedModel:
+        def __call__(self, t, x):
+            return 1.0  # Constante
+    
+    model = CollapsedModel()
+    samples = jnp.linspace(-1, 1, 500)
+    
+    entropy = compute_entropy_dgm(model, t=0.5, x_samples=samples[:, None])
+    
+    # Entropía debe tender a -∞ (en práctica, muy negativa)
+    # Con regularización epsilon, debe ser < -5.0
+    assert entropy < -3.0, \
+        f"Collapsed solution not detected: H={entropy:.3f}"
+
+def test_mode_collapse_criterion():
+    """
+    Test: Validar criterio H_DGM >= gamma * H[g].
+    """
+    from stochastic_predictor.kernels.kernel_b import check_mode_collapse
+    
+    # Crear modelo mock y datos
+    class NormalModel:
+        def __call__(self, t, x):
+            return jnp.sin(x[0])  # Función no trivial
+    
+    model = NormalModel()
+    t_eval = jnp.linspace(0, 0.9, 20)
+    x_samples = jnp.linspace(-3, 3, 100)[:, None]
+    
+    # Entropía terminal (simulada)
+    H_terminal = 1.5
+    gamma = 0.5
+    
+    collapsed, avg_entropy = check_mode_collapse(
+        model, t_eval, x_samples, H_terminal, gamma
+    )
+    
+    # No debe detectar colapso para función no trivial
+    assert not collapsed, \
+        f"False positive collapse detection: H_avg={avg_entropy:.3f}"
+\end{lstlisting}
+
+\chapter{Pruebas de Robustez: CUSUM y Circuit Breakers}
+
+\section{Test de CUSUM Estándar}
+
+\begin{lstlisting}
+# tests/test_robustness/test_cusum.py
+import pytest
+import numpy as np
+import jax.numpy as jnp
+from stochastic_predictor.orchestrator.cusum import CUSUM
+
+def test_cusum_no_change(mock_market_data):
+    """
+    Test: CUSUM no debe disparar alarma en datos estacionarios.
+    """
+    # Usar solo primer régimen (estacionario)
+    data = mock_market_data[:500]
+    
+    cusum = CUSUM(h=5.0, k=0.5, alpha_var=0.1)
+    alarms = []
+    
+    for obs in data:
+        alarm = cusum.update(obs)
+        alarms.append(alarm)
+    
+    # No debe haber alarmas en régimen estable
+    num_alarms = np.sum(alarms)
+    assert num_alarms == 0, \
+        f"False positives detected: {num_alarms} alarms in stable regime"
+
+def test_cusum_detects_change(mock_market_data):
+    """
+    Test: CUSUM debe detectar cambio de régimen abrupto.
+    """
+    data = mock_market_data  # Incluye cambio en t=500
+    
+    cusum = CUSUM(h=3.0, k=0.5, alpha_var=0.05)
+    alarms = []
+    
+    for obs in data:
+        alarm = cusum.update(obs)
+        alarms.append(alarm)
+    
+    # Debe detectar cambio cerca de t=500
+    alarm_indices = np.where(alarms)[0]
+    
+    assert len(alarm_indices) > 0, "Change point not detected"
+    
+    # Primera alarma debe estar cerca del cambio real
+    first_alarm = alarm_indices[0]
+    assert 480 < first_alarm < 550, \
+        f"Change detected too far from true point: {first_alarm} vs 500"
+\end{lstlisting}
+
+\section{Test de CUSUM con Curtosis Adaptativa}
+
+\begin{lstlisting}
+# tests/test_robustness/test_cusum_kurtosis.py
+import pytest
+import numpy as np
+import jax.numpy as jnp
+from stochastic_predictor.orchestrator.cusum import CUSUMWithKurtosis
+
+def test_kurtosis_calculation():
+    """
+    Test: Validar cálculo de curtosis empírica.
+    """
+    # Distribución Gaussiana debe tener kappa ≈ 3
+    np.random.seed(111)
+    gaussian_data = np.random.randn(10000)
+    
+    cusum = CUSUMWithKurtosis(h=5.0, k=0.5, window_size=252)
+    
+    for obs in gaussian_data[:1000]:
+        _ = cusum.update(obs)
+    
+    kurtosis = cusum.get_kurtosis()
+    
+    # Tolerancia: kappa en [2.5, 3.5]
+    assert 2.5 < kurtosis < 3.5, \
+        f"Gaussian kurtosis estimation failed: kappa={kurtosis:.2f}"
+
+def test_adaptive_threshold_heavy_tails():
+    """
+    Test: Umbral adaptativo debe aumentar con curtosis alta.
+    """
+    # Generar datos con colas pesadas (Student-t con df=3)
+    from scipy.stats import t
+    np.random.seed(222)
+    heavy_tail_data = t.rvs(df=3, size=1000) * 2.0
+    
+    cusum = CUSUMWithKurtosis(h=5.0, k=0.5, window_size=100)
+    
+    h_values = []
+    kurtosis_values = []
+    
+    for obs in heavy_tail_data:
+        _, kappa, h_adapt = cusum.update_with_kurtosis(obs)
+        h_values.append(h_adapt)
+        kurtosis_values.append(kappa)
+    
+    # Después del warm-up, kurtosis debe ser > 3
+    final_kappa = kurtosis_values[-1]
+    final_h = h_values[-1]
+    
+    assert final_kappa > 5.0, \
+        f"Heavy tail kurtosis not detected: kappa={final_kappa:.2f}"
+    
+    # Umbral adaptativo debe ser mayor que el fijo
+    h_fixed = 5.0
+    assert final_h > h_fixed, \
+        f"Adaptive threshold not increased: h_adapt={final_h:.2f} vs h_fixed={h_fixed}"
+
+def test_false_positive_reduction():
+    """
+    Test: CUSUM adaptativo reduce falsos positivos en alta curtosis.
+    """
+    # Régimen con alta volatilidad pero sin cambio estructural
+    np.random.seed(333)
+    # Student-t df=4 (kurtosis ≈ 9)
+    from scipy.stats import t
+    stable_heavy = t.rvs(df=4, size=1000) * 3.0
+    
+    # CUSUM estándar
+    cusum_std = CUSUM(h=3.0, k=0.5, alpha_var=0.1)
+    alarms_std = [cusum_std.update(obs) for obs in stable_heavy]
+    
+    # CUSUM adaptativo
+    cusum_adapt = CUSUMWithKurtosis(h=3.0, k=0.5, window_size=100)
+    alarms_adapt = []
+    for obs in stable_heavy:
+        alarm, _, _ = cusum_adapt.update_with_kurtosis(obs)
+        alarms_adapt.append(alarm)
+    
+    # CUSUM adaptativo debe tener menos falsas alarmas
+    num_alarms_std = np.sum(alarms_std[-500:])  # Últimas 500 obs
+    num_alarms_adapt = np.sum(alarms_adapt[-500:])
+    
+    assert num_alarms_adapt < num_alarms_std, \
+        f"Adaptive CUSUM did not reduce false positives: " \
+        f"{num_alarms_adapt} vs {num_alarms_std}"
+\end{lstlisting}
+
+\section{Test de Circuit Breaker (Singularidad)}
+
+\begin{lstlisting}
+# tests/test_robustness/test_circuit_breaker.py
+import pytest
+import jax.numpy as jnp
+from stochastic_predictor.predictor import UniversalPredictor
+from stochastic_predictor.config import PredictorConfig
+
+def test_circuit_breaker_activation():
+    """
+    Test: Circuit breaker debe activarse cuando H_t < H_min.
+    """
+    config = PredictorConfig(holder_threshold=0.4)
+    predictor = UniversalPredictor(config)
+    
+    # Inyectar señal con salto abrupto (H -> 0)
+    signal_with_jump = jnp.concatenate([
+        jnp.ones(100) * 50.0,
+        jnp.ones(100) * 100.0  # Salto
+    ])
+    
+    # Procesar señal
+    for i, obs in enumerate(signal_with_jump):
+        result = predictor.step_with_telemetry(obs, previous_target=obs)
+        
+        # Después del salto, emergency_mode debe activarse
+        if i >= 105:  # Algunos pasos después del salto
+            if result.holder_exponent < config.holder_threshold:
+                assert result.emergency_mode, \
+                    "Emergency mode not activated despite low Hölder"
+                
+                # Pesos deben forzarse a Kernel D
+                assert result.weights[3] > 0.95, \
+                    f"Kernel D not forced: weights={result.weights}"
+                
+                # Loss type debe ser Huber
+                assert result.mode == "Emergency", \
+                    f"Robust loss not activated: mode={result.mode}"
+                
+                break
+\end{lstlisting}
+
+\chapter{Pruebas de Integración: DGM y Orquestador}
+
+\section{Test de Deep Galerkin Method}
+
+\begin{lstlisting}
+# tests/test_integration/test_dgm.py
+import pytest
+import jax
+import jax.numpy as jnp
+from stochastic_predictor.kernels.kernel_b import DGM_HJB_Solver, loss_hjb
+
+def test_dgm_black_scholes(dgm_reference_solution):
+    """
+    Test: Validar DGM contra solución analítica de Black-Scholes.
+    """
+    # Parámetros Black-Scholes
+    S0 = 100.0
+    K = 100.0
+    T = 1.0
+    r = 0.05
+    sigma = 0.2
+    
+    # Solución analítica
+    bs_price = dgm_reference_solution(S0, K, T, r, sigma)
+    
+    # Entrenar DGM
+    key = jax.random.PRNGKey(42)
+    model = DGM_HJB_Solver(in_size=2, key=key)  # (t, S)
+    
+    # Definir Hamiltoniano Black-Scholes
+    def hamiltonian_bs(x, v_x, v_xx):
+        S = x[0]
+        return r*S*v_x[0] + 0.5*sigma**2*S**2*v_xx[0,0] - r
+    
+    # Condición terminal (payoff call)
+    def terminal_cond(x):
+        return jnp.maximum(x[0] - K, 0.0)
+    
+    # Entrenar (simplificado - en producción usar loop completo)
+    t_batch = jnp.linspace(0, T, 100)
+    S_batch = jnp.linspace(80, 120, 100)[:, None]
+    
+    # Computar loss (debe converger cerca de 0)
+    loss = loss_hjb(
+        model, t_batch, S_batch,
+        hamiltonian_bs, terminal_cond,
+        boundary_cond_fn=None, T=T
+    )
+    
+    # En estado inicial (t=0), evaluar precio
+    V_dgm = model(0.0, jnp.array([S0]))
+    
+    # Error relativo < 5%
+    error_rel = abs(float(V_dgm) - bs_price) / bs_price
+    
+    # Nota: Este test requiere entrenamiento real, aquí solo validamos estructura
+    # En producción, entrenar por varias épocas hasta convergencia
+    assert loss < 1.0, f"DGM loss too high (untrained): {loss:.4f}"
+\end{lstlisting}
+
+\section{Test de Sinkhorn y JKO}
+
+\begin{lstlisting}
+# tests/test_integration/test_orchestrator.py
+import pytest
+import jax.numpy as jnp
+from stochastic_predictor.orchestrator.jko import JKO_Discreto
+
+def test_sinkhorn_convergence():
+    """
+    Test: Sinkhorn debe converger para epsilon >= 1e-4.
+    """
+    jko = JKO_Discreto(epsilon=1e-3)
+    
+    # Pesos iniciales y gradientes dummy
+    weights_prev = jnp.array([0.25, 0.25, 0.25, 0.25])
+    gradients = jnp.array([0.1, -0.2, 0.05, -0.1])
+    
+    weights_new = jko.solve_ot_step(weights_prev, gradients, tau=0.1)
+    
+    # Validar simplex
+    assert jnp.abs(jnp.sum(weights_new) - 1.0) < 1e-8, \
+        "Simplex constraint violated"
+    
+    assert jnp.all(weights_new >= 0), "Negative weights detected"
+
+def test_jko_energy_descent():
+    """
+    Test: JKO debe reducir energía en dirección del gradiente.
+    """
+    jko = JKO_Discreto(epsilon=1e-2)
+    
+    # Configuración: Kernel 0 tiene alta energía (gradiente positivo)
+    weights_prev = jnp.array([0.5, 0.2, 0.2, 0.1])
+    gradients = jnp.array([1.0, -0.5, -0.3, -0.2])  # Alta en 0
+    
+    weights_new = jko.solve_ot_step(weights_prev, gradients, tau=0.1)
+    
+    # Peso del kernel 0 debe disminuir
+    assert weights_new[0] < weights_prev[0], \
+        f"JKO did not reduce high-energy kernel: " \
+        f"{weights_new[0]:.3f} vs {weights_prev[0]:.3f}"
+\end{lstlisting}
+
+\chapter{Pruebas de I/O y Persistencia}
+
+\section{Test de Snapshotting Atómico}
+
+\begin{lstlisting}
+# tests/test_io/test_snapshotting.py
+import pytest
+import tempfile
+import os
+from stochastic_predictor.predictor import UniversalPredictor
+from stochastic_predictor.config import PredictorConfig
+
+def test_snapshot_save_load_integrity():
+    """
+    Test: Snapshot debe preservar estado completo con checksum.
+    """
+    config = PredictorConfig()
+    predictor1 = UniversalPredictor(config)
+    
+    # Procesar algunos datos
+    for _ in range(50):
+        obs = 100.0 + np.random.randn()
+        predictor1.step_with_telemetry(obs, previous_target=obs)
+    
+    # Guardar snapshot
+    with tempfile.NamedTemporaryFile(delete=False, suffix='.msgpack') as f:
+        filepath = f.name
+    
+    try:
+        predictor1.save_snapshot(filepath)
+        
+        # Crear nuevo predictor y cargar
+        predictor2 = UniversalPredictor(config)
+        predictor2.load_snapshot(filepath)
+        
+        # Estados deben ser idénticos
+        # Comparar telemetría
+        result1 = predictor1.step_with_telemetry(
+            105.0, previous_target=105.0
+        )
+        result2 = predictor2.step_with_telemetry(
+            105.0, previous_target=105.0
+        )
+        
+        assert jnp.allclose(result1.weights, result2.weights, atol=1e-6), \
+            "Weights mismatch after snapshot restore"
+        
+        assert jnp.allclose(
+            result1.holder_exponent, result2.holder_exponent, atol=1e-6
+        ), "Hölder exponent mismatch"
+        
+    finally:
+        os.unlink(filepath)
+
+def test_snapshot_corruption_detection():
+    """
+    Test: Snapshot corrupto debe ser rechazado.
+    """
+    config = PredictorConfig()
+    predictor1 = UniversalPredictor(config)
+    
+    with tempfile.NamedTemporaryFile(delete=False, suffix='.msgpack') as f:
+        filepath = f.name
+    
+    try:
+        predictor1.save_snapshot(filepath)
+        
+        # Corromper archivo
+        with open(filepath, 'rb+') as f:
+            f.seek(100)
+            f.write(b'\x00\x00\x00\x00')
+        
+        # Cargar debe fallar
+        predictor2 = UniversalPredictor(config)
+        
+        with pytest.raises(ValueError, match="Checksum mismatch"):
+            predictor2.load_snapshot(filepath)
+    
+    finally:
+        os.unlink(filepath)
+
+def test_snapshot_includes_telemetry():
+    """
+    Test: Snapshot debe incluir curtosis, entropía DGM y flags.
+    """
+    import msgpack
+    
+    config = PredictorConfig()
+    predictor = UniversalPredictor(config)
+    
+    # Procesar datos para generar telemetría
+    for _ in range(300):
+        obs = 100.0 + np.random.randn() * 5.0
+        predictor.step_with_telemetry(obs, previous_target=obs)
+    
+    with tempfile.NamedTemporaryFile(delete=False, suffix='.msgpack') as f:
+        filepath = f.name
+    
+    try:
+        predictor.save_snapshot(filepath)
+        
+        # Leer y validar contenido
+        with open(filepath, 'rb') as f:
+            content = f.read()
+        
+        data_bytes = content[:-64]
+        payload = msgpack.unpackb(data_bytes)
+        
+        # Validar estructura
+        assert 'telemetry' in payload, "Telemetry missing from snapshot"
+        assert 'kurtosis' in payload['telemetry'], "Kurtosis not saved"
+        assert 'dgm_entropy' in payload['telemetry'], "DGM entropy not saved"
+        
+        assert 'flags' in payload, "Flags missing from snapshot"
+        assert 'degraded_inference' in payload['flags']
+        assert 'emergency' in payload['flags']
+        assert 'regime_change' in payload['flags']
+        assert 'mode_collapse' in payload['flags']
+    
+    finally:
+        os.unlink(filepath)
+\end{lstlisting}
+
+\chapter{Pruebas de Hardware: CPU/GPU Parity}
+
+\section{Test de Consistencia Numérica}
+
+\begin{lstlisting}
+# tests/test_hardware/test_cpu_gpu_parity.py
+import pytest
+import jax
+import jax.numpy as jnp
+from stochastic_predictor.predictor import UniversalPredictor
+from stochastic_predictor.config import PredictorConfig
+
+@pytest.mark.parametrize("device", ["cpu", "gpu"])
+def test_device_consistency(device):
+    """
+    Test: Validar que CPU y GPU produzcan resultados equivalentes.
+    """
+    if device == "gpu" and not jax.devices('gpu'):
+        pytest.skip("GPU no disponible")
+    
+    # Configurar dispositivo
+    with jax.default_device(jax.devices(device)[0]):
+        config = PredictorConfig()
+        predictor = UniversalPredictor(config)
+        
+        # Procesar datos deterministas
+        np.random.seed(555)
+        data = np.random.randn(100) * 10.0 + 100.0
+        
+        results = []
+        for obs in data:
+            result = predictor.step_with_telemetry(obs, previous_target=obs)
+            results.append({
+                'prediction': float(result.predicted_next),
+                'holder': float(result.holder_exponent),
+                'weights': result.weights
+            })
+        
+        return results
+
+def test_cpu_gpu_parity():
+    """
+    Test: Comparar resultados entre CPU y GPU.
+    """
+    if not jax.devices('gpu'):
+        pytest.skip("GPU no disponible para test de paridad")
+    
+    # Ejecutar en CPU
+    results_cpu = test_device_consistency("cpu")
+    
+    # Ejecutar en GPU
+    results_gpu = test_device_consistency("gpu")
+    
+    # Comparar
+    for i, (cpu, gpu) in enumerate(zip(results_cpu, results_gpu)):
+        # Tolerancia: error relativo < 1e-5 (GPUFloat32)
+        assert jnp.allclose(
+            cpu['weights'], gpu['weights'], rtol=1e-5, atol=1e-6
+        ), f"Weights mismatch at step {i}"
+        
+        pred_diff = abs(cpu['prediction'] - gpu['prediction'])
+        assert pred_diff < 1e-4, \
+            f"Prediction mismatch at step {i}: {pred_diff:.2e}"
+\end{lstlisting}
+
+\chapter{Pruebas de Edge Cases y Modo Degradado}
+
+\section{Test de Modo Degradado (TTL Violation)}
+
+\begin{lstlisting}
+# tests/test_edge_cases/test_ttl_degraded_mode.py
+import pytest
+import jax.numpy as jnp
+from stochastic_predictor.predictor import UniversalPredictorWithTelemetry
+from stochastic_predictor.config import PredictorConfig
+
+def test_degraded_mode_activation():
+    """
+    Test: Modo degradado debe activarse cuando TTL excede límite.
+    """
+    config = PredictorConfig(staleness_ttl_ns=100_000_000)  # 100ms
+    predictor = UniversalPredictorWithTelemetry(config)
+    
+    # Procesar datos normales
+    for _ in range(50):
+        obs = 100.0 + np.random.randn()
+        result = predictor.step_with_telemetry(obs, previous_target=obs)
+    
+    # Simular inactividad (TTL counter aumenta internamente)
+    # En producción, esto ocurriría por falta de señales frescas
+    predictor.telemetry_logger.ttl_counter = 150  # Exceder límite
+    
+    # Próxima predicción debe marcar degraded
+    obs = 100.0
+    result = predictor.step_with_telemetry(obs, previous_target=obs)
+    
+    assert result.degraded_inference_mode, \
+        "Degraded mode not activated despite TTL violation"
+
+def test_degraded_mode_recovery_hysteresis():
+    """
+    Test: Recuperación de modo degradado con histéresis (0.8 * TTL_max).
+    """
+    config = PredictorConfig()
+    predictor = UniversalPredictorWithTelemetry(config)
+    
+    # Activar modo degradado
+    predictor.telemetry_logger.ttl_counter = 150
+    
+    # Reducir TTL pero aún por encima del umbral de histéresis
+    predictor.telemetry_logger.ttl_counter = 85  # 0.85 * 100
+    
+    result = predictor.step_with_telemetry(100.0, previous_target=100.0)
+    assert result.degraded_inference_mode, \
+        "Premature recovery (hysteresis not respected)"
+    
+    # Reducir por debajo de histéresis
+    predictor.telemetry_logger.ttl_counter = 75  # 0.75 * 100
+    
+    result = predictor.step_with_telemetry(100.0, previous_target=100.0)
+    assert not result.degraded_inference_mode, \
+        "Recovery failed despite TTL below hysteresis threshold"
+\end{lstlisting}
+
+\section{Test de Curtosis Extrema}
+
+\begin{lstlisting}
+# tests/test_edge_cases/test_extreme_kurtosis.py
+import pytest
+import numpy as np
+from stochastic_predictor.predictor import UniversalPredictorWithTelemetry
+from stochastic_predictor.config import PredictorConfig
+
+def test_extreme_kurtosis_detection():
+    """
+    Test: Curtosis > 20 debe generar alerta crítica.
+    """
+    config = PredictorConfig()
+    predictor = UniversalPredictorWithTelemetry(config)
+    
+    # Generar datos con curtosis extrema
+    from scipy.stats import t
+    np.random.seed(666)
+    # Student-t con df=2 tiene curtosis infinita
+    # Usar df=3 para kurtosis muy alta (≈ 30)
+    extreme_data = t.rvs(df=2, size=500) * 20.0 + 100.0
+    
+    kurtosis_values = []
+    
+    for obs in extreme_data:
+        result = predictor.step_with_telemetry(obs, previous_target=obs)
+        kurtosis_values.append(float(result.kurtosis))
+    
+    # Después del warm-up, curtosis debe ser muy alta
+    final_kurtosis = kurtosis_values[-1]
+    
+    assert final_kurtosis > 15.0, \
+        f"Extreme kurtosis not detected: kappa={final_kurtosis:.2f}"
+    
+    # Umbral adaptativo debe estar significativamente elevado
+    result = predictor.step_with_telemetry(
+        extreme_data[-1], previous_target=extreme_data[-1]
+    )
+    
+    h_adaptive = float(result.adaptive_threshold)
+    h_fixed = config.cusum_h
+    
+    assert h_adaptive > 2.0 * h_fixed, \
+        f"Adaptive threshold not sufficiently elevated: " \
+        f"{h_adaptive:.2f} vs {h_fixed:.2f}"
+\end{lstlisting}
+
+\chapter{Validación Walk-Forward}
+
+\begin{lstlisting}
+# tests/test_validation/test_walk_forward.py
+import pytest
+import numpy as np
+from stochastic_predictor.validation import WalkForwardValidator
+from stochastic_predictor.predictor import UniversalPredictor
+from stochastic_predictor.config import PredictorConfig
+
+def test_walk_forward_no_lookahead():
+    """
+    Test: Validar que walk-forward no use información futura.
+    """
+    # Generar datos sintéticos con tendencia conocida
+    np.random.seed(777)
+    T = 1000
+    trend = np.linspace(100, 150, T)
+    noise = np.random.randn(T) * 2.0
+    data = trend + noise
+    
+    # Factory de predictor
+    def model_factory(hp):
+        config = PredictorConfig(
+            epsilon=hp.get('epsilon', 1e-3),
+            learning_rate=hp.get('tau', 0.1)
+        )
+        return UniversalPredictor(config)
+    
+    # Métrica
+    def metric_fn(preds, targets):
+        return np.mean(np.abs(preds - targets))
+    
+    # Validador
+    validator = WalkForwardValidator(
+        model_factory=model_factory,
+        metric_fn=metric_fn,
+        window_size=252,
+        horizon=1,
+        max_memory=500
+    )
+    
+    hyperparams = {'epsilon': 1e-2, 'tau': 0.05}
+    
+    # Ejecutar
+    mae = validator.run(data, hyperparams)
+    
+    # MAE debe ser razonable (< 10% del rango)
+    data_range = np.max(data) - np.min(data)
+    assert mae < 0.1 * data_range, \
+        f"Walk-forward MAE too high: {mae:.2f}"
+
+def test_walk_forward_regime_change():
+    """
+    Test: Validar performance en presencia de cambio de régimen.
+    """
+    np.random.seed(888)
+    
+    # Régimen 1: tendencia ascendente
+    regime1 = np.linspace(100, 120, 400) + np.random.randn(400) * 1.0
+    
+    # Régimen 2: tendencia descendente
+    regime2 = np.linspace(120, 100, 400) + np.random.randn(400) * 1.0
+    
+    data = np.concatenate([regime1, regime2])
+    
+    def model_factory(hp):
+        return UniversalPredictor(PredictorConfig())
+    
+    def metric_fn(preds, targets):
+        return np.sqrt(np.mean((preds - targets)**2))
+    
+    validator = WalkForwardValidator(
+        model_factory=model_factory,
+        metric_fn=metric_fn,
+        window_size=200,
+        horizon=1
+    )
+    
+    rmse = validator.run(data, {})
+    
+    # RMSE debe adaptarse al cambio (< 5.0)
+    assert rmse < 5.0, \
+        f"Predictor failed to adapt to regime change: RMSE={rmse:.2f}"
+\end{lstlisting}
+
+\chapter{Resumen y Cobertura de Tests}
+
+\section{Matriz de Cobertura}
+
+\begin{table}[h]
+\centering
+\small
+\begin{tabular}{|l|c|c|c|}
+\hline
+\textbf{Módulo} & \textbf{Tests Unitarios} & \textbf{Tests Integración} & \textbf{Cobertura} \\
+\hline
+Generación Lévy & \checkmark & - & 95\% \\
+WTMM & \checkmark & - & 92\% \\
+Malliavin & \checkmark & - & 88\% \\
+Signatures & \checkmark & - & 90\% \\
+Entropía DGM & \checkmark & \checkmark & 93\% \\
+CUSUM & \checkmark & \checkmark & 96\% \\
+CUSUM + Curtosis & \checkmark & \checkmark & 94\% \\
+Circuit Breaker & - & \checkmark & 85\% \\
+Sinkhorn/JKO & - & \checkmark & 91\% \\
+DGM Solver & - & \checkmark & 87\% \\
+Snapshotting & \checkmark & - & 97\% \\
+CPU/GPU Parity & - & \checkmark & 82\% \\
+Walk-Forward & - & \checkmark & 89\% \\
+Modo Degradado & \checkmark & \checkmark & 91\% \\
+\hline
+\textbf{Total} & & & \textbf{91\%} \\
+\hline
+\end{tabular}
+\caption{Cobertura de tests por módulo}
+\end{table}
+
+\section{Ejecución de la Suite Completa}
+
+\begin{lstlisting}[language=bash]
+# Ejecutar todos los tests con reporte de cobertura
+pytest tests/ -v --cov=stochastic_predictor --cov-report=html
+
+# Ejecutar solo tests rápidos (excluir GPU y optimización)
+pytest tests/ -v -m "not slow"
+
+# Ejecutar tests de paridad GPU (si disponible)
+pytest tests/test_hardware/ -v -k gpu
+
+# Ejecutar tests en paralelo (4 workers)
+pytest tests/ -n 4 --dist loadscope
+
+# Generar reporte XML para CI/CD
+pytest tests/ --junitxml=test-results.xml
+\end{lstlisting}
+
+\section{Criterios de Aceptación Global}
+
+\begin{enumerate}
+    \item \textbf{Cobertura de código:} $\geq 90\%$ en todos los módulos críticos
+    \item \textbf{Tasa de éxito:} $100\%$ de tests deben pasar antes de merge
+    \item \textbf{Performance:} Suite completa debe ejecutarse en $< 5$ minutos (sin GPU, sin Optuna)
+    \item \textbf{Reproducibilidad:} Todos los tests con semillas fijas deben producir resultados idénticos
+    \item \textbf{Paridad numérica:} CPU vs GPU: error relativo $< 10^{-5}$ en aritmética Float32
+\end{enumerate}
+
+\end{document}

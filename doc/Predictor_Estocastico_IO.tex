@@ -116,8 +116,34 @@ Variables latentes que describen la "salud" y el régimen del mercado.
     \item \textbf{Estado de Riesgo ($\mathbb{S}_{risk}$):}
     \begin{itemize}
         \item \textbf{Exponente de Hölder local ($H_t$):} Medida de regularidad puntual. $H_t < 0.5$ indica antipersistencia/ruido; $H_t < H_{min}$ indica crash/shock inminente.
+        
+        \item \textbf{Curtosis Empírica ($\kappa_t$):} Cuarto momento estandarizado de los residuos de predicción sobre ventana móvil:
+        \[
+        \kappa_t = \frac{E[(e_t - \mu_e)^4]}{(\sigma_e)^4}
+        \]
+        donde $e_t = y_{target} - \hat{y}_{t|t-1}$ son los residuos de predicción.
+        \begin{itemize}
+            \item \textbf{Propósito:} Validar la idoneidad del umbral CUSUM adaptativo. Valores $\kappa_t > 3$ indican distribución leptocúrtica (colas pesadas), lo cual activa el ajuste logarítmico del umbral $h_t = k \cdot \sigma \cdot (1 + \ln(\kappa_t/3))$.
+            \item \textbf{Interpretación:} $\kappa_t \approx 3$ (Gaussiano), $\kappa_t \in [5, 10]$ (régimen de volatilidad financiera estándar), $\kappa_t > 15$ (régimen de crisis con eventos extremos frecuentes).
+            \item \textbf{Alerta:} Si $\kappa_t > 20$ de forma persistente, emitir advertencia de posible falla en el modelo de residuos o presencia de outliers sistemáticos no detectados.
+        \end{itemize}
+        
+        \item \textbf{Entropía del Predictor DGM ($H_{DGM}$):} Entropía diferencial de la distribución de valores de la función valor neuronal $V_\theta(t,x)$ sobre el dominio espacial:
+        \[
+        H_{DGM} = -\int p_V(v) \log p_V(v) \, dv
+        \]
+        donde $p_V(v)$ es la densidad empírica de valores de $V_\theta$ evaluados en una malla de puntos del dominio.
+        \begin{itemize}
+            \item \textbf{Propósito:} Monitorizar la salud de la Rama B (solución HJB mediante Deep Galerkin Method) y detectar colapso de modo donde la red neuronal predice una solución constante o degenerada.
+            \item \textbf{Umbral de Colapso:} Se debe comparar contra la entropía de la condición terminal: $H_{DGM} \geq \gamma \cdot H[g]$ con $\gamma \in [0.5, 1.0]$. Si la desigualdad se viola persistentemente (más de 10 pasos consecutivos), emitir \texttt{ModeDegradationAlert}.
+            \item \textbf{Acción Correctiva:} Reducir el peso de la Rama B en el orquestador ($\rho_B \to 0$) y priorizar ramas alternativas hasta que se re-entrene la red DGM o se reinicializen sus pesos.
+            \item \textbf{Nota:} Este indicador solo es relevante si la Rama B está activa ($\rho_B > 0.05$). Para sistemas que no utilizan DGM, este campo puede omitirse o reportarse como \texttt{NaN}.
+        \end{itemize}
+        
         \item \textbf{Estadístico CUSUM ($G^+$):} Nivel de desajuste estructural acumulado.
-        \item \textbf{Distancia al Colapso ($h - G^+$):} Margen de seguridad restante antes de un reinicio forzado del modelo.
+        
+        \item \textbf{Distancia al Colapso ($h_t - G^+$):} Margen de seguridad restante antes de un reinicio forzado del modelo. Nota: $h_t$ es ahora dinámico y depende de $\sigma_t$ y $\kappa_t$.
+        
         \item \textbf{Energía Libre Residual ($\mathcal{F}$):} Valor instantáneo del funcional de JKO. Monitoriza si el modelo está "atrapado" en un mínimo local estable o si la regularización entrópica $\epsilon$ es demasiado alta, diluyendo excesivamente la capacidad predictiva del transporte de masa.
     \end{itemize}
     
@@ -133,10 +159,40 @@ Variables latentes que describen la "salud" y el régimen del mercado.
         \item \textit{True:} Distancia Wasserstein exacta. \textit{False:} Aproximación sub-óptima (alerta de precisión numérica).
     \end{itemize}
     
-    \item \textbf{Modo de Operación:}
+    \item \textbf{Flags de Operación (Modo y Circuit Breakers):}
     \begin{itemize}
-        \item \textit{Standard (MSE):} Operación normal bajo supuestos Gaussianos locales.
-        \item \textit{Robust (Huber):} Operación defensiva activada por singularidades ($H_t < H_{min}$) o alta volatilidad.
+        \item \textbf{Modo de Operación Base:}
+        \begin{itemize}
+            \item \textit{Standard (MSE):} Operación normal bajo supuestos Gaussianos locales.
+            \item \textit{Robust (Huber):} Operación defensiva activada por singularidades ($H_t < H_{min}$) o alta volatilidad.
+        \end{itemize}
+        
+        \item \textbf{Modo de Inferencia Degradada (Degraded Inference Mode):} Flag booleano crítico para monitoreo de calidad temporal:
+        \begin{itemize}
+            \item \textbf{Condición de Activación:} Se activa cuando el Time-To-Live (TTL) de la señal $y_{target}$ excede el umbral máximo permitido:
+            \[
+            \text{TTL}(y_{target}) = t_{current} - t_{signal} > \Delta_{max}
+            \]
+            \item \textbf{Implicaciones Operacionales:}
+            \begin{enumerate}
+                \item La actualización del transporte JKO se suspende inmediatamente
+                \item Los pesos $\rho$ se congelan en su último valor válido (modo inercial)
+                \item Las predicciones $\hat{y}_{t+1}$ continúan generándose, pero son sub-óptimas pues no reflejan el estado real del mercado
+                \item El riesgo ya NO está siendo optimizado geométricamente
+            \end{enumerate}
+            \item \textbf{Señalización al Ejecutor:} Este flag debe alertar explícitamente que:
+            \begin{itemize}
+                \item Las predicciones actuales tienen \textit{confianza degradada}
+                \item Los pesos son obsoletos (stale weights)
+                \item Se recomienda reducir exposición o operar en modo conservador
+                \item El sistema opera en "modo supervivencia" hasta que se restablezca el flujo de datos frescos
+            \end{itemize}
+            \item \textbf{Recuperación:} El flag se desactiva automáticamente cuando se recibe una señal fresca con $\text{TTL}(y_{target}) < 0.8 \cdot \Delta_{max}$ (umbral con histéresis para evitar oscilaciones). En ese momento se reanuda el transporte JKO y se emite \texttt{NormalOperationRestoredEvent}.
+        \end{itemize}
+        
+        \item \textbf{Emergency Mode (Singularity Fallback):} Flag que indica si se activó el modo de emergencia por singularidad crítica ($H_t < H_{min}$), forzando $w_D \to 1.0$ y cambiando a métrica de Huber.
+        
+        \item \textbf{Regime Change Detected:} Flag que indica si CUSUM detectó un cambio de régimen en el último paso, con reinicio de entropía a distribución uniforme.
     \end{itemize}
 \end{itemize}
 
@@ -172,15 +228,22 @@ Variables latentes que describen la "salud" y el régimen del mercado.
 Para garantizar la continuidad operativa, el sistema debe ser capaz de serializar su estado interno completo $\Sigma_t$ en cualquier instante $t$.
 
 \[
-\Sigma_t = \{ \rho_t, G^+_t, \sigma^2_{ema}, \text{Búfer}_{WTMM}, \text{KernelsState} \}
+\Sigma_t = \{ \rho_t, G^+_t, \sigma^2_{ema}, \kappa_t, H_{DGM}, \text{Flags}, \text{Búfer}_{WTMM}, \text{KernelsState} \}
 \]
+
+donde:
+\begin{itemize}
+    \item $\kappa_t$: Curtosis empírica móvil de los errores de predicción (window size = 252).
+    \item $H_{DGM}$: Entropía diferencial del predictor DGM (para detección de mode collapse).
+    \item \texttt{Flags}: Estructura de flags booleanos que incluye \texttt{DegradedInferenceMode}, \texttt{EmergencyMode}, y \texttt{RegimeChangeDetected}.
+\end{itemize}
 
 La estructura \texttt{KernelsState} se debe segmentar en sub-bloques independientes (K-Blocks) para permitir actualizaciones modulares o parciales:
 \[
 \text{KernelsState} = \{ S_A (\text{Lévy}), S_B (\text{PDE}), S_C (\text{Memoria}), S_D (\text{Topología}) \}
 \]
 
-La operación de restauración $Load(\Sigma_t)$ debe permitir reanudar el flujo en $t+1$ sin necesidad de re-calibración sobre la historia $\mathcal{H}$.
+La operación de restauración $Load(\Sigma_t)$ debe permitir reanudar el flujo en $t+1$ sin necesidad de re-calibración sobre la historia $\mathcal{H}$. La correcta restauración de $\kappa_t$ y $H_{DGM}$ es crítica para preservar la capacidad de detección de anomalías y mode collapse tras un reinicio.
 
 \subsection{Protocolo de Snapshotting Atómico y Verificado}
 Se exige el uso de formatos de serialización binaria (ej. Protocol Buffers, MessagePack) en lugar de texto (JSON/XML) para el almacenamiento de $\Sigma_t$. Esto minimiza la latencia de I/O en operaciones de "Hot-Start" críticas.
