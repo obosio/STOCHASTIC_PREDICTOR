@@ -36,7 +36,6 @@
 
 ### Testing
 
-
 - Todos los PRs deben incluir tests unitarios
 - Usa `pytest` para los tests
 - Asegúrate de que todos los tests pasen antes de hacer el PR

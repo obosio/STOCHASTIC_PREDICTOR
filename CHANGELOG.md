@@ -20,10 +20,19 @@ y este proyecto adhiere a [Semantic Versioning](https://semver.org/lang/es/).
   - 6 fases de desarrollo con cronograma de 26-38 semanas
   - Especificación completa de módulos y componentes
   - Milestones, métricas de éxito y análisis de riesgos
+- Entorno virtual de Python 3.13.12 configurado
+- Documentación de configuración del entorno (ENVIRONMENT_SETUP.md)
+- Script de verificación del entorno (verify_environment.py)
+- Todas las dependencias principales instaladas:
+  - JAX 0.4.38 + JAXlib para computación acelerada
+  - Equinox 0.13.4, Diffrax 0.7.2 para EDEs
+  - OTT-JAX para transporte óptimo
+  - Signax para cálculo de signatures
+  - Herramientas de desarrollo (pytest, black, flake8, mypy)
 
 ## [0.1.0] - 2026-02-18
 
-### Agregado
+### Inicialización del Proyecto
 
 - README completo con descripción del proyecto
 - Documentación técnica en LaTeX (5 documentos)

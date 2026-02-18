@@ -14,7 +14,7 @@ Este documento detalla el plan completo de implementación del sistema de Predic
 ## 📅 Cronograma General
 
 | Fase | Duración Estimada | Entregables Principales |
-|------|-------------------|------------------------|
+| ------ | ------------------- | ------------------------ |
 | Fase 0: Preparación | 1-2 semanas | Estructura base, tests unitarios mock |
 | Fase 1: Motor SIA | 4-6 semanas | WTMM, análisis estacionariedad, vector de estado |
 | Fase 2: Núcleos Básicos | 6-8 semanas | Kernels A y B funcionales |
@@ -48,7 +48,7 @@ Este documento detalla el plan completo de implementación del sistema de Predic
 
 #### 0.2 Estructura de Módulos
 
-```
+```text
 stochastic_predictor/
 ├── __init__.py
 ├── config.py              # Configuración global y constantes
@@ -97,7 +97,7 @@ stochastic_predictor/
 
 ## 🔬 Fase 1: Motor de Identificación de Sistemas (SIA)
 
-### Objetivos
+### Objetivos de la Fase
 
 Implementar el sistema de caracterización topológica del proceso que determina qué núcleos activar.
 
