@@ -9,8 +9,8 @@ DOC_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 cd "$DOC_DIR"
 
 # Limpiar y recrear directorios temporales
-rm -rf .build pdf
-mkdir -p .build pdf
+rm -rf "$DOC_DIR/.build" "$DOC_DIR/pdf"
+mkdir -p "$DOC_DIR/.build" "$DOC_DIR/pdf"
 
 # Función para compilar un archivo
 compile_doc() {
@@ -19,9 +19,9 @@ compile_doc() {
     
     echo "📄 Compilando $base_name.tex..."
     
-    latexmk -pdf \
-            -auxdir=.build \
-            -outdir=pdf \
+    latexmk -lualatex \
+            -auxdir="$DOC_DIR/.build" \
+            -outdir="$DOC_DIR/pdf" \
             -interaction=nonstopmode \
             -file-line-error \
             "$tex_file"
@@ -32,8 +32,9 @@ compile_doc() {
 # Función para limpiar
 clean_all() {
     echo "🧹 Limpiando artefactos de compilación..."
-    latexmk -C -auxdir=.build -outdir=pdf
-    rm -rf .build pdf
+    latexmk -C -auxdir="$DOC_DIR/.build" -outdir="$DOC_DIR/pdf"
+    rm -rf "$DOC_DIR/.build" "$DOC_DIR/pdf"
+    mkdir -p "$DOC_DIR/.build" "$DOC_DIR/pdf"
     echo "✅ Limpieza completa"
 }
 
