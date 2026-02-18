@@ -327,6 +327,75 @@ w^{(k+1)} = \text{Prox}_{\tau \mathcal{F}}^{W_2}(w^{(k)})
 \]
 Esto se resuelve anidando un bucle de Sinkhorn dentro de un optimizador L-BFGS o mediante descenso de gradiente proyectado si la regularización entrópica es suficiente para suavizar el paisaje de energía.
 
+\section{Regulación Dinámica de Sinkhorn: Acoplamiento a la Volatilidad Local}
+
+\textbf{Motivación:} El recocido entrópico estático (duplicar $\epsilon$ si falla) es robusto pero discreto. En mercados altamente turbulentos, la topología de Wasserstein se vuelve rugosa de forma gradual. La solución es acoplar dinámicamente el parámetro de regularización entrópica $\varepsilon_t$ a la volatilidad local del proceso:
+
+\[
+\varepsilon_t = \max\left(\varepsilon_{\min}, \varepsilon_0 \cdot (1 + \alpha \cdot \sigma_t)\right)
+\]
+
+donde:
+\begin{itemize}
+    \item $\varepsilon_0$: Regularización base nominal (típicamente $10^{-2}$ ó $10^{-1}$)
+    \item $\varepsilon_{\min}$: Cota inferior para precision numérica (ej. $10^{-6}$)
+    \item $\sigma_t$: Volatilidad local realizada del error de predicción contemporáneo
+    \item $\alpha > 0$: Parámetro de sensibilidad (acoplamiento volatilidad-comprensión entrópica)
+\end{itemize}
+
+\textbf{Justificación Teórica:}
+
+Bajo el modelo de flujo Wasserstein,  la geometría de costo $C$ en el problema de Kantorovich es proporcional a la primera variación de la energía libre $\delta \mathcal{F}/\delta \rho$. En regímenes de alta turbulencia:
+\begin{enumerate}
+    \item El hessiano de la energía $\nabla^2 \mathcal{F}$ tiene constantes de Lipschitz que escalan con $\|\sigma_t\|^2$ (curvatura amplificada).
+    \item La constante de contracción del operador de Sinkhorn $T_{\varepsilon}$ satisface $\rho_{\text{contraction}} \leq 1 - c \cdot \varepsilon$ (donde $c > 0$).
+    \item Si $\varepsilon$ es fijo y pequeño mientras $\|\sigma_t\|$ es grande, la convergencia se ralentiza exponencialmente.
+    \item Aumentando $\varepsilon$ proporcionalmente a $\sigma_t$, se re-dinamiza la convergencia sin perder precisión de transporte cuando la volatilidad normaliza.
+\end{enumerate}
+
+\textbf{Algoritmo de Implementación:}
+
+\begin{algorithm}
+\caption{Sinkhorn Adaptativo con Regularización Basada en Volatilidad}
+\begin{algorithmic}[1]
+\State \textbf{Input:} Costo $C$, marginales $a, b$, error contemporáneo $e_t$, volatilidad EMA $\sigma_t$
+\State Calcular volatilidad escalada: $\sigma_t \gets \sqrt{\text{EMA}(e_t^2, \lambda)}$
+\State Regularización dinámica: $\varepsilon_t \gets \max(\varepsilon_{\min}, \varepsilon_0 \cdot (1 + \alpha \sigma_t))$
+\State Inicializar duales $f, g \sim 0$
+\While{iteración $< \text{iter\_max}$ \textbf{and} no convergencia}
+    \State $f \gets \text{Smin}(C - g^\top, \varepsilon_t) + \log a$
+    \State $g \gets \text{Smin}(C - f, \varepsilon_t) + \log b$
+\EndWhile
+\State Distancia Sinkhorn: $W_{\varepsilon_t} = \langle \exp(f/\varepsilon_t), K_{\varepsilon_t} \exp(g/\varepsilon_t) \rangle$
+\State \textbf{Return} $W_{\varepsilon_t}, f, g$ (duales para extracción del plan $P$)
+\end{algorithmic}
+\end{algorithm}
+
+\textbf{Ejemplo Numérico:}
+
+Suponga $\varepsilon_0 = 0.1, \alpha = 0.5, \varepsilon_{\min} = 10^{-6}$.
+\begin{itemize}
+    \item \textbf{Régimen Normal:} $\sigma_t = 0.02 \Rightarrow \varepsilon_t = \max(10^{-6}, 0.1 \times (1 + 0.5 \times 0.02)) = 0.101$
+    \item \textbf{Volatilidad Moderada:} $\sigma_t = 0.1 \Rightarrow \varepsilon_t = 0.1 \times (1 + 0.05) = 0.105$
+    \item \textbf{Estrés:} $\sigma_t = 0.5 \Rightarrow \varepsilon_t = 0.1 \times (1 + 0.25) = 0.125$
+    \item \textbf{Crisis:} $\sigma_t = 2.0 \Rightarrow \varepsilon_t = 0.1 \times (1 + 1.0) = 0.2$ (suavizado completo)
+\end{itemize}
+
+\textbf{Ventajas:}
+\begin{enumerate}
+    \item \textbf{Transición continua:} No hay saltos discretos. La convergencia de Sinkhorn se adapta de forma fluida al régimen actual.
+    \item \textbf{Reducción de fallos:} Evita el fallback uniforme (salvo casos extremos) manteniendo la precisión del transporte.
+    \item \textbf{Auto-calibración:} El parámetro $\alpha$ puede sintonizarse via validación rolling (Walk-Forward) del costo computacional vs. precisión.
+    \item \textbf{Compatibilidad con autograd:} La dinámica $\varepsilon_t(\sigma_t)$ es diferenciable, permitiendo optimización end-to-end del parámetro $\alpha$ si se desea.
+\end{enumerate}
+
+\textbf{Parámetros Sugeridos:}
+\begin{itemize}
+    \item $\varepsilon_0 \in [10^{-2}, 10^{-1}]$: Depende de la escala de los costos; típicamente se calibra empiricamente.
+    \item $\alpha \in [0.3, 1.0]$: Sensibilidad media. Valores altos ($\alpha > 1$) pueden sobre-suavizar; valores bajos ($\alpha < 0.1$) reducen adaptación.
+    \item Estimador de volatilidad: $\sigma_t = \sqrt{\text{EMA}(e_t^2, \lambda)}$ con $\lambda \in [0.05, 0.1]$ (memoria corta, reactivo a cambios recientes).
+\end{itemize}
+
 \chapter{Arquitectura de Software y Paralelismo}
 
 \section{Patrones de Construcción Orientados a Objetos}
