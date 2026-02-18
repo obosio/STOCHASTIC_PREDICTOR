@@ -84,6 +84,8 @@ Actualmente el proyecto está en fase de especificación y documentación. La im
 - [ ] Suite de tests y benchmarks
 - [ ] Ejemplos de uso con datos sintéticos y reales
 
+**Plan detallado**: Consulta [IMPLEMENTATION_PLAN.md](IMPLEMENTATION_PLAN.md) para el roadmap completo (6 fases, 26-38 semanas estimadas).
+
 ## 📖 Conceptos Clave
 
 ### Análisis Multifractal
