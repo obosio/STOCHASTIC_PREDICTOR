@@ -8,6 +8,7 @@ y este proyecto adhiere a [Semantic Versioning](https://semver.org/lang/es/).
 ## [Unreleased]
 
 ### En Desarrollo
+
 - Motor de Identificación de Sistemas (SIA)
 - Núcleos de predicción (A, B, C, D)
 - Orquestador adaptativo
@@ -16,6 +17,7 @@ y este proyecto adhiere a [Semantic Versioning](https://semver.org/lang/es/).
 ## [0.1.0] - 2026-02-18
 
 ### Agregado
+
 - README completo con descripción del proyecto
 - Documentación técnica en LaTeX (5 documentos)
 - Estructura básica del paquete Python
@@ -27,6 +29,7 @@ y este proyecto adhiere a [Semantic Versioning](https://semver.org/lang/es/).
 - .gitignore configurado para Python y LaTeX
 
 ### Documentación
+
 - Fundamentos teóricos completos
 - Guía de implementación numérica
 - Especificación de API Python

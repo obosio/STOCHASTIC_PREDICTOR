@@ -48,7 +48,7 @@ $$\hat{X}_{t+h} = \underset{Z \in L^2(\mathcal{F}_t)}{\text{argmin}} \, \mathbb{
 
 ### Requisitos
 
-```
+```text
 python >= 3.10
 jax >= 0.4.0
 equinox >= 0.11.0
@@ -72,7 +72,7 @@ Los PDFs compilados están disponibles en el directorio `doc/`.
 
 ## 🚀 Estado del Proyecto
 
-**⚠️ En Desarrollo Activo**
+### ⚠️ En Desarrollo Activo
 
 Actualmente el proyecto está en fase de especificación y documentación. La implementación de código está planificada para incluir:
 
@@ -113,7 +113,7 @@ Mecanismo de protección que suspende operaciones cuando $H < H_{min}$, evitando
 
 ## 👥 Autores
 
-**Consorcio de Desarrollo de Meta-Predicción Adaptativa**
+Consorcio de Desarrollo de Meta-Predicción Adaptativa
 
 ## 📄 Licencia
 
@@ -133,4 +133,4 @@ Este proyecto integra metodologías de múltiples áreas de las matemáticas apl
 
 ---
 
-**⚡ Powered by JAX & Differential Geometry**
+⚡ Powered by JAX & Differential Geometry
