@@ -1,0 +1,335 @@
+\documentclass[11pt, a4paper]{report}
+
+% --- PREÁMBULO UNIVERSAL ---
+\usepackage[a4paper, top=2.5cm, bottom=2.5cm, left=2cm, right=2cm]{geometry}
+\usepackage{fontspec}
+\usepackage{amsmath}
+\usepackage{amssymb}
+\usepackage{amsfonts}
+\usepackage{mathtools}
+\usepackage{booktabs}
+\usepackage{enumitem}
+\usepackage{amsthm}
+
+\usepackage[spanish, provide=*]{babel}
+
+\babelprovide[import, onchar=ids fonts]{spanish}
+\babelprovide[import, onchar=ids fonts]{english}
+
+% Definición de fuente principal
+% \babelfont{rm}{Noto Sans}
+
+% Entornos tipo Teorema
+\newtheorem{theorem}{Teorema}[chapter]
+\newtheorem{definition}{Definición}[chapter]
+\newtheorem{lemma}{Lema}[chapter]
+\newtheorem{proposition}{Proposición}[chapter]
+\newtheorem{remark}{Nota}[chapter]
+\newtheorem{postulate}{Postulado}[chapter]
+\newtheorem{corollary}{Corolario}[chapter]
+
+% --- HYPERREF (Debe ser el último paquete) ---
+\usepackage[hidelinks]{hyperref}
+
+\title{\textbf{Tratado de Modelos Matemáticos de Predictores Estocásticos Universales (PEU) \\ \large Versión Extendida y Unificada}}
+\author{Consorcio de Desarrollo de Meta-Predicción Adaptativa}
+\date{\today}
+
+\begin{document}
+
+\maketitle
+
+\tableofcontents
+
+\chapter{Fundamentación Teórica y Arquitectura}
+
+Este tratado formaliza la construcción de un sistema de predicción estocástica capaz de operar sobre procesos dinámicos cuya ley de probabilidad subyacente es desconocida \textit{a priori}.
+
+\section{Espacios de Probabilidad y Filtraciones}
+Definimos un espacio de probabilidad completo $(\Omega, \mathcal{F}, P)$. La evolución de la información se modela mediante una filtración $\{\mathcal{F}_t\}_{t \geq 0}$ que satisface las \textit{condiciones habituales} (usual conditions) de Dellacherie-Meyer:
+\begin{enumerate}
+    \item \textbf{Completitud:} $\mathcal{F}_0$ contiene todos los conjuntos $P$-nulos de $\mathcal{F}$.
+    \item \textbf{Continuidad por la derecha:} $\mathcal{F}_t = \bigcap_{s > t} \mathcal{F}_s$ para todo $t \geq 0$.
+\end{enumerate}
+Esto garantiza que los tiempos de parada (como los definidos por el algoritmo CUSUM) sean medibles y el proceso admita modificaciones càdlàg.
+
+\section{El Meta-Estado del Sistema ($\Xi_t$)}
+Para unificar la dinámica de control y predicción, definimos el meta-estado en el tiempo $t$ como la terna funcional en un espacio de Banach:
+\[
+\Xi_t = \left( V_s(t), w_t, \mathcal{P}_h^\cup \right)
+\]
+Donde $V_s$ es el estado de identificación, $w_t$ la distribución de pesos en la variedad estadística, y $\mathcal{P}_h^\cup$ el operador de predicción activo.
+
+\section{Problema de Predicción Óptima}
+\begin{definition}[Problema de Predicción Óptima]
+Dado un proceso estocástico $X = \{X_t : t \in T\}$, buscamos el operador $\mathcal{P}_h$ tal que $\hat{X}_{t+h} = \mathcal{P}_h(X_s, s \leq t)$ minimice la norma en $L^2(\Omega, \mathcal{F}, P)$:
+\[
+\hat{X}_{t+h} = \underset{Z \in L^2(\mathcal{F}_t)}{\text{argmin}} \, E\left[ \| X_{t+h} - Z \|^2 \right] = E[X_{t+h} \mid \mathcal{F}_t]
+\]
+\end{definition}
+
+\section{Arquitectura del Sistema Universal}
+El sistema se estructura en tres fases operativas:
+\begin{enumerate}
+    \item \textbf{Motor de Identificación (SIA):} Operador funcional $\Psi(X) \to \mathcal{C}$. Para garantizar la continuidad de los operadores de control en procesos multifractales, definimos el espacio de llegada $\mathcal{C}$ como el espacio de Besov $B_{p,q}^s(\mathbb{R})$, que permite caracterizar singularidades locales a través de descomposiciones en wavelets.
+    \item \textbf{Núcleos de Predicción ($\mathcal{P}_i$):} Ramas A (Hilbert), B (Markov/Fokker-Planck), C (Itô/Lévy), D (Rough Paths/Signature).
+    \item \textbf{Orquestador Adaptativo ($\mathcal{O}$):} Dinámica de transporte óptimo en el espacio de medidas de probabilidad $\mathcal{P}_2(\Omega)$ dotado con la métrica de Wasserstein.
+\end{enumerate}
+
+\chapter{Fase 1: Motor de Identificación de Sistemas (SIA)}
+
+El SIA caracteriza la topología del proceso mediante un vector de estado funcional $V_s$.
+
+\section{Formalización del Vector de Estado Funcional}
+El vector $V_s(t)$ consolida las métricas estructurales del proceso:
+\[
+V_s(t) = \left[ d(t), \alpha(t), \sigma(\mathcal{K}), \mathcal{T}_{Y \to X}, [X]_t \right]^\top \in \mathcal{C}
+\]
+
+\section{Análisis de Estacionariedad y Ergodicidad}
+\subsection{Estacionariedad Fuerte}
+El operador $\Psi$ verifica la invariancia de la medida imagen bajo el grupo de traslaciones temporales $\{\theta_\tau\}_{\tau \in \mathbb{R}}$:
+\[
+P \circ \theta_\tau^{-1} = P \quad \forall \tau
+\]
+\subsection{Integración Fraccionaria y Diferenciación}
+Para procesos con memoria larga, definimos el operador inverso del núcleo de Riesz unilateral $I^\alpha$:
+\[
+Y_t = D^\alpha X_t = \frac{1}{\Gamma(-\alpha)} \int_{-\infty}^t (t-s)^{-\alpha-1} X_s ds
+\]
+Esto generaliza el operador $(1-L)^d$ al continuo.
+
+\section{Análisis de Regularidad Hölderiana}
+\subsection{Espectro de Singularidades Local}
+La regularidad local se caracteriza por el exponente puntual de Hölder $\alpha(t_0)$, definido como el supremo de los $\alpha$ tales que::
+\[
+\limsup_{\epsilon \to 0} \frac{|X(t_0 + \epsilon) - X(t_0)|}{|\epsilon|^\alpha} < \infty
+\]
+La función $\alpha(t)$ induce una estratificación del dominio temporal $\bigcup_h \{t : \alpha(t) = h\}$.
+
+\section{Descomposición de Semimartingalas}
+\subsection{Variación Cuadrática}
+Se define el proceso de variación cuadrática como el límite uniforme en probabilidad:
+\[
+[X]_t = P-\lim_{\|\Pi\| \to 0} \sum_{i} (X_{t_i} - X_{t_{i-1}})^2
+\]
+\subsection{Teorema de Bichteler-Dellacherie}
+Si $X_t$ es un integrador $L^0$ estocástico, admite la descomposición canónica:
+\[
+X_t = X_0 + M_t + A_t
+\]
+donde $M_t$ es una martingala local y $A_t$ es un proceso de variación finita predecible.
+
+\section{Operadores Espectrales y Flujo de Información}
+\subsection{Operador de Koopman ($\mathcal{K}$)}
+Definimos el operador de composición sobre el espacio de observables $L^\infty(\Omega)$:
+\[
+\mathcal{K}^t g(\omega) = g(\theta_t \omega)
+\]
+El espectro puntual $\sigma_p(\mathcal{K})$ caracteriza las invariantes ergódicas del sistema dinámico.
+\subsection{Engrosamiento de Filtraciones (Grossissement de Filtration)}
+Sea $\mathbb{G} = \{\mathcal{G}_t\}_{t \geq 0}$ una ampliación de la filtración original $\mathbb{F}$ tal que $\mathcal{F}_t \subset \mathcal{G}_t$. Según el Teorema de Jeulin-Yor, si la hipótesis (H) se viola, la $\mathbb{F}$-martingala $M_t$ se descompone en $\mathbb{G}$ como:
+\[
+M_t = \tilde{M}_t + \int_0^t \alpha_s ds
+\]
+donde $\tilde{M}$ es una $\mathbb{G}$-martingala y $\alpha_s$ es el proceso de deriva de información. Esto formaliza la asimilación de variables latentes exógenas.
+
+\chapter{Fase 2: Formalización de los Núcleos de Predicción}
+
+\section{Rama A: Proyección en Espacios de Hilbert}
+El predictor se define en el espacio $\mathcal{H}_t = \overline{\text{span}}\{X_s : s \leq t\}$.
+
+\subsection{Principio de Ortogonalidad y Wiener-Hopf}
+El error de predicción debe ser ortogonal a la historia pasada:
+\[
+\langle X_{t+h} - \hat{X}_{t+h}, X_s \rangle = 0 \quad \forall s \leq t
+\]
+Esto conduce a la Ecuación Integral de Wiener-Hopf para el núcleo de impulso óptimo $h(\tau)$:
+\[
+\gamma(t+h-s) = \int_{0}^{\infty} h(\tau) \gamma(s-\tau) d\tau, \quad s \geq 0
+\]
+
+\subsection{Condición de Paley-Wiener}
+Para garantizar la causalidad y existencia de la factorización espectral $f(\lambda) = |\Psi(i\lambda)|^2$, se requiere:
+\[
+\int_{-\infty}^{\infty} \frac{|\log f(\lambda)|}{1 + \lambda^2} d\lambda < \infty
+\]
+
+\section{Cálculo de Malliavin y Sensibilidad Estocástica}
+Consideramos el espacio de Wiener canónico $(\Omega, \mathcal{F}, P)$ y el subespacio de Cameron-Martin $H = L^2([0,T])$.
+Definimos el operador derivada de Malliavin $D: \mathbb{D}^{1,2} \to L^2(\Omega; H)$ sobre funcionales cilíndricos $F = f(W(h_1), \dots, W(h_n))$ como:
+\[
+D_t F = \sum_{i=1}^n \partial_i f(W(h_1), \dots, W(h_n)) h_i(t)
+\]
+\subsection{Teorema de Representación de Ocone-Haussmann}
+Todo funcional $F \in \mathbb{D}^{1,2}$ admite la representación integral:
+\[
+F = E[F] + \int_0^T E[D_t F \mid \mathcal{F}_t] dW_t
+\]
+Esto permite caracterizar explícitamente el integrando en la descomposición de martingala del predictor óptimo como la proyección condicional de la derivada de Malliavin.
+
+\section{Rama B: Ecuaciones de Evolución y Viscosidad}
+\subsection{Generador Infinitesimal}
+La evolución de la densidad de probabilidad $p(x,t)$ se rige por el operador adjunto $\mathcal{L}^*$.
+Consideramos la función valor $V(t,x)$ asociada al control estocástico óptimo, la cual satisface la ecuación de Hamilton-Jacobi-Bellman (HJB):
+\[
+-\partial_t V + \inf_{u \in U} \{ -\mathcal{L}^u V - f(x,u) \} = 0
+\]
+
+\subsection{Soluciones de Viscosidad de Crandall-Lions}
+Dado que $V$ puede no ser diferenciable en $C^2$, definimos la solución en el sentido de viscosidad.
+Una función semicontinua superior $u$ es subsolución de viscosidad de $F(x, u, D u, D^2 u) = 0$ si para toda $\phi \in C^2$ tal que $u - \phi$ tiene un máximo local en $x_0$:
+\[
+F(x_0, u(x_0), D\phi(x_0), D^2\phi(x_0)) \leq 0
+\]
+Esta formulación garantiza la existencia y unicidad de la solución para hamiltonianos degenerados típicos en predicción robusta.
+
+\section{Cálculo de Malliavin en Espacios de Poisson}
+Para procesos con componentes de salto (Rama C), extendemos el operador de derivada $D_t$ al espacio canónico de Poisson $(\Omega, \mathcal{F}, P, N)$. Definimos el operador de diferencia $\mathcal{D}_{t,z}$ para funcionales $F \in \mathbb{D}^{1,2}(\mu)$:
+\[
+\mathcal{D}_{t, z} F(\omega) = F(\omega + \delta_{(t, z)}) - F(\omega)
+\]
+El integrando de la representación previsible para la martingala de saltos puros es dada por la proyección previsible de $\mathcal{D}_{t,z}F$.
+
+\subsection{Fórmula de Itô para Semimartingalas con Saltos}
+El proceso $X_t$ se descompone según la estructura canónica de Lévy-Itô:
+\[
+X_t = X_0 + \int_0^t b(X_{s-}) ds + \int_0^t \sigma(X_{s-}) dW_s + \int_0^t \int_{\mathbb{R}^n} z \tilde{N}(ds, dz)
+\]
+La esperanza condicional $u(t,x)$ satisface la ecuación integro-diferencial parcial (PIDE) asociada al generador $\mathcal{L}^\nu$:
+\[
+\mathcal{L}^\nu \phi(x) = \frac{1}{2}\sigma^2 \Delta \phi + b \cdot \nabla \phi + \int_{\mathbb{R}^d} [\phi(x+z) - \phi(x) - z \cdot \nabla \phi \mathbb{1}_{|z| \leq 1}] \nu(dz)
+\]
+
+\section{Rama D: Signature y Rough Paths (Invariancia Topológica)}
+Para procesos donde la rugosidad de la trayectoria imposibilita el cálculo estocástico estándar (exponente de Hölder $H \leq 1/2$, variación $p \geq 2$), operamos en el marco de la Teoría de Caminos Rugosos de Lyons.
+
+\subsection{El Espacio de Caminos Rugosos Geométricos}
+Sea $\mathbf{X}$ un proceso continuo con valores en el álgebra tensorial truncada $T^{(N)}(\mathbb{R}^d) = \bigoplus_{k=0}^N (\mathbb{R}^d)^{\otimes k}$.
+Definimos el espacio de caminos rugosos geométricos de $p$-variación finita $G\Omega_p(\mathbb{R}^d)$ como la clausura de los caminos suaves bajo la $p$-variación métrica:
+\[ d_p(\mathbf{X}, \mathbf{Y}) = \max_{k=1,\dots,\lfloor p \rfloor} \sup_{\mathcal{D}} \left( \sum_{i} | \mathbf{X}^k_{t_i, t_{i+1}} - \mathbf{Y}^k_{t_i, t_{i+1}} |^{p/k} \right)^{k/p} \]
+
+\subsection{La Signatura ($\mathcal{S}$) y Álgebra de Hopf}
+El mapa de signatura $\mathcal{S}: G\Omega_p([0,T], \mathbb{R}^d) \to T((\mathbb{R}^d))$ transforma la trayectoria en una serie formal de potencias no conmutativas (Serie de Chen):
+\[
+\mathcal{S}(\mathbf{X})_{0,t} = 1 + \sum_{k=1}^\infty \int_{0 < u_1 < \dots < u_k < t} dX_{u_1} \otimes \dots \otimes dX_{u_k}
+\]
+El espacio imagen es un grupo de Lie bajo la operación $\otimes$, y sus elementos satisfacen la propiedad del \textit{Shuffle Product} para funcionales lineales duales $f, g \in T((\mathbb{R}^d))^*$:
+\[ \langle f, \mathbf{X} \rangle \langle g, \mathbf{X} \rangle = \langle f \amalg g, \mathbf{X} \rangle \]
+Esto permite aproximar cualquier funcional continuo mediante combinaciones lineales de términos de la signatura (Teorema de Aproximación Universal).
+
+\subsection{Lema de Invariancia bajo Reparametrización}
+\begin{lemma}
+La firma $\mathcal{S}(X)$ es invariante ante cualquier reparametrización temporal monótona $\psi(t)$:
+\[
+\mathcal{S}(X \circ \psi)_{0,T'} = \mathcal{S}(X)_{0,T}
+\]
+Esto inmuniza a la Rama D contra el ruido de muestreo irregular, permitiendo una caracterización topológica pura.
+\end{lemma}
+
+\subsection{Predictor T-Linear}
+El predictor se formaliza como un funcional lineal en el espacio de tensores:
+\[
+\hat{X}_{t+h} = \langle W, \mathbf{X}_{0,t} \rangle
+\]
+
+\chapter{Fase 3: Orquestador de Pesaje Adaptativo}
+
+El Orquestador $\mathcal{O}$ gestiona la mezcla convexa $\hat{X}_{t+h}^{PEU} = \sum w_i(t) \hat{X}_{t+h}^{(i)}$.
+
+\section{Dinámica de Transporte Óptimo y Geometría de Wasserstein}
+Consideramos la variedad Riemanniana de dimensión infinita $\mathcal{M} = (\mathcal{P}_{ac}(\Delta^n), g_W)$ dotada de la estructura métrica $W_2$.
+El funcional de energía libre $\mathcal{F}$ define un campo vectorial gradiente $\nabla_{W_2} \mathcal{F}$.
+La evolución sigue el flujo de JKO (Jordan-Kinderlehrer-Otto), que es el límite cuando $\tau \to 0$ del esquema variacional discreto:
+\[
+\rho_{k+1} \in \text{argmin}_{\rho} \left\{ \frac{1}{2\tau} W_2^2(\rho, \rho_k) + \mathcal{F}(\rho) \right\}
+\]
+Esto converge a la Ecuación de Fokker-Planck no lineal:
+\[
+\partial_t \rho = \nabla \cdot (\rho \nabla (\delta \mathcal{F}/\delta \rho))
+\]
+
+\section{Grandes Desviaciones y Principio de Contracción}
+La tasa de convergencia de la medida empírica $L_n$ hacia la medida invariante $\mu^*$ se rige por el funcional de acción $I(\nu)$ (Entropía relativa o Divergencia de Kullback-Leibler):
+\[
+I(\nu) = \sup_{f \in C_b} \{ \langle f, \nu \rangle - \Lambda(f) \}
+\]
+Para procesos dependientes $\phi$-mixing, el Principio de Grandes Desviaciones (LDP) se mantiene con una función de tasa "rate function" convexa y semicontinua inferiormente (good rate function).
+
+\section{Acoplamiento Geométrico y Métrica Fisher-Rao}
+Para incorporar la sensibilidad a la estructura de la variedad estadística, generalizamos la métrica a una estructura de tipo Hellinger-Kantorovich o Fisher-Rao deformada por el tensor de curvatura inducido por el operador $\Psi$:
+\[
+G(\rho) = e^{-\beta \|\nabla \Psi\|} G_{FR}(\rho)
+\]
+donde $G_{FR}$ es la métrica de información de Fisher. Esto define una geodésica adaptativa en el simplex de probabilidad.
+
+\section{Funcional de Lyapunov Global}
+La estabilidad asintótica del orquestador se demuestra mediante la función de Lyapunov basada en la entropía relativa:
+\[
+V(w) = \sum_{i \in \text{opt}} w_i^* \log \left( \frac{w_i^*}{w_i(t)} \right), \quad \frac{dV}{dt} \leq 0
+\]
+
+\chapter{Fase 4: Convergencia y Estabilidad Global}
+
+\section{Condiciones de Mezclado (Mixing)}
+Se asumen condiciones de $\beta$-mezclado (regularidad absoluta) con decaimiento exponencial:
+\[
+\beta(\tau) = E \left[ \sup_{B \in \mathcal{F}_{t+\tau}^\infty} |P(B | \mathcal{F}_{-\infty}^t) - P(B)| \right] \sim e^{-\lambda \tau}
+\]
+
+\section{Teorema de Sanov y Grandes Desviaciones}
+La probabilidad de que la medida empírica de error se desvíe del conjunto óptimo decae exponencialmente:
+\[
+P(\hat{L}_t \in \Gamma) \leq C \exp \left( -n \inf_{\nu \in \Gamma} I(\nu) \right)
+\]
+
+\section{Estabilidad en Media $L^p$ y Lyapunov}
+La estabilidad exponencial del flujo estocástico $\{\Xi_t\}$ se demuestra mediante el criterio de deriva de Foster-Lyapunov para generadores Markovianos debilmente contínuos.
+Sea $V: \mathcal{H} \to \mathbb{R}_+$ una función Lyapunov compacta. Si existe un conjunto compacto ("petite set") $K \subset \mathcal{H}$ y constantes $\gamma > 0, b < \infty$ tal que:
+\[
+\mathcal{L} V(x) \leq -\gamma V(x) + b \mathbb{1}_K(x)
+\]
+entonces el proceso es geométricamente ergódico y admite una medida invariante única $\pi$.
+
+\section{Complejidad Secuencial y Cotas de Generalización}
+Para acotar el exceso de riesgo en procesos no i.i.d., utilizamos la complejidad de Rademacher condicional $\mathcal{R}_n(\mathcal{F} | \mathbf{x})$.
+\[
+\mathcal{R}_n(\mathcal{F}|\mathbf{x}) = E_\sigma \left[ \sup_{f \in \mathcal{F}} \frac{1}{n} \sum_{i=1}^n \sigma_i f(x_i) \right]
+\]
+Para procesos $\beta$-mixing, se aplica la técnica de bloqueo de Bernstein para descomponer la dependencia temporal y aplicar desigualdades de concentración de McDiarmid.
+
+\section{Detección de Puntos de Cambio y Tiempos de Parada}
+Definimos el tiempo de parada $\tau$ como el primer instante de cruce de barrera del proceso CUSUM generalizado:
+\[
+\tau = \inf \{t > 0 : \max_{0 \leq k \leq t} |S_t - S_k| \geq h(\Psi_t) \}
+\]
+donde $S_t$ es la suma parcial de los residuos de innovación estandarizados. Bajo la hipótesis nula de estacionariedad, $S_t$ converge débilmente al Puente Browniano.
+En el instante $\tau$, la medida de probabilidad se reinicia al prior uniforme sobre el simplex: $\rho_\tau = \text{Unif}(\Delta^n)$ (Entropía máxima).
+
+\chapter{Ecuación Diferencial Operacional Unificada}
+
+\section{Dinámica del Meta-Estado}
+El sistema completo se describe mediante la EDO estocástica no lineal en el espacio de Hilbert funcional $H = \mathcal{C} \times L^2(\Delta^n) \times \mathcal{L}(\mathcal{H}, \mathcal{H})$ que gobierna el meta-estado $\Xi_t$:
+\[
+d\Xi_t = \mathbf{\Phi}(\Xi_t, X_t) dt + \mathbf{\Sigma}(\Xi_t, X_t) dW_t
+\]
+El drift $\mathbf{\Phi}$ encapsula:
+\begin{enumerate}
+    \item La identificación topológica del operador SIA ($\Psi$).
+    \item El flujo de gradiente Wasserstein $\text{grad}_{W_2} \mathcal{F}$ proyectado en el espacio tangente de medidas.
+    \item La evolución de los predictores locales.
+\end{enumerate}
+
+\section{Teorema de Existencia y Unicidad Global}
+\begin{theorem}[Existencia y Unicidad Débil]
+Asumiendo que los coeficientes $\mathbf{\Phi}$ y $\mathbf{\Sigma}$ son medibles y satisfacen condiciones locales de Lipschitz y crecimiento lineal (o que $\mathbf{\Sigma}$ es Hölder continuo y $\mathbf{\Phi}$ acotado, invocando el criterio de Yamada-Watanabe en dimensión finita), existe una única solución débil $(\Omega, \mathcal{F}, P, W, \Xi)$ para la ecuación diferencial estocástica operacional, tal que:
+\[ E \left[ \sup_{0 \leq s \leq T} \|\Xi_s\|^2 \right] < C(T, \|\Xi_0\|) \]
+\end{theorem}
+
+\appendix
+\chapter{Postulado de Robustez ante Singularidades}
+\begin{postulate}
+Si el SIA detecta una dimensión de Hausdorff $D > 1$ o $\alpha(t) \to 0$, el sistema prioriza la Rama D (Signature) y activa la regularización de Huber. Esto garantiza la operatividad del predictor en regímenes de rugosidad extrema donde el cálculo diferencial estocástico estándar falla.
+\end{postulate}
+
+\end{document}

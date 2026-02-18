@@ -1,0 +1,193 @@
+\documentclass{article}
+\usepackage[utf8]{inputenc}
+\usepackage{amsmath}
+\usepackage{amsfonts}
+\usepackage{geometry}
+\usepackage{array}
+\usepackage[hidelinks]{hyperref}
+
+\geometry{a4paper, margin=1in}
+
+\title{Especificación de Interfaz de Entrada/Salida (I/O) - Sistema de Predictores Universales}
+\author{Arquitectura de Sistemas}
+\date{\today}
+
+\begin{document}
+
+\maketitle
+
+\tableofcontents
+\newpage
+
+\section{Resumen Ejecutivo}
+Este documento define la interfaz abstracta de Entrada/Salida (I/O) para el Sistema de Predictores Universales, independiente de su implementación específica (Python/JAX, C++, Rust, FPGA). Describe los vectores de configuración necesarios para instanciar el sistema, el flujo de datos en tiempo de ejecución y la estructura de las señales de salida y telemetría.
+
+\section{Vector de Configuración (Hyper-Inputs)}
+El sistema se inicializa mediante un vector de configuración $\Lambda$ que define la topología y sensibilidad de los módulos. Estos parámetros suelen ser estáticos durante la sesión de operación o calibrados por un meta-optimizador externo.
+
+\begin{table}[h]
+\centering
+\begin{tabular}{|l|c|l|}
+\hline
+\textbf{Parámetro} & \textbf{Símbolo} & \textbf{Descripción Funcional} \\
+\hline
+Regularización Entrópica & $\epsilon$ & Suavizado del transporte de masa en el Orquestador JKO (Sinkhorn). \\
+Tasa de Aprendizaje & $\tau$ & Velocidad de adaptación de los pesos $\rho$ ante gradientes de energía. \\
+Profundidad de Firma & $L$ & Grado de trunqueo de la Log-Signature (Kernel D - Topológico). \\
+Memoria WTMM & $N_{buf}$ & Tamaño de la ventana deslizante para estimar singularidades. \\
+Cono de Besov & $C_{besov}$ & Radio de influencia para el seguimiento de máximos en ondelettes. \\
+Umbral de Hölder & $H_{min}$ & Valor crítico de regularidad que activa el \textit{Circuit Breaker}. \\
+Umbral CUSUM & $h$ & Nivel de desviación acumulada que dispara el reinicio de pesos. \\
+Slack CUSUM & $k$ & Tolerancia a la deriva ("ruido blanco") permitida sin acumular error. \\
+Memoria de Volatilidad & $\alpha$ & Tasa de decaimiento (EMA) para estimar la varianza del error. \\
+\hline
+\end{tabular}
+\caption{Vector de Hiperparámetros $\Lambda$}
+\end{table}
+
+\section{Flujo de Entrada (Data Injection)}
+
+\subsection{1. Fase de Calibración (Bootstrapping)}
+Estado inicial requerido antes de la operación secuencial.
+
+\textbf{Entrada:} Historia $\mathcal{H} = \{y_{-T}, \dots, y_0\}$
+\begin{itemize}
+    \item \textbf{Estructura:} Serie temporal de vectores $\mathbf{y} \in \mathbb{R}^d$ o escalares $y \in \mathbb{R}$.
+    \item \textbf{Propósito:}
+    \begin{itemize}
+        \item Inicialización de núcleos dependientes de historia (ej. parámetros de Lévy).
+        \item Estabilización de los pesos iniciales $\rho_0$ del orquestador.
+        \item Llenado del búfer de singularidad para el módulo WTMM.
+    \end{itemize}
+\end{itemize}
+
+\subsection{2. Fase Operativa (Online Stream)}
+Ciclo de actualización paso a paso en tiempo $t$.
+
+\textbf{Entrada del Paso $t$:} Tupla $(y_t, y_{target}, \tau_{epoch})$
+\begin{itemize}
+    \item \textbf{Marca de Tiempo ($\tau_{epoch}$):} Timestamp absoluto (Unix Nanoseconds). Obligatorio para sincronización y cálculo de latencia en la política de abandono.
+    \item \textbf{Observación Actual ($y_t$):} 
+    \begin{itemize}
+        \item El nuevo dato disponible en $t$.
+        \item Se utiliza para alimentar los núcleos ($K_A, K_B, K_C, K_D$) y generar las predicciones para $t+1$.
+        \item \textbf{Gestión de Errores de Dominio:} Si $|y_t| > 20\sigma$ (respecto a la normalización histórica), el dato se clasifica como \textit{Outlier Catastrófico}. El sistema debe descartar la entrada, mantener el estado inercial y emitir una alerta crítica de validación, protegiendo los núcleos de divergencia numérica.
+    \end{itemize}
+    \item \textbf{Malla de Inferencia (Anti-Aliasing Input):}
+    \begin{itemize}
+        \item \textbf{Frecuencia de Muestreo vs Escalas ($N_{buf}$):} Para garantizar la estabilidad del análisis WTMM (Singularidades del Kernel D), la frecuencia de inyección de datos debe mantener una densidad suficiente respecto a las escalas wavelet más finas.
+        \item \textit{Restricción:} Se impone una \textbf{Frecuencia Mínima de Inyección} (Nyquist soft-limit) dependiente de $C_{besov}$. Si la densidad de eventos cae por debajo de este umbral, el espectro multifractal colapsará, y el sistema debe congelar la actualización de la rama topológica.
+    \end{itemize}
+
+    \item \textbf{Objetivo de Validación ($y_{target}$):}
+    \begin{itemize}
+        \item El valor "real" correspondiente a la predicción generada en el paso anterior ($t-1$).
+        \item Generalmente $y_{target} \equiv y_t$ (en predicción one-step-ahead causal).
+        \item Se utiliza para calcular el error $e_t = y_{target} - \hat{y}_{t|t-1}$ y calcular el gradiente de energía $\nabla E$ para el transporte JKO.
+    \end{itemize}
+
+    \item \textbf{Métrica de Abandono (Staleness Policy):}
+    \begin{itemize}
+        \item \textbf{Tiempo de Vida (TTL):} Parámetro $\Delta_{max}$.
+        \item \textbf{Comportamiento ante Violación:} Si el retraso de $y_{target}$ excede $\Delta_{max}$, la actualización JKO se cancela.
+        \item \textbf{Señal de Integridad:} El sistema debe emitir una bandera persistente de \textit{Inferencia Degradada} ("Stale Weights"). Esto alerta al ejecutor de que, aunque la predicción $\hat{y}$ sigue generándose, los pesos $\rho$ tienen inercia obsoleta y el riesgo ya no está siendo optimizado geométricamente.
+    \end{itemize}
+\end{itemize}
+
+\section{Salidas del Sistema (System Outputs)}
+
+\subsection{1. Señal de Control (Prediction Signal)}
+La salida primaria para la toma de decisiones.
+
+\textbf{Salida:} $\hat{y}_{t+1}$
+\begin{itemize}
+    \item \textbf{Descripción:} Estimación del valor esperado del proceso para el siguiente instante.    \item \textbf{Malla de Inferencia (Output Quantization):}
+    \begin{itemize}
+        \item La salida $\hat{y}_{t+1}$ se entrega en el espacio normalizado (Z-Score) consistente con la entrada $y_t$.
+        \item El Actor/Ejecutor es responsable de aplicar la transformación inversa (des-normalización) utilizando las estadísticas de ventana rodante si se requiere un precio absoluto.
+    \end{itemize}
+    \item \textbf{Composición:} Combinación convexa de los núcleos base: $\hat{y}_{t+1} = \sum_{i \in \{A,B,C,D\}} \rho_i^{(t)} \cdot K_i(y_t)$.
+\end{itemize}
+
+\subsection{2. Indicadores de Estado (State Telemetry)}
+Variables latentes que describen la "salud" y el régimen del mercado.
+
+\begin{itemize}
+    \item \textbf{Estado de Riesgo ($\mathbb{S}_{risk}$):}
+    \begin{itemize}
+        \item \textbf{Exponente de Hölder local ($H_t$):} Medida de regularidad puntual. $H_t < 0.5$ indica antipersistencia/ruido; $H_t < H_{min}$ indica crash/shock inminente.
+        \item \textbf{Estadístico CUSUM ($G^+$):} Nivel de desajuste estructural acumulado.
+        \item \textbf{Distancia al Colapso ($h - G^+$):} Margen de seguridad restante antes de un reinicio forzado del modelo.
+        \item \textbf{Energía Libre Residual ($\mathcal{F}$):} Valor instantáneo del funcional de JKO. Monitoriza si el modelo está "atrapado" en un mínimo local estable o si la regularización entrópica $\epsilon$ es demasiado alta, diluyendo excesivamente la capacidad predictiva del transporte de masa.
+    \end{itemize}
+    
+    \item \textbf{Estado del Orquestador ($\rho$):}
+    \begin{itemize}
+        \item \textbf{Vector de Pesos:} $[\rho_A, \rho_B, \rho_C, \rho_D]$ tal que $\sum \rho = 1$.
+        \item Indica qué "física" domina actualmente el mercado (Saltos vs Difusión vs Memoria vs Topología).
+    \end{itemize}
+
+    \item \textbf{Health-Check Estocástico:}
+    \begin{itemize}
+        \item \textbf{Convergencia Sinkhorn (Bool):} Indica si el algoritmo de transporte de masa convergió dentro del número máximo de iteraciones.
+        \item \textit{True:} Distancia Wasserstein exacta. \textit{False:} Aproximación sub-óptima (alerta de precisión numérica).
+    \end{itemize}
+    
+    \item \textbf{Modo de Operación:}
+    \begin{itemize}
+        \item \textit{Standard (MSE):} Operación normal bajo supuestos Gaussianos locales.
+        \item \textit{Robust (Huber):} Operación defensiva activada por singularidades ($H_t < H_{min}$) o alta volatilidad.
+    \end{itemize}
+\end{itemize}
+
+\section{Diagrama de I/O Abstracto}
+
+\[
+\boxed{\text{Entorno}} \xrightarrow{(y_t, y_{target})} \boxed{\text{Predictor Universal}(\Lambda)} \xrightarrow{(\hat{y}_{t+1}, \mathbb{S}_{risk}, \rho)} \boxed{\text{Actor / Ejecutor}}
+\]
+
+\subsection{Ciclo de Proceso Interno}
+\begin{enumerate}
+    \item \textbf{Ingesta:} Recibir $y_t$. Actualizar historial local.
+    \item \textbf{Análisis de Singularidad:} Calcular $H_t$ usando WTMM sobre ventana reciente.
+    \item \textbf{Control de Calidad (CUSUM):} 
+        \begin{itemize}
+            \item Calcular error $e_t$ usando $y_{target}$ y la predicción almacenada $\hat{y}_{t|t-1}$.
+            \item Actualizar acumulador de deriva $G^+$.
+            \item Si $G^+ > h$ o $H_t < H_{min}$ $\rightarrow$ Emitir señal de reinicio/alerta.
+        \end{itemize}
+    \item \textbf{Transporte (JKO):}
+        \begin{itemize}
+            \item Calcular gradiente de energía $\nabla E$ basado en $e_t$.
+            \item Transportar masa de probabilidad $\rho_{t-1} \to \rho_t$ (Sinkhorn).
+        \end{itemize}
+    \item \textbf{Proyección:}
+        \begin{itemize}
+            \item Ejecutar núcleos $K_i(y_t)$ para obtener componentes.
+            \item Agregar componentes usando nuevos pesos $\rho_t$ para obtener $\hat{y}_{t+1}$.
+        \end{itemize}
+\end{enumerate}
+
+\section{Persistencia (Snapshotting)}
+Para garantizar la continuidad operativa, el sistema debe ser capaz de serializar su estado interno completo $\Sigma_t$ en cualquier instante $t$.
+
+\[
+\Sigma_t = \{ \rho_t, G^+_t, \sigma^2_{ema}, \text{Búfer}_{WTMM}, \text{KernelsState} \}
+\]
+
+La estructura \texttt{KernelsState} se debe segmentar en sub-bloques independientes (K-Blocks) para permitir actualizaciones modulares o parciales:
+\[
+\text{KernelsState} = \{ S_A (\text{Lévy}), S_B (\text{PDE}), S_C (\text{Memoria}), S_D (\text{Topología}) \}
+\]
+
+La operación de restauración $Load(\Sigma_t)$ debe permitir reanudar el flujo en $t+1$ sin necesidad de re-calibración sobre la historia $\mathcal{H}$.
+
+\subsection{Protocolo de Snapshotting Atómico y Verificado}
+Se exige el uso de formatos de serialización binaria (ej. Protocol Buffers, MessagePack) en lugar de texto (JSON/XML) para el almacenamiento de $\Sigma_t$. Esto minimiza la latencia de I/O en operaciones de "Hot-Start" críticas.
+
+\begin{itemize}
+    \item \textbf{Integridad Obligatoria (Mandatory Checksum):} Dado que se utilizan formatos binarios densos, un error de un solo bit en el estado de las matrices de los núcleos o el búfer WTMM podría provocar un colapso del sistema o comportamiento indefinido. Por tanto, la estructura $\Sigma_t$ debe incluir un hash de validación robusto (ej. SHA-256 o CRC32c) al final del bloque.
+    \item \textbf{Validación Pre-Inyección:} La rutina de restauración $Load(\Sigma_t)$ debe recalcular y validar este hash \textit{antes} de inyectar el estado en la memoria operativa. Si la validación falla, el snapshot debe descartarse y el sistema debe reiniciarse en modo "Cold-Start" (recarga de historia).
+\end{itemize}
+
+\end{document}
