@@ -1,0 +1,73 @@
+{
+  "files.exclude": {
+    "**/.*": true,
+    "**/__pycache__": true,
+    "**/*.egg-info": true
+  },
+  "search.exclude": {
+    "**/.git": true,
+    "**/.venv": true,
+    "**/__pycache__": true,
+    "**/.pytest_cache": true,
+    "**/.ruff_cache": true,
+    "build": true,
+    "dist": true,
+    "*.egg-info": true
+  },
+  "[latex]": {
+    "editor.formatOnSave": false
+  },
+  "latex-workshop.latex.rootDir": "doc",
+  "latex-workshop.latex.outDir": "%DIR%/pdf",
+  "latex-workshop.latex.auxDir": "%DIR%/.build",
+  "latex-workshop.linting.enabled": false,
+  "latex-workshop.latex.linting.enabled": false,
+  "latex-workshop.latex.linting.run": "never",
+  "latex-workshop.linting.chktex.enabled": false,
+  "latex-workshop.linting.lacheck.enabled": false,
+  "latex-workshop.linting.pexpect.enabled": false,
+  "latex-workshop.message.error.show": false,
+  "latex-workshop.message.warning.show": false,
+  "latex-workshop.message.information.show": false,
+  "latex-workshop.message.badbox.show": false,
+  "latex-workshop.message.latexlog.exclude": [
+    ".*"
+  ],
+  "latex-workshop.view.pdf.viewer": "tab",
+  "latex-workshop.view.pdf.hand": false,
+  "latex-workshop.latex.clean.fileTypes": [
+    "*.aux",
+    "*.bbl",
+    "*.blg",
+    "*.fdb_latexmk",
+    "*.fls",
+    "*.log",
+    "*.out",
+    "*.synctex.gz",
+    "*.toc"
+  ],
+  "latex-workshop.latex.tools": [
+    {
+      "name": "latexmk-lualatex",
+      "command": "latexmk",
+      "args": [
+        "-lualatex",
+        "-interaction=nonstopmode",
+        "-file-line-error",
+        "-synctex=1",
+        "-auxdir=%WORKSPACE_FOLDER%/doc/.build",
+        "-outdir=%WORKSPACE_FOLDER%/doc/pdf",
+        "%DOC%"
+      ],
+      "env": {}
+    }
+  ],
+  "latex-workshop.latex.recipes": [
+    {
+      "name": "latexmk (lualatex)",
+      "tools": [
+        "latexmk-lualatex"
+      ]
+    }
+  ]
+}
