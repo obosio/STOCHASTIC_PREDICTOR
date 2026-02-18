@@ -1,6 +1,6 @@
 #!/bin/bash
 # Script para compilar documentos LaTeX de forma limpia
-# Todos los artefactos van a doc/build/ y PDFs a doc/pdf/
+# Todos los artefactos van a doc/.build/ y PDFs a doc/pdf/
 
 set -e
 
@@ -8,8 +8,9 @@ set -e
 DOC_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 cd "$DOC_DIR"
 
-# Crear directorios si no existen
-mkdir -p build pdf
+# Limpiar y recrear directorios temporales
+rm -rf .build pdf
+mkdir -p .build pdf
 
 # Función para compilar un archivo
 compile_doc() {
@@ -19,7 +20,7 @@ compile_doc() {
     echo "📄 Compilando $base_name.tex..."
     
     latexmk -pdf \
-            -auxdir=build \
+            -auxdir=.build \
             -outdir=pdf \
             -interaction=nonstopmode \
             -file-line-error \
@@ -31,8 +32,8 @@ compile_doc() {
 # Función para limpiar
 clean_all() {
     echo "🧹 Limpiando artefactos de compilación..."
-    latexmk -C -auxdir=build -outdir=pdf
-    rm -rf build/*
+    latexmk -C -auxdir=.build -outdir=pdf
+    rm -rf .build pdf
     echo "✅ Limpieza completa"
 }
 

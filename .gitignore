@@ -11,7 +11,7 @@
 *.nav
 *.snm
 *.vrb
-doc/build/
+doc/.build/
 # PDFs compilados se guardan en doc/pdf/ (versionados)
 
 # macOS
