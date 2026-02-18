@@ -273,6 +273,95 @@ La esperanza condicional $u(t,x)$ satisface la ecuación integro-diferencial par
 \mathcal{L}^\nu \phi(x) = \frac{1}{2}\sigma^2 \Delta \phi + b \cdot \nabla \phi + \int_{\mathbb{R}^d} [\phi(x+z) - \phi(x) - z \cdot \nabla \phi \mathbb{1}_{|z| \leq 1}] \nu(dz)
 \]
 
+\subsection{Esquemas de Discretización Temporal y Transición Dinámica}
+
+En la implementación numérica de procesos Itô/Lévy, la selección del esquema de integración es crítica. Los procesos estocásticos pueden presentar \textit{rigidez} (stiffness) variable, donde descomposiciones temporales requieren esquemas implícitos para estabilidad y convergencia.
+
+\subsubsection{Problema de Rigidez en SDE Estocásticas}
+
+Definimos formalmente la rigidez de una SDE mediante el cociente de valores propios del operador de difusión:
+\[
+\text{Stiffness Ratio} = \frac{\lambda_{\max}(J_\sigma)}{\lambda_{\min}(J_\sigma)}
+\]
+donde $J_\sigma = \frac{\partial}{\partial x}[\sigma(x)]$ es la matriz Jacobiana del coeficiente de difusión. Procesos con ratios altos ($> 10^2$) exhiben dinámicas multiaescala donde el esquema explícito de Euler-Maruyama diverge.
+
+Específicamente, el esquema explícito:
+\[
+X_{n+1} = X_n + b(X_n) \Delta t + \sigma(X_n) \Delta W_n
+\]
+requiere que el paso temporal $\Delta t$ satisfaga la condición de estabilidad:
+\[
+\Delta t < \frac{2}{\lambda_{\max}(J_b + J_\sigma^2)} \quad \text{(Condición CFL estocástica)}
+\]
+donde $J_b, J_\sigma$ son los Jacobianos de drift y difusión. En regímenes de alta rigidez, esta cota es extremadamente restrictiva, causando complejidad computacional prohibitiva.
+
+\subsubsection{Algoritmo de Transición Dinámica entre Esquemas}
+
+Proponemos un algoritmo adaptativo que monitorea la rigidez en tiempo real y transiciona dinámicamente entre el esquema explícito (rápido, menos preciso) y el esquema implícito (lento, robusto):
+
+\begin{enumerate}
+    \item \textbf{Estimación de Jacobiano Local:} En cada paso $n$, estimamos los Jacobianos mediante diferencias finitas:
+    \[
+    \hat{J}_\sigma(X_n) \approx \frac{\sigma(X_n + \varepsilon e_i) - \sigma(X_n - \varepsilon e_i)}{2\varepsilon}
+    \]
+    donde $\varepsilon \sim 10^{-6}$ y $e_i$ son vectores de base.
+    
+    \item \textbf{Cálculo de Métrica de Rigidez:} Definimos la métrica de rigidez normalizada:
+    \[
+    S_t = \max\left( \text{Stiffness Ratio}, \left| \frac{d \log \sigma_t}{dt} \right| \cdot \Delta t \right)
+    \]
+    La segunda componente captura cambios abruptos en volatilidad.
+    
+    \item \textbf{Regla de Decisión de Esquema:} Establecemos umbrales adaptativos:
+    \[
+    \text{Schema} = \begin{cases}
+    \text{Euler Explícito} & \text{si } S_t < \theta_L \text{ (bajo stiffness)} \\
+    \text{Transición Híbrida} & \text{si } \theta_L \leq S_t < \theta_H \text{ (medio)} \\
+    \text{Euler Implícito} & \text{si } S_t \geq \theta_H \text{ (alto stiffness)}
+    \end{cases}
+    \]
+    Los umbrales típicos son: $\theta_L = 100$, $\theta_H = 1000$.
+    
+    \item \textbf{Esquema Híbrido en Transición:} En la región intermedia, empleamos una mezcla convexa:
+    \[
+    X_{n+1}^{(\lambda)} = (1-\lambda) X_{n+1}^{(\text{exp})} + \lambda X_{n+1}^{(\text{imp})}
+    \]
+    donde $\lambda = \frac{S_t - \theta_L}{\theta_H - \theta_L} \in [0,1]$ interpola suavemente entre esquemas.
+    
+    \item \textbf{Esquema Implícito para Rigidez Alta:} Utilizamos el método de Moulton-trapezial:
+    \[
+    X_{n+1} = X_n + \frac{\Delta t}{2} \left[ b(X_n) + b(X_{n+1}^{(p)}) \right] + \sigma \Delta W_n
+    \]
+    donde $X_{n+1}^{(p)}$ es la predicción explícita. La corrección implícita reduce el error de truncatura y estabiliza trayectorias divergentes.
+\end{enumerate}
+
+\subsubsection{Análisis de Convergencia Fuerte}
+
+Para el esquema híbrido adaptativo, el error fuerte global es acotado por:
+\begin{theorem}[Error de Convergencia Adaptativa]
+Sea $\{X_t\}$ satisfaciendo la SDE Itô con coeficientes Lipschitz y crecimiento lineal. Para el esquema de transición dinámica con pasos $\Delta t_n = \Delta t / (1 + S_n)$ (donde $S_n$ es la métrica de rigidez en paso $n$), el error de convergencia fuerte después de $N$ pasos es:
+\[
+\mathbb{E}\left[ |X_T - X_N| \right] \leq C \cdot \left( \sum_{n=0}^{N-1} (\Delta t_n)^{1.0} + \lambda_n \cdot (\Delta t_n)^{1.5} \right)
+\]
+donde $\lambda_n$ es el coeficiente adaptativo (fracción implícita) en el paso $n$.
+
+En regímenes de baja rigidez ($S_t < \theta_L$), el término $\lambda_n \approx 0$ recupera la convergencia fuerte de Euler explícito de orden $0.5$ en el sentido débil (orden $1$ en sentido fuerte con $\Delta t$ fijo). En regímenes de alta rigidez ($S_t \geq \theta_H$), el término dominante es la corrección implícita, asegurando estabilidad sin divergencia.
+\end{theorem}
+
+\subsubsection{Monitoreo y Telemetría}
+
+Durante la ejecución, el sistema registra:
+\begin{itemize}
+    \item \textbf{Frecuencia de Esquema:} Proporción de pasos con esquema explícito vs. implícito. Esperado: $> 80\%$ explícito en régimen normal, $< 50\%$ en crisis.
+    \item \textbf{Métrica de Rigidez Máxima:} $S_{\max}(t)$ a lo largo del tiempo. Umbral de alerta: $S_{\max} > 2000$ sugiere proceso con características fractales extremas.
+    \item \textbf{Número de Iteraciones Internas:} Para métodos implícitos iterativos (Newton), contar iteraciones de corrección. Típico: $2$--$3$ iteraciones; $> 10$ indica comportamiento anómalo.
+    \item \textbf{Norma de Residuo Implícito:} $\| X_{n+1}^{(k)} - X_{n+1}^{(k-1)} \|$ entre iteraciones. Indica convergencia y potencial divergencia numérica.
+\end{itemize}
+
+\begin{remark}
+En el contexto del predictor universal, la Rama C (Itô/Lévy) alterna dinámicamente entre esquemas de acuerdo a la topología local del proceso $X_t$. Esto es especialmente importante durante transiciones de régimen detectadas por el CUSUM, donde la volatilidad se multiplica por factores $3$--$10$ en cuestión de pasos, induciendo rigidez temporal que requiere cambios de esquema para mantener precisión numérica.
+\end{remark}
+
 \section{Rama D: Signature y Rough Paths (Invariancia Topológica)}
 Para procesos donde la rugosidad de la trayectoria imposibilita el cálculo estocástico estándar (exponente de Hölder $H \leq 1/2$, variación $p \geq 2$), operamos en el marco de la Teoría de Caminos Rugosos de Lyons.
 
