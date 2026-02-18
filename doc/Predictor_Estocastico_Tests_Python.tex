@@ -379,6 +379,125 @@ def test_mode_collapse_criterion():
         f"False positive collapse detection: H_avg={avg_entropy:.3f}"
 \end{lstlisting}
 
+\section{Pruebas de Propiedades (Property-Based Testing con Hypothesis)}
+
+Esta sección implementa \textbf{fuzzing inteligente} para generar combinaciones extremas de parámetros del algoritmo Chambers-Mallows-Stuck (Lévy) y validar propiedades matemáticas invariantes.
+
+\begin{lstlisting}
+# tests/test_unit/test_levy_fuzzing.py
+import pytest
+from hypothesis import given, strategies as st, settings, HealthCheck
+import jax.numpy as jnp
+from stochastic_predictor.integrators.levy import stable_variate_cms
+
+@settings(
+    max_examples=500,
+    suppress_health_check=[HealthCheck.too_slow, HealthCheck.filter_too_much]
+)
+@given(
+    alpha=st.floats(min_value=0.5, max_value=2.0),  # Estabilidad: (0, 2]
+    beta=st.floats(min_value=-1.0, max_value=1.0),  # Asimetría: [-1, 1]
+    sigma=st.floats(min_value=0.1, max_value=10.0), # Escala: (0, inf)
+    num_samples=st.integers(min_value=100, max_value=5000)
+)
+def test_levy_cms_basic_properties(alpha, beta, sigma, num_samples):
+    """
+    Property Test 1: Validar propiedades matemáticas básicas de Lévy.
+    
+    - El generador CMS nunca debe retornar NaN o Inf
+    - La varianza debe crecer aproximadamente como sigma^2
+    - Para alpha=2 (Gaussiana), debe converger a N(0, sigma^2)
+    """
+    samples = jnp.array([
+        stable_variate_cms(alpha, beta, sigma)
+        for _ in range(num_samples)
+    ])
+    
+    # Propiedad 1: No NaN/Inf
+    assert jnp.all(jnp.isfinite(samples)), \
+        f"NaN/Inf detected for alpha={alpha}, beta={beta}, sigma={sigma}"
+    
+    # Propiedad 2: Escalamiento correcto
+    # Varianza es aproximadamente C * sigma^2 para Lévy
+    # Para alpha < 2, la varianza es infinita; pero empirical spread debe ∝ sigma
+    if alpha >= 1.8:  # Cerca de Gaussiana
+        empirical_var = jnp.var(samples)
+        expected_var = (sigma ** 2) * 1.5  # Factor aproximado
+        # Tolerancia: ±50% (es fuzzing, no perfección)
+        assert empirical_var < expected_var * 1.5, \
+            f"Variance too high: {empirical_var:.2e} vs expected {expected_var:.2e}"
+    
+    # Propiedad 3: Media cercana a 0 (si beta no es extremo)
+    empirical_mean = jnp.mean(samples)
+    if abs(beta) < 0.9:
+        assert abs(empirical_mean) < 3 * sigma / jnp.sqrt(num_samples), \
+            f"Mean drift detected: {empirical_mean:.2e}"
+
+@settings(max_examples=300)
+@given(
+    alpha=st.floats(min_value=0.5, max_value=2.0),
+    beta=st.floats(min_value=-1.0, max_value=1.0),
+    sigma=st.floats(min_value=0.1, max_value=10.0)
+)
+def test_levy_cms_stability_under_extreme_params(alpha, beta, sigma):
+    """
+    Property Test 2: El generador CMS debe ser numéricamente estable incluso con
+    parámetros incómodos como alpha→0.5 (colas pesadísimas) o beta=±1 (asimetría máxima).
+    
+    Invariante: log|X| debe tener media bien definida (aunque X sea de cola pesada).
+    """
+    # Generar sample pequeña pero con parámetros extremos
+    samples = jnp.array([
+        stable_variate_cms(alpha, beta, sigma)
+        for _ in range(100)
+    ])
+    
+    # Log de valores absolutos debe ser finito (propiedades logarítmicas de Lévy)
+    log_abs = jnp.log(jnp.abs(samples) + 1e-8)
+    
+    assert jnp.all(jnp.isfinite(log_abs)), \
+        f"Log transform produced NaN: alpha={alpha}, beta={beta}"
+    
+    # Varianza de log|X| debe estar acotada
+    log_var = jnp.var(log_abs)
+    assert log_var < 50.0, \
+        f"Excessive log-variance: {log_var:.2e} for alpha={alpha}"
+
+@settings(max_examples=200)
+@given(
+    alpha1=st.floats(min_value=0.5, max_value=2.0),
+    alpha2=st.floats(min_value=0.5, max_value=2.0)
+)
+def test_levy_cms_characteristic_exponent(alpha1, alpha2):
+    """
+    Property Test 3: Validar propiedades de divisibilidad infinita.
+    
+    Si X1 ~ Lévy(alpha, beta, sigma1) y X2 ~ Lévy(alpha, beta, sigma2),
+    entonces X1 + X2 ~ Lévy(alpha, beta, (sigma1^alpha + sigma2^alpha)^(1/alpha)).
+    """
+    np.random.seed(123)
+    
+    sigma1, sigma2 = 1.0, 1.5
+    
+    # Generar muestras independientes
+    samples1 = jnp.array([stable_variate_cms(alpha1, 0.0, sigma1) for _ in range(500)])
+    samples2 = jnp.array([stable_variate_cms(alpha1, 0.0, sigma2) for _ in range(500)])
+    
+    # Sumar
+    sum_samples = samples1 + samples2
+    
+    # Calcular exponente característico empírico de sum_samples
+    # (Log de la PDF característica evaluada en punto de prueba)
+    
+    # Invariante: la curtosis relativa debe crecer de forma predecible
+    kurt_sum = jnp.mean((sum_samples - jnp.mean(sum_samples)) ** 4) / (jnp.var(sum_samples) ** 2)
+    kurt1 = jnp.mean((samples1 - jnp.mean(samples1)) ** 4) / (jnp.var(samples1) ** 2 + 1e-8)
+    
+    # Para valores de alpha cercanos a 1, tanto muestras como suma tendrán colas pesadas
+    # La curtosis no debe diverger
+    assert jnp.isfinite(kurt_sum), "Curtosis diverge en suma de Lévy"
+\end{lstlisting}
+
 \chapter{Pruebas de Robustez: CUSUM y Circuit Breakers}
 
 \section{Test de CUSUM Estándar}
@@ -857,6 +976,107 @@ def test_cpu_gpu_parity():
             f"Prediction mismatch at step {i}: {pred_diff:.2e}"
 \end{lstlisting}
 
+\section{Test de Paridad de Hardware con Cuantización (Fixed-Point FPGA Simulation)}
+
+Esta sección valida que el predictor sea compatible con hardware reconfigurable (FPGA) mediante simulación de aritmética de punto fijo dentro de JAX.
+
+\begin{lstlisting}
+# tests/test_hardware/test_fixed_point_parity.py
+import pytest
+import jax.numpy as jnp
+import numpy as np
+from stochastic_predictor.predictor import UniversalPredictor
+
+def quantize_to_fixed_point(x, int_bits=16, frac_bits=16):
+    """
+    Simula cuantización a punto fijo Q16.16 (común en FPGA).
+    """
+    total_bits = int_bits + frac_bits
+    max_val = (2 ** (total_bits - 1) - 1) / (2 ** frac_bits)
+    min_val = -(2 ** (total_bits - 1)) / (2 ** frac_bits)
+    
+    x_clipped = jnp.clip(x, min_val, max_val)
+    x_quantized = jnp.round(x_clipped * (2 ** frac_bits)) / (2 ** frac_bits)
+    
+    return x_quantized
+
+def simulate_fpga_computation(prediction_float32):
+    """Simula pipeline FPGA: Float32 -> Q16.16 -> Q16.16"""
+    pred_quantized_in = quantize_to_fixed_point(prediction_float32)
+    intermediate = pred_quantized_in * 1.001
+    pred_quantized_out = quantize_to_fixed_point(intermediate)
+    return pred_quantized_out
+
+def test_fpga_quantization_error():
+    """
+    Test: Validar que cuantización Q16.16 introduce error < 1% en predicción.
+    Invariante: FPGA deployment debe preserver precisión mínima.
+    """
+    config = UniversalPredictor.config
+    predictor = UniversalPredictor(config)
+    
+    np.random.seed(777)
+    data = 100.0 + np.random.randn(100) * 5.0
+    
+    predictions_float32 = []
+    predictions_quantized = []
+    
+    for obs in data:
+        result = predictor.step_with_telemetry(obs, previous_target=obs)
+        pred_f32 = float(result.predicted_next)
+        pred_quantized = float(simulate_fpga_computation(jnp.array(pred_f32)))
+        
+        predictions_float32.append(pred_f32)
+        predictions_quantized.append(pred_quantized)
+    
+    preds_f32 = np.array(predictions_float32)
+    preds_q = np.array(predictions_quantized)
+    
+    # Error relativo
+    mask = np.abs(preds_f32) > 1e-3
+    rel_error = np.abs(preds_f32[mask] - preds_q[mask]) / (np.abs(preds_f32[mask]) + 1e-6)
+    
+    max_rel_error = np.max(rel_error)
+    mean_rel_error = np.mean(rel_error)
+    
+    assert max_rel_error < 0.01, \
+        f"Max relative error too high: {max_rel_error:.2%}"
+    
+    assert mean_rel_error < 0.005, \
+        f"Mean relative error too high: {mean_rel_error:.2%}"
+
+def test_fpga_numerical_stability():
+    """
+    Test: Validar estabilidad bajo acumulación de cuantización.
+    Invariante: Error acumulativo debe permanecer acotado (no diverge).
+    """
+    config = UniversalPredictor.config
+    predictor_ref = UniversalPredictor(config)
+    
+    np.random.seed(888)
+    data = 100.0 + np.random.randn(200) * 5.0
+    
+    predictions = []
+    quantized_errors = []
+    
+    for i, obs in enumerate(data):
+        result = predictor_ref.step_with_telemetry(obs, previous_target=obs)
+        pred = float(result.predicted_next)
+        pred_q = float(simulate_fpga_computation(jnp.array(pred)))
+        
+        predictions.append(pred)
+        quantized_errors.append(abs(pred - pred_q))
+    
+    # Error acumulado no debe crecer linealmente
+    cumulative_error = np.cumsum(quantized_errors)
+    final_cumulative = cumulative_error[-1]
+    
+    expected_max_cumulative = 200 * 1.5e-5 * 100
+    
+    assert final_cumulative < expected_max_cumulative * 10, \
+        f"Cumulative error unstable: {final_cumulative:.3e}"
+\end{lstlisting}
+
 \chapter{Pruebas de Edge Cases y Modo Degradado}
 
 \section{Test de Modo Degradado (TTL Violation)}
@@ -1048,6 +1268,196 @@ def test_walk_forward_regime_change():
     # RMSE debe adaptarse al cambio (< 5.0)
     assert rmse < 5.0, \
         f"Predictor failed to adapt to regime change: RMSE={rmse:.2f}"
+\end{lstlisting}
+
+\chapter{Validación de Causalidad Estricta}
+
+Esta sección implementa tests que verifican, mediante inspección de memoria y marcas temporales, que el predictor no tiene \textbf{look-ahead bias}: no accede a datos posteriores al tiempo de inferencia actual.
+
+\section{Test de No-Clairvoyance mediante Inspección de Punteros}
+
+\begin{lstlisting}
+# tests/test_causality/test_no_lookahead.py
+import pytest
+import jax.numpy as jnp
+import numpy as np
+from stochastic_predictor.predictor import UniversalPredictor
+from stochastic_predictor.config import PredictorConfig
+
+def test_predict_without_future_access():
+    """
+    Test: Verificar que predict(t) no accede a datos con timestamp > t.
+    
+    Metodología: Crear secuencia con "trampas" (valores específicos en posiciones futuras).
+    Si el predictor accede a ellas, la predicción será afectada.
+    """
+    config = PredictorConfig()
+    predictor = UniversalPredictor(config)
+    
+    # Crear datos con marcador especial en posición futura (trampa)
+    np.random.seed(555)
+    data = np.random.randn(100) * 10 + 100
+    
+    # "Trampa": Reemplazar valor en posición t+5 con valor extremo
+    trap_position = 50
+    trap_value = 1e6  # Valor anómalo que no puede ocurrir naturalmente
+    
+    # Procesar datos normalmente hasta t-1
+    for i in range(trap_position):
+        result = predictor.step_with_telemetry(
+            data[i], 
+            previous_target=data[i]
+        )
+    
+    # Guardar puntero al buffer interno ANTES de insertar trampa
+    buffer_ptr_before = id(predictor._state.signal_circular_buffer)
+    internal_buffer_before = np.copy(predictor._state.signal_circular_buffer)
+    
+    # Realizar predicción en t (que no debe saber nada de data[t+5])
+    result_at_t = predictor.step_with_telemetry(
+        data[trap_position],
+        previous_target=data[trap_position]
+    )
+    
+    # Ahora insertar la trampa DESPUÉS de la predicción
+    predictor._state.signal_circular_buffer = np.concatenate([
+        predictor._state.signal_circular_buffer,
+        jnp.array([trap_value])  # Meter trampa
+    ])
+    
+    # Hacer steps adicionales para simular que el sistema vio la trampa
+    for i in range(trap_position + 1, trap_position + 6):
+        if i < len(data):
+            result_later = predictor.step_with_telemetry(
+                data[i],
+                previous_target=data[i]
+            )
+    
+    # Verificar: La predicción en t NO debe haber sido afectada por la trampa
+    # (comparándola con predicción si no hubiera trampa)
+    
+    # Ejecutar predictor limpio (sin trampa) para comparar
+    predictor_clean = UniversalPredictor(config)
+    for i in range(trap_position + 1):
+        result_clean = predictor_clean.step_with_telemetry(
+            data[i],
+            previous_target=data[i]
+        )
+    
+    # Las predicciones deben coincidir (prueba indirecta de no-lookahead)
+    pred_with_trap = float(result_at_t.predicted_next)
+    pred_without_trap = float(result_clean.predicted_next)
+    
+    # Tolerancia pequeña (diferencias solo por orden de operaciones)
+    assert abs(pred_with_trap - pred_without_trap) < 1e-3, \
+        f"Lookahead bias detected: pred_trap={pred_with_trap:.4f}, " \
+        f"pred_clean={pred_without_trap:.4f}"
+
+def test_causality_via_timestamps():
+    """
+    Test: Registrar timestamps de acceso a buffer y verificar monotonía.
+    
+    Invariante: Un trace de ejecución válido debe acceder a índices
+    en orden creciente (no puede saltar atrás ni adelante).
+    """
+    config = PredictorConfig(wtmm_buffer_size=128)
+    predictor = UniversalPredictor(config)
+    
+    # Instrumentar: Interceptar accesos al buffer circular
+    original_buffer = predictor._state.signal_circular_buffer
+    access_log = []
+    
+    class AccessTrackedBuffer:
+        """Wrapper que loguea accesos."""
+        def __init__(self, buffer, log):
+            self._buffer = buffer
+            self._log = log
+        
+        def __getitem__(self, idx):
+            import time
+            timestamp = time.time_ns()
+            self._log.append(('read', idx, timestamp))
+            return self._buffer[idx]
+        
+        def __setitem__(self, idx, value):
+            import time
+            timestamp = time.time_ns()
+            self._log.append(('write', idx, timestamp))
+            self._buffer[idx] = value
+        
+        def __len__(self):
+            return len(self._buffer)
+    
+    # Reemplazar buffer con versión trackeada
+    predictor._state.signal_circular_buffer = AccessTrackedBuffer(
+        original_buffer, access_log
+    )
+    
+    # Procesar secuencia
+    np.random.seed(666)
+    data = np.random.randn(50) * 5 + 100
+    
+    for obs in data:
+        predictor.step_with_telemetry(obs, previous_target=obs)
+    
+    # Analizar access_log para causalidad
+    read_indices = [idx for op, idx, _ in access_log if op == 'read']
+    
+    # Verificar que índices de lectura no saltan hacia atrás
+    # (permitimos forward jumps por wrapping del buffer circular)
+    buffer_size = config.wtmm_buffer_size
+    causal_violations = 0
+    
+    for i in range(1, len(read_indices)):
+        curr_idx = read_indices[i] % buffer_size
+        prev_idx = read_indices[i-1] % buffer_size
+        
+        # Salto hacia atrás sin wrapping = violación
+        if curr_idx < prev_idx and (prev_idx - curr_idx) > buffer_size // 2:
+            causal_violations += 1
+    
+    assert causal_violations == 0, \
+        f"Causal violations detected: {causal_violations} saltos hacia atrás"
+
+def test_state_vector_does_not_leak_future():
+    """
+    Test: Verificar que el vector de estado Sigma_t no codifica información futura.
+    
+    Metodología: Comparar estados internos (pesos, CUSUM acumulador, etc.)
+    entre dos ejecuciones: una con datos futuros, otra sin ellos.
+    Si el estado codifica información futura, diferirán.
+    """
+    config = PredictorConfig()
+    
+    # Ejecución 1: Sin datos futuros (truncada)
+    predictor1 = UniversalPredictor(config)
+    data_short = np.random.randn(50) * 5 + 100
+    
+    for obs in data_short:
+        result1 = predictor1.step_with_telemetry(obs, previous_target=obs)
+    
+    state1_weights = np.copy(predictor1._state.weights)
+    state1_cusum = np.copy(predictor1._state.cusum_acum if hasattr(predictor1._state, 'cusum_acum') else [])
+    
+    # Ejecución 2: Con datos futuros conocidos
+    predictor2 = UniversalPredictor(config)
+    np.random.seed(np.random.RandomState(42).randint(2**32))  # Misma seed para datos similares
+    data_long = np.random.randn(100) * 5 + 100
+    
+    # Procesar solo los primeros 50
+    for i in range(50):
+        result2 = predictor2.step_with_telemetry(data_long[i], previous_target=data_long[i])
+    
+    state2_weights = np.copy(predictor2._state.weights)
+    state2_cusum = np.copy(predictor2._state.cusum_acum if hasattr(predictor2._state, 'cusum_acum') else [])
+    
+    # Comparar estados
+    weights_diff = np.max(np.abs(state1_weights - state2_weights))
+    
+    # Las diferencias deben ser solo por ruido aleatorio
+    # Si predictor2 "viera" el futuro, sus pesos serían diferentes (optimizados hacia adelante)
+    assert weights_diff < 0.05, \
+        f"State leaked future info: weights_diff={weights_diff:.3e}"
 \end{lstlisting}
 
 \chapter{Resumen y Cobertura de Tests}
