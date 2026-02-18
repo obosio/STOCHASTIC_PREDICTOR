@@ -72,6 +72,7 @@ class PredictorConfig:
     holder_threshold: float = 0.4 # Umbral Circuit Breaker (H_min)
     cusum_h: float = 5.0          # Umbral Drift (h)
     cusum_k: float = 0.5          # Slack (k)
+    grace_period_steps: int = 20  # Período refractario post-cambio régimen (silencia CUSUM)
     volatility_alpha: float = 0.1 # Decaimiento EWMA de Varianza
     
     # Política de Abandono y Anti-Aliasing
@@ -407,6 +408,115 @@ $\kappa_t > 20$ & Falla en modelo de residuos (alerta crítica) \\
 
 \textbf{Nota:} El ajuste logarítmico permite que el umbral se expanda automáticamente cuando $\kappa_t > 3$, evitando falsos positivos en regímenes de alta curtosis mientras mantiene sensibilidad a cambios estructurales genuinos.
 
+\section{Periodo de Gracia (Ventana Refractaria) Post-Cambio de Régimen}
+
+\subsection{Motivación}
+
+Cuando CUSUM detecta un cambio de régimen ($G^+ > h_t$), el orquestador reinicia los pesos a distribución uniforme y reseta los acumuladores CUSUM. Sin embargo, en los pasos inmediatos posteriores:
+
+\begin{itemize}
+    \item \textbf{Volatilidad inflada:} El error de predicción $e_t$ se vuelve temporalmente grande porque los nuevos pesos uniformes aún no se han optimizado.
+    \item \textbf{Curtosis elevada:} El buffer de errores refuerza momentáneamente momentos de alto orden.
+    \item \textbf{Cascada de falsas alarmas:} CUSUM podría detectar "otro cambio" basándose en ruido de recalibración, no en genuina ruptura estructural.
+\end{itemize}
+
+Esto puede causar oscilación patológica donde el sistema alterna entre reinicio uniforme y redetección espuria.
+
+\subsection{Solución: Grace Period (Refractario)}
+
+Se introduce un parámetro \texttt{grace\_period\_steps} en \texttt{PredictorConfig} (por defecto 20-50 pasos):
+
+\[
+\text{CUSUM\_silenciado} = (\text{pasos\_desde\_último\_cambio} < \text{grace\_period\_steps})
+\]
+
+\textbf{Durante el período de gracia:}
+\begin{enumerate}
+    \item El detector CUSUM calcula su estadística $G^+$ internamente (para diagnóstico)
+    \item \textbf{Pero no emite alarma} ($\text{regime\_change\_detected} = \text{False}$) aunque $G^+ > h_t$
+    \item El acumulador $G^+$ se mantiene en reset ($G^+ = 0$ al inicio del glance)
+    \item Permiten que los pesos converjan bajo el algoritmo JKO sin interrupciones
+\end{enumerate}
+
+\textbf{Transcurrido el período:}
+\begin{itemize}
+    \item CUSUM vuelve a estado operacional normal
+    \item Próxima detección de cambio (si ocurre) desencadena nuevo período de gracia
+\end{itemize}
+
+\subsection{Algoritmo de Implementación}
+
+\begin{lstlisting}[language=Python]
+class CUSUMState:
+    def __init__(self, grace_period_steps=20):
+        self.g_plus = 0.0
+        self.g_minus = 0.0
+        self.error_sq_ema = 0.0
+        self.steps_since_regime_change = 0
+        self.grace_period = grace_period_steps
+    
+    def step(self, error, sigma_t, kurtosis):
+        """Avanza el estado CUSUM con silenciamiento refractario."""
+        # Incrementar contador desde último cambio
+        self.steps_since_regime_change += 1
+        
+        # Calcular estadística (siempre)
+        k = self.config.cusum_k
+        h_adaptive = k * sigma_t * (1 + np.log(max(kurtosis, 1.0) / 3.0))
+        
+        s_standardized = np.abs(error) / sigma_t
+        s_centered = s_standardized - 1.0
+        
+        self.g_plus = max(0.0, self.g_plus + s_centered - k)
+        
+        # Lógica de alarma CON GRACIA
+        is_in_grace_period = (
+            self.steps_since_regime_change < self.grace_period
+        )
+        
+        if is_in_grace_period:
+            # Silenciar: no emitir alarma
+            alarm = False
+        else:
+            # Normal: comparar con umbral
+            alarm = (self.g_plus > h_adaptive)
+        
+        return alarm, self.g_plus, h_adaptive
+    
+    def reset_on_regime_change(self):
+        """Al detectar cambio, iniciar período de gracia."""
+        self.g_plus = 0.0
+        self.steps_since_regime_change = 0  # Reiniciar reloj
+\end{lstlisting}
+
+\subsection{Parámetros Sugeridos}
+
+\begin{table}[h]
+\centering
+\begin{tabular}{|c|c|l|}
+\hline
+\textbf{grace\_period\_steps} & \textbf{Escenario} & \textbf{Justificación} \\
+\hline
+10-15 & Mercados estables, baja latencia & Recalibración rápida \\
+20-30 & Mercados con volatilidad media & Balance entre estabilidad y reactividad \\
+40-50 & Mercados de alta turbulencia & Mayor tiempo para convergencia JKO \\
+60+ & Instrumentos ilíquidos o con gaps & Minimizar oscilaciones patológicas \\
+\hline
+\end{tabular}
+\caption{Recomendaciones para grace\_period\_steps según régimen}
+\end{table}
+
+\subsection{Diagnóstico y Telemetría}
+
+Se recomienda registrar (sin decidir) durante el período de gracia:
+\begin{itemize}
+    \item $G^+$ observable (si hubiera alarma)
+    \item $\sigma_t$ y $\kappa_t$ instantáneos
+    \item Convergencia del JKO (distancia Wasserstein a cada paso)
+\end{itemize}
+
+Esto permite post-hoc análisis de si el período fue suficiente o excesivo.
+
 \section{Flags de Operación y Recuperación}
 
 El sistema mantiene cuatro flags booleanos explícitos que señalizan estados críticos al ejecutor:
@@ -452,6 +562,102 @@ Se emite \texttt{NormalOperationRestoredEvent} al recuperar.
 \textbf{Condición:} $H_{\text{DGM}} < \gamma \cdot H[g]$ durante $> 10$ pasos consecutivos (solo relevante si $\rho_B > 0.05$)
 
 \textbf{Acción correctiva:} Reducir $\rho_B \to 0$ hasta re-entrenar red DGM.
+
+\subsection{Período de Gracia (Refractario) Post-Cambio de Régimen}
+
+\textbf{Motivación:} Cuando CUSUM detecta un cambio de régimen y resetea los pesos a distribución uniforme, la curtosis y varianza residual se vuelven \textbf{transitoriamente infladas} mientras los filtros (SIA, WTMM, EMA) se recalibran. Sin protección, esto provoca \textbf{cascadas de falsos positivos} inmediatos: el sistema detecta el mismo cambio repetidamente en los siguientes 5-10 pasos.
+
+\textbf{Solución:} Introducir un contador refractario que \textbf{silencia CUSUM temporalmente} tras la detección de cambio.
+
+\subsubsection{Implementación}
+
+Dentro del estado interno del predictor, se mantiene un contador:
+
+\begin{lstlisting}[language=Python]
+@dataclass
+class PredictorState:
+    # ... otros campos ...
+    grace_period_counter: int = 0  # Contador refractario (decrementado cada paso)
+    regime_change_locked: bool = False  # Flag de bloqueo durante gracia
+\end{lstlisting}
+
+La lógica en el núcleo de actualización (dentro de \texttt{\_core\_update\_step}) es:
+
+\begin{lstlisting}[language=Python]
+def _core_update_step(state, price, target, freeze_weights=False):
+    # ... paso de identificación (SIA, WTMM) ...
+    
+    # Calcular CUSUM normalmente
+    raw_alarm = self._check_regime_change_with_kurtosis(error)
+    
+    # Aplicar período de gracia: silenciar falsa alarma si dentro de gracia
+    if state.grace_period_counter > 0:
+        raw_alarm = False  # Suprimir detección durante refractario
+        state.grace_period_counter -= 1
+        state.regime_change_locked = True
+    else:
+        state.regime_change_locked = False
+    
+    # Si se detecta cambio FUERA del período de gracia, resetear contador
+    if raw_alarm and not state.regime_change_locked:
+        state.grace_period_counter = self.config.grace_period_steps
+        # Reiniciar pesos a uniforme, resetear acumuladores
+        weights = jnp.ones(4) / 4.0
+        cusum_state['g_plus'] = 0.0
+    
+    # ... resto de la lógica ...
+    return new_state, result
+\end{lstlisting}
+
+\subsubsection{Dinámica Temporal}
+
+\textbf{Ejemplo}: Con \texttt{grace\_period\_steps=20}:
+
+\begin{table}[h]
+\centering
+\begin{tabular}{|l|c|c|c|}
+\hline
+\textbf{Paso} & \textbf{CUSUM Crudo} & \textbf{Contador Gracia} & \textbf{Alarma Emitida} \\
+\hline
+$t=0$ & \texttt{False} & 0 & \texttt{False} \\
+$t=1$ & \texttt{True} & 0 & \texttt{True} $\Rightarrow$ Cambio detectado \\
+$t=2$ & \texttt{True} & 19 & \texttt{False} (silenciado) \\
+$t=3$ & \texttt{True} & 18 & \texttt{False} (silenciado) \\
+\vdots & \vdots & \vdots & \vdots \\
+$t=20$ & \texttt{True} & 1 & \texttt{False} (silenciado) \\
+$t=21$ & \texttt{True} & 0 & \texttt{True} $\Rightarrow$ Nueva alarma (fin gracia) \\
+\hline
+\end{tabular}
+\caption{Evolución del contador de gracia con detecciones repetidas}
+\end{table}
+
+\textbf{Interpretación:}
+\begin{enumerate}
+    \item En $t=1$: Cambio genuino detectado. Se resetean pesos, inicia contador \texttt{grace\_period\_counter=20}.
+    \item En $t \in [2, 20]$: Aunque CUSUM crudo sigue alto (inflación transitoria), la alarma es \textbf{suprimida}. El sistema se recalibra en silencio.
+    \item En $t=21$ (fin del período): Si la volatilidad persiste (e.g., un verdadero régimen de crisis), la alarma se re-emite. Si fue transitorio, CUSUM se normaliza.
+\end{enumerate}
+
+\subsubsection{Parámetros Recomendados}
+
+\begin{itemize}
+    \item \textbf{grace\_period\_steps}: Típicamente $10-50$ pasos.
+    \begin{itemize}
+        \item \textbf{10-15 pasos}: Para mercados de alta frecuencia (> 1 kHz). Recalibración rápida.
+        \item \textbf{20-30 pasos}: Para operaciones intraday (1-100 Hz). Balance entre rechazo de ruido y reacción.
+        \item \textbf{40-50 pasos}: Para datos de baja frecuencia (< 1 Hz). Permite amortiguamiento completo de transiente.
+    \end{itemize}
+    Entre mercados: Calibrar via \texttt{optuna.optimize()} sobre ventanas de validación histórica, minimizando tasa de falsas alarmas dentro de 30 minutos post-cambio.
+\end{itemize}
+
+\subsubsection{Ventajas}
+
+\begin{itemize}
+    \item \textbf{Evita Cascadas:} Una sola alarma genuina no dispara falsos positivos en cadena.
+    \item \textbf{Permite Recalibración:} Los filtros (SIA, curtosis, varianza) tienen tiempo para estabilizarse sin distorsiones retroactivas.
+    \item \textbf{Preserva Reactividad:} Tras el período de gracia, el sistema es tan reactivo como antes.
+    \item \textbf{Parametrizable:} Fácil sintonización per-activo o per-mercado.
+\end{itemize}
 
 \section{Manejo de Errores y Excepciones}
 
