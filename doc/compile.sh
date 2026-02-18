@@ -8,8 +8,7 @@ set -e
 DOC_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 cd "$DOC_DIR"
 
-# Limpiar y recrear directorios temporales
-rm -rf "$DOC_DIR/.build" "$DOC_DIR/pdf"
+# Asegurar que existen los directorios (sin borrar PDFs previos)
 mkdir -p "$DOC_DIR/.build" "$DOC_DIR/pdf"
 
 # Función para compilar un archivo
@@ -45,6 +44,9 @@ case "${1:-all}" in
         ;;
     all)
         echo "🚀 Compilando todos los documentos..."
+        # Limpiar solo los artefactos temporales de compilaciones anteriores
+        rm -rf "$DOC_DIR/.build"
+        mkdir -p "$DOC_DIR/.build"
         for tex_file in *.tex; do
             if [ -f "$tex_file" ]; then
                 compile_doc "$tex_file"
