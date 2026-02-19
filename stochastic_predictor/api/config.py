@@ -11,8 +11,10 @@ References:
 
 from __future__ import annotations
 
+import logging
 import os
 from dataclasses import fields
+from datetime import datetime
 from pathlib import Path
 from typing import Any, Dict, Optional, TYPE_CHECKING
 
@@ -23,6 +25,9 @@ except ImportError:
 
 import jax
 from jaxtyping import Float
+
+# Module logger for config hot-reload events (V-MIN-3)
+logger = logging.getLogger(__name__)
 
 if TYPE_CHECKING:
     from .types import PredictorConfig
@@ -90,6 +95,8 @@ class ConfigManager:
     _instance: Optional["ConfigManager"] = None
     _config: Dict[str, Any] = {}
     _initialized: bool = False
+    _config_path: Optional[Path] = None
+    _last_mtime: float = 0.0
     
     def __new__(cls) -> "ConfigManager":
         if cls._instance is None:
@@ -110,6 +117,9 @@ class ConfigManager:
                 "config.toml not found. Expected in project root. "
                 "See doc/latex/specification/Stochastic_Predictor_Implementation.tex §1.2"
             )
+        
+        cls._config_path = config_path
+        cls._last_mtime = config_path.stat().st_mtime
         
         # Parse TOML
         with open(config_path, "rb") as f:
@@ -168,6 +178,66 @@ class ConfigManager:
     def raw_config(self) -> Dict[str, Any]:
         """Get raw configuration dictionary (for inspection/debugging)."""
         return self._config.copy()
+    
+    def check_and_reload(self) -> bool:
+        """
+        Check if config.toml has been modified and reload if necessary.
+        
+        Enables hot-reload after autonomous config mutations without restart.
+        Uses mtime (modification time) tracking for efficient change detection.
+        
+        COMPLIANCE:
+            - V-CRIT-4: Hot-reload config mechanism
+            - V-MIN-3: Log config hot-reload events to telemetry
+        
+        Returns:
+            True if config was reloaded, False if no changes detected
+        
+        Example:
+            >>> config_manager = get_config()
+            >>> # After atomic_write_config() mutation
+            >>> if config_manager.check_and_reload():
+            ...     print("Configuration reloaded")
+        
+        References:
+            - AUDIT_SPEC_COMPLIANCE_2026-02-19.md: V-CRIT-4, V-MIN-3
+            - IO.tex §3.3.7: Hot-reload integration with mutation protocol
+        """
+        if not self._config_path or not self._config_path.exists():
+            return False
+        
+        # Check modification time
+        current_mtime = self._config_path.stat().st_mtime
+        
+        if current_mtime <= self._last_mtime:
+            return False  # No changes
+        
+        # Reload configuration
+        try:
+            with open(self._config_path, "rb") as f:
+                self._config = tomllib.load(f)
+            
+            # Reapply environment overrides
+            self._apply_env_overrides()
+            
+            # Update mtime
+            self._last_mtime = current_mtime
+            
+            # V-MIN-3: Log successful reload event
+            logger.info(
+                f"Config hot-reloaded at {datetime.now().isoformat()}. "
+                f"Trigger: external mutation detected (mtime={current_mtime:.3f})."
+            )
+            
+            return True
+        
+        except Exception as e:
+            # V-MIN-3: Log reload failure
+            logger.error(
+                f"Config hot-reload failed at {datetime.now().isoformat()}: {e}. "
+                f"mtime={current_mtime:.3f}"
+            )
+            return False
 
 
 # Lazy singleton initialization

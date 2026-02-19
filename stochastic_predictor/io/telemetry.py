@@ -148,3 +148,237 @@ def materialize_telemetry_batch(records: list[TelemetryRecord]) -> list[dict]:
         materialized_records.append(payload)
     
     return materialized_records
+
+
+# =============================================================================
+# ADAPTIVE TELEMETRY (Level 4 Autonomy) - V-MAJ-7
+# =============================================================================
+
+@dataclass(frozen=True)
+class AdaptiveTelemetry:
+    """
+    Telemetry for adaptive architecture and solver selection monitoring.
+    
+    COMPLIANCE: V-MAJ-7 - Monitoring Telemetry for Adaptive Parameters
+    Theory.tex §2.3.6 - Monitoring and telemetry for adaptive SDE schemes
+    
+    This structure captures Level 4 autonomy adaptation events for:
+        - SDE solver selection (Kernel C)
+        - DGM architecture scaling (Kernel B)
+        - JKO flow parameter tuning (Orchestrator)
+        - Stiffness threshold adaptation (Kernel C)
+    
+    Attributes:
+        # SDE Solver Monitoring (Kernel C)
+        scheme_frequency_explicit: Percentage of steps using explicit Euler-Maruyama
+        scheme_frequency_implicit: Percentage of steps using implicit trapezoidal
+        max_stiffness_metric: Peak stiffness S_t over monitoring window
+        num_internal_iterations_mean: Mean Newton iterations for implicit solver
+        implicit_residual_norm_max: Worst-case convergence residual (implicit)
+        
+        # DGM Architecture Monitoring (Kernel B)
+        entropy_ratio_current: κ = H_current / H_baseline (regime transition indicator)
+        dgm_width_current: Current DGM network width
+        dgm_depth_current: Current DGM network depth
+        architecture_scaling_events: Count of capacity scaling events in window
+        
+        # JKO Flow Monitoring (Orchestrator)
+        entropy_window_current: Current adaptive entropy window size
+        learning_rate_current: Current adaptive JKO step size
+        volatility_sigma_squared: Empirical variance σ² from EMA estimator
+        
+        # Stiffness Threshold Monitoring (Kernel C)
+        stiffness_low_adaptive: Current θ_L threshold (Hölder-informed)
+        stiffness_high_adaptive: Current θ_H threshold (Hölder-informed)
+        holder_exponent_wtmm: α ∈ [0, 1] from WTMM pipeline
+    
+    Usage:
+        >>> telemetry = AdaptiveTelemetry(
+        ...     scheme_frequency_explicit=0.65,  # 65% explicit solver usage
+        ...     scheme_frequency_implicit=0.35,
+        ...     max_stiffness_metric=450.0,
+        ...     entropy_ratio_current=3.2,  # 3.2× entropy increase
+        ...     dgm_width_current=128,  # Scaled from baseline 64
+        ...     architecture_scaling_events=2,  # 2 scaling events in window
+        ...     # ... other fields
+        ... )
+    
+    References:
+        - API_Python.tex §3.1: Multi-Tenant Architecture
+        - Theory.tex §2.3.6: Hölder-Stiffness Correspondence
+        - Theory.tex §2.4.2: Entropy-Topology Coupling
+        - Theory.tex §3.4.1: Non-Universality of JKO Flow
+    """
+    
+    # SDE Solver Monitoring (Kernel C)
+    scheme_frequency_explicit: float  # ∈ [0, 1], percentage of explicit solver usage
+    scheme_frequency_implicit: float  # ∈ [0, 1], percentage of implicit solver usage
+    max_stiffness_metric: float       # Peak S_t over monitoring window
+    num_internal_iterations_mean: float  # Mean Newton iterations (implicit)
+    implicit_residual_norm_max: float    # Worst-case convergence residual
+    
+    # DGM Architecture Monitoring (Kernel B)
+    entropy_ratio_current: float      # κ = H_current / H_baseline
+    dgm_width_current: int            # Current DGM architecture width
+    dgm_depth_current: int            # Current DGM architecture depth
+    architecture_scaling_events: int  # Count of capacity increases in window
+    
+    # JKO Flow Monitoring (Orchestrator)
+    entropy_window_current: int       # Current adaptive entropy window size
+    learning_rate_current: float      # Current adaptive JKO step size
+    volatility_sigma_squared: float   # Empirical variance σ²
+    
+    # Stiffness Threshold Monitoring (Kernel C)
+    stiffness_low_adaptive: float     # Current θ_L (Hölder-informed)
+    stiffness_high_adaptive: float    # Current θ_H (Hölder-informed)
+    holder_exponent_wtmm: float       # α from WTMM multifractal analysis
+
+
+def collect_adaptive_telemetry(
+    state: Any,  # InternalState
+    config: Any,  # PredictorConfig
+    window_size: int = 100
+) -> Optional[AdaptiveTelemetry]:
+    """
+    Collect telemetry for adaptive architecture/solver diagnostics.
+    
+    COMPLIANCE: V-MAJ-7 - Adaptive Telemetry Monitoring
+    
+    This function extracts adaptive parameter snapshots from the current
+    orchestrator state and configuration. In a full Level 4 autonomy deployment,
+    this is called periodically (e.g., every 100 steps) to track
+    adaptation behavior.
+    
+    Args:
+        state: Current InternalState (contains counters, entropy, etc.)
+        config: Current PredictorConfig (may have been mutated)
+        window_size: Monitoring window for frequency calculations (default 100)
+    
+    Returns:
+        AdaptiveTelemetry instance or None if insufficient data
+    
+    Note:
+        Implementation extracts:
+        1. Solver frequency tracking (explicit vs implicit counts from InternalState)
+        2. Architecture scaling events (from InternalState.architecture_scaling_events)
+        3. Entropy ratio κ = H_current / H_baseline
+        4. Adaptive stiffness thresholds from config
+        5. JKO flow parameters from config
+    
+    Example:
+        >>> # In orchestration loop
+        >>> if step % 100 == 0:
+        ...     adaptive_tel = collect_adaptive_telemetry(state, config)
+        ...     if adaptive_tel:
+        ...         emit_adaptive_telemetry(adaptive_tel)
+    """
+    import jax.numpy as jnp
+    
+    # Compute solver frequencies (clipped to [0,1])
+    total_solver_steps = state.solver_explicit_count + state.solver_implicit_count
+    if total_solver_steps == 0:
+        # Insufficient data - return None
+        return None
+    
+    freq_explicit = float(state.solver_explicit_count) / total_solver_steps
+    freq_implicit = float(state.solver_implicit_count) / total_solver_steps
+    
+    # Compute entropy ratio κ = H_current / H_baseline
+    baseline_entropy_val = float(state.baseline_entropy)
+    if baseline_entropy_val <= 0.0:
+        # Avoid division by zero - use 1.0 (no scaling)
+        entropy_ratio = 1.0
+    else:
+        entropy_ratio = float(state.dgm_entropy) / baseline_entropy_val
+    
+    # Extract DGM architecture from config
+    dgm_width = 2 ** config.dgm_width_pow2
+    dgm_depth = config.dgm_depth
+    
+    # Extract JKO flow parameters from config
+    entropy_window = config.entropy_window
+    learning_rate = config.learning_rate
+    volatility_sigma_squared = float(state.ema_variance)
+    
+    # Extract adaptive stiffness thresholds from config
+    stiffness_low = config.stiffness_low
+    stiffness_high = config.stiffness_high
+    holder_exponent_val = float(state.holder_exponent)
+    
+    # Build AdaptiveTelemetry instance
+    # Note: We provide placeholder values for metrics not yet tracked
+    # (max_stiffness_metric, num_internal_iterations_mean, implicit_residual_norm_max)
+    return AdaptiveTelemetry(
+        # SDE Solver Frequency
+        scheme_frequency_explicit=freq_explicit,
+        scheme_frequency_implicit=freq_implicit,
+        max_stiffness_metric=0.0,  # Placeholder - requires Kernel C integration
+        num_internal_iterations_mean=0.0,  # Placeholder
+        implicit_residual_norm_max=0.0,  # Placeholder
+        
+        # DGM Architecture
+        entropy_ratio_current=entropy_ratio,
+        dgm_width_current=dgm_width,
+        dgm_depth_current=dgm_depth,
+        architecture_scaling_events=state.architecture_scaling_events,
+        
+        # JKO Flow
+        entropy_window_current=entropy_window,
+        learning_rate_current=learning_rate,
+        volatility_sigma_squared=volatility_sigma_squared,
+        
+        # Stiffness Thresholds
+        stiffness_low_adaptive=stiffness_low,
+        stiffness_high_adaptive=stiffness_high,
+        holder_exponent_wtmm=holder_exponent_val
+    )
+
+
+def emit_adaptive_telemetry(
+    telemetry: AdaptiveTelemetry,
+    log_path: str = "io/adaptive_telemetry.jsonl"
+) -> None:
+    """
+    Emit adaptive telemetry to JSON Lines log file.
+    
+    Args:
+        telemetry: AdaptiveTelemetry instance
+        log_path: Path to append telemetry (default: io/adaptive_telemetry.jsonl)
+    
+    Example:
+        >>> telemetry = AdaptiveTelemetry(...)
+        >>> emit_adaptive_telemetry(telemetry)
+        >>> # Appends JSON record to io/adaptive_telemetry.jsonl
+    """
+    import json
+    from pathlib import Path
+    from datetime import datetime, timezone
+    
+    # Convert to dict
+    telemetry_dict = {
+        'timestamp': datetime.now(timezone.utc).isoformat(),
+        'scheme_frequency_explicit': telemetry.scheme_frequency_explicit,
+        'scheme_frequency_implicit': telemetry.scheme_frequency_implicit,
+        'max_stiffness_metric': telemetry.max_stiffness_metric,
+        'num_internal_iterations_mean': telemetry.num_internal_iterations_mean,
+        'implicit_residual_norm_max': telemetry.implicit_residual_norm_max,
+        'entropy_ratio_current': telemetry.entropy_ratio_current,
+        'dgm_width_current': telemetry.dgm_width_current,
+        'dgm_depth_current': telemetry.dgm_depth_current,
+        'architecture_scaling_events': telemetry.architecture_scaling_events,
+        'entropy_window_current': telemetry.entropy_window_current,
+        'learning_rate_current': telemetry.learning_rate_current,
+        'volatility_sigma_squared': telemetry.volatility_sigma_squared,
+        'stiffness_low_adaptive': telemetry.stiffness_low_adaptive,
+        'stiffness_high_adaptive': telemetry.stiffness_high_adaptive,
+        'holder_exponent_wtmm': telemetry.holder_exponent_wtmm,
+    }
+    
+    # Ensure directory exists
+    log_file = Path(log_path)
+    log_file.parent.mkdir(parents=True, exist_ok=True)
+    
+    # Append to JSON Lines file
+    with open(log_file, 'a') as f:
+        f.write(json.dumps(telemetry_dict) + '\n')
+

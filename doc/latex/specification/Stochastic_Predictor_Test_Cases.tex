@@ -707,6 +707,219 @@ Validation:
 Disk exhaustion is common in production. Design priorities: (1) do not corrupt valid snapshots, (2) degrade gracefully in memory, (3) provide clear telemetry, (4) recover automatically when space frees.
 \end{remark}
 
+\chapter{Adaptive and Topological Robustness}
+
+This chapter validates the theoretical guarantees introduced by Level 4 Autonomy: adaptive architecture, dynamic regularization, kurtosis-coupled CUSUM, and meta-optimization determinism. These tests are implementation-agnostic and verify mathematical correctness before hardware-specific validation.
+
+\section{Optimal Transport Resilience (Dynamic Sinkhorn Coupling)}
+
+\subsection{Volatility-Coupled Regularization}
+
+\begin{testcase}[Dynamic Regularization Under Volatility Shocks]
+Validate the equation for dynamic regularization:
+\[
+\varepsilon_t = \max\left(\varepsilon_{\min}, \varepsilon_0\left(1 + \alpha \sigma_t\right)\right)
+\]
+where $\sigma_t$ is the current volatility estimate and $\alpha$ is the coupling coefficient.
+\end{testcase}
+
+\begin{criterion}
+\textbf{Setup:}
+\begin{enumerate}
+    \item Initialize Sinkhorn algorithm with baseline volatility $\sigma_0 = 0.01$
+    \item At iteration $t = 500$, inject a volatility shock: $\sigma_t = 100 \cdot \sigma_0$
+    \item Continue Sinkhorn iterations with dynamic $\varepsilon_t$ adjustment
+\end{enumerate}
+
+\textbf{Acceptance Criteria:}
+\begin{enumerate}
+    \item \textbf{Convergence Guarantee}: Algorithm must converge within \texttt{max\_iterations} without divergence to \texttt{NaN} or \texttt{Inf}
+    \item \textbf{Wasserstein Distance Stability}: Final Wasserstein distance $W_2(\mu, \nu)$ must remain finite and satisfy:
+    \[
+    W_2(\mu, \nu) \leq C \cdot (1 + \sigma_t)
+    \]
+    where $C$ is a problem-dependent constant
+    \item \textbf{Log-Domain Arithmetic}: All internal computations must use log-domain representation to prevent numerical underflow
+    \item \textbf{Regularization Lower Bound}: Verify $\varepsilon_t \geq \varepsilon_{\min}$ at all iterations to prevent ill-conditioning
+\end{enumerate}
+
+\textbf{Edge Case}: Test with extreme shock $\sigma_t = 10^4$. System must either (a) converge with degraded tolerance, or (b) emit \texttt{SinkhornDivergenceWarning} and fall back to unregularized transport.
+\end{criterion}
+
+\begin{remark}
+Dynamic regularization is critical for regime transitions in financial time series where volatility can spike by 100x within minutes (e.g., flash crashes, central bank announcements). Fixed $\varepsilon$ causes either: (1) over-smoothing in calm regimes (loss of signal), or (2) numerical instability in volatile regimes (NaN propagation).
+\end{remark}
+
+\section{Kurtosis-Coupled CUSUM (Adaptive Change Detection)}
+
+\subsection{Heavy-Tailed Robustness}
+
+\begin{testcase}[Adaptive Threshold Under Kurtosis Variation]
+Validate the Adaptive Threshold Lemma:
+\[
+h_t = h_0 \cdot \left(1 + \beta \cdot \frac{\kappa_t - 3}{\kappa_0 - 3}\right)
+\]
+where $\kappa_t$ is the empirical kurtosis, $\kappa_0 = 3$ (Gaussian baseline), and $\beta \in [0.3, 0.7]$ is the coupling strength.
+\end{testcase}
+
+\begin{criterion}
+\textbf{Setup - Phase 1 (Gaussian Regime):}
+\begin{enumerate}
+    \item Generate white Gaussian noise: $x_t \sim \mathcal{N}(0, 1)$, $t \in [1, 1000]$
+    \item Expected kurtosis: $\kappa \approx 3$
+    \item Expected threshold: $h_t \approx h_0$
+\end{enumerate}
+
+\textbf{Setup - Phase 2 (Heavy-Tailed Regime):}
+\begin{enumerate}
+    \item At $t = 1001$, switch to Student-t distribution: $x_t \sim t_{\nu=3}$ (heavy tails)
+    \item Expected kurtosis: $\kappa \approx 9$ for $\nu = 3$ (infinite for $\nu \leq 4$)
+    \item Expected threshold scaling: $h_t \approx h_0 \cdot (1 + \beta \cdot 2) \approx 2h_0$
+\end{enumerate}
+
+\textbf{Acceptance Criteria:}
+\begin{enumerate}
+    \item \textbf{Type I Error Constancy}: False positive rate (FPR) must remain approximately constant:
+    \[
+    \left| \text{FPR}_{\text{Phase 1}} - \text{FPR}_{\text{Phase 2}} \right| < 0.05
+    \]
+    where FPR is measured over 10 independent runs
+    \item \textbf{Threshold Scaling}: Verify threshold adapts according to kurtosis:
+    \[
+    \frac{h_{t=1500}}{h_{t=500}} \in [1.5, 2.5]
+    \]
+    for $\beta = 0.5$
+    \item \textbf{No Spurious Alarms}: CUSUM must NOT trigger regime change alarm during Phase 2 transition purely due to outliers. Only sustained mean shifts should trigger alarms.
+    \item \textbf{Grace Period Enforcement}: After kurtosis-induced threshold adaptation, system must observe grace period of $N_{\text{grace}}$ steps before accepting new regime
+\end{enumerate}
+
+\textbf{Failure Mode}: If threshold remains fixed ($h_t = h_0$), heavy-tailed regime will cause excessive false alarms (Type I Error $> 20\%$), violating statistical control.
+\end{criterion}
+
+\begin{remark}
+Kurtosis-coupled CUSUM is essential for financial markets where distribution tails fatten during crises (VIX spikes, credit events). Fixed thresholds calibrated for Gaussian regimes produce alarm floods when kurtosis increases, rendering change detection useless.
+\end{remark}
+
+\section{Topological Adaptation (DGM Architecture Scaling)}
+
+\subsection{Entropy-Driven Capacity Expansion}
+
+\begin{testcase}[Mode Collapse Prevention via Architecture Scaling]
+Validate the Entropy-Topology Coupling Theorem:
+\[
+\log(W \cdot D) \geq \log(W_0 \cdot D_0) + \beta \cdot \log(\kappa)
+\]
+where $W$ is network width, $D$ is depth, $\kappa = H_{\text{current}} / H_{\text{baseline}}$ is the entropy ratio, and $\beta \in [0.5, 1.0]$ is the coupling exponent.
+\end{testcase}
+
+\begin{criterion}
+\textbf{Setup:}
+\begin{enumerate}
+    \item Initialize DGM with baseline architecture: $W_0 = 64$, $D_0 = 4$ (capacity $= 256$)
+    \item Train on terminal condition with baseline entropy: $H[g] = H_0$
+    \item At iteration $t = 100$, inject high-entropy terminal condition: $H[g'] = 5 \cdot H_0$ (entropy ratio $\kappa = 5$)
+    \item \textbf{Scenario A (Fixed Architecture)}: Keep $W = 64$, $D = 4$ (no adaptation)
+    \item \textbf{Scenario B (Adaptive Architecture)}: Scale to $W \cdot D \geq 256 \cdot 5^{0.7} \approx 770$ (e.g., $W = 128$, $D = 6$)
+\end{enumerate}
+
+\textbf{Acceptance Criteria:}
+\begin{enumerate}
+    \item \textbf{Mode Collapse Detection (Scenario A)}: With fixed architecture, solution entropy must degrade within 10 training steps:
+    \[
+    H_{\text{solution}}(t=110) < \gamma \cdot H[g']
+    \]
+    where $\gamma = 0.5$ (50\% entropy loss threshold). System must emit \texttt{ModeCollapseWarning}.
+    
+    \item \textbf{Entropy Preservation (Scenario B)}: With adaptive architecture, solution entropy must remain high:
+    \[
+    H_{\text{solution}}(t=110) \geq 0.9 \cdot H[g']
+    \]
+    (90\% entropy retention)
+    
+    \item \textbf{Capacity Scaling Formula}: Verify architecture expansion follows:
+    \[
+    W_{\text{new}} \cdot D_{\text{new}} \geq (W_0 \cdot D_0) \cdot \kappa^{\beta}
+    \]
+    with $\beta \in [0.5, 1.0]$
+    
+    \item \textbf{XLA Recompilation Budget}: Architecture scaling must trigger at most 1 XLA recompilation per regime transition. Verify via JAX compilation cache hit rate $> 95\%$ after warmup.
+\end{enumerate}
+
+\textbf{Mathematical Justification}: From universal approximation theory, approximating a function with entropy $H$ in function space requires network capacity $\propto \exp(H)$. In log-space, this becomes linear: $\log(\text{capacity}) \propto H$.
+\end{criterion}
+
+\begin{remark}
+Mode collapse in DGM is catastrophic because the solver converges to a low-dimensional manifold that ignores the true solution's complexity. Adaptive architecture prevents this by expanding representational capacity when entropy increases. This is analogous to adaptive mesh refinement in numerical PDEs.
+\end{remark}
+
+\section{Meta-Optimization Determinism (TPE Checkpoint Persistence)}
+
+\subsection{Resumption Bit-Exactness}
+
+\begin{testcase}[Checkpoint Save/Load Roundtrip Determinism]
+Validate the TPE State Persistence Protocol ensuring bit-exact resumption after interruption.
+\end{testcase}
+
+\begin{criterion}
+\textbf{Setup:}
+\begin{enumerate}
+    \item Initialize Deep Tuning meta-optimizer with fixed PRNG seed: \texttt{seed = 42}
+    \item Configure search space: 14 structural hyperparameters (DGM width/depth, Sinkhorn iterations, etc.)
+    \item Set iteration budget: 50 trials
+\end{enumerate}
+
+\textbf{Execution - Scenario A (Uninterrupted):}
+\begin{enumerate}
+    \item Run 50 consecutive trials without interruption
+    \item Record final best parameters $\theta^*_A$ and best objective value $f^*_A$
+    \item Record complete trial history: $\{(\theta_i, f_i)\}_{i=1}^{50}$
+\end{enumerate}
+
+\textbf{Execution - Scenario B (Interrupted):}
+\begin{enumerate}
+    \item Run first 25 trials
+    \item Save checkpoint with SHA-256 integrity hash: \texttt{study\_checkpoint\_trial\_25.pkl.sha256}
+    \item Simulate process termination (\texttt{SIGTERM})
+    \item Load checkpoint and resume: run remaining 25 trials
+    \item Record final best parameters $\theta^*_B$ and best objective value $f^*_B$
+\end{enumerate}
+
+\textbf{Acceptance Criteria:}
+\begin{enumerate}
+    \item \textbf{Bit-Exact Equivalence}: Final parameters must be identical:
+    \[
+    \theta^*_A = \theta^*_B \quad (\text{all } 14 \text{ hyperparameters})
+    \]
+    Verify with: \texttt{numpy.array\_equal(theta\_A, theta\_B) == True}
+    
+    \item \textbf{Objective Value Parity}:
+    \[
+    |f^*_A - f^*_B| < 10^{-12}
+    \]
+    (floating-point precision tolerance)
+    
+    \item \textbf{Trial History Consistency}: All 50 trials must have identical parameters and objective values:
+    \[
+    \forall i \in [1, 50]: \quad \theta_i^A = \theta_i^B, \quad f_i^A = f_i^B
+    \]
+    
+    \item \textbf{PRNG State Preservation}: After resumption, next sampled trial must be identical to what would have been sampled without interruption. Verify by seeding both scenarios and comparing trial 26 parameters.
+    
+    \item \textbf{Checkpoint Integrity}: SHA-256 hash verification must pass on load. Corrupted checkpoint (modified bytes) must be rejected with \texttt{IntegrityError}.
+\end{enumerate}
+
+\textbf{Failure Modes to Test:}
+\begin{enumerate}
+    \item \textbf{Hash Mismatch}: Manually corrupt 1 byte in checkpoint file. Load must fail with integrity error.
+    \item \textbf{Missing Sidecar}: Delete \texttt{.sha256} file. Load must fail with \texttt{FileNotFoundError}.
+    \item \textbf{Study Name Mismatch}: Create checkpoint for study "A", attempt to load into study "B". Must fail with \texttt{ValueError}.
+\end{enumerate}
+\end{criterion}
+
+\begin{remark}
+Bit-exact determinism in meta-optimization is non-negotiable for reproducibility and debugging. Deep Tuning campaigns run for weeks; any checkpoint corruption or non-determinism forces full restart, wasting thousands of GPU-hours. SHA-256 integrity verification prevents silent corruption from disk errors or transmission failures.
+\end{remark}
+
 \chapter{Hardware Parity and Fidelity Tests (Cross-Platform)}
 
 Given heterogeneous targets (CPU, GPU, FPGA), add bit-consistency tests to ensure equivalent outputs across architectures.

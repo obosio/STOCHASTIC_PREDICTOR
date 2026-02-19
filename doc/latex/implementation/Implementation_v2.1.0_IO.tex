@@ -1,0 +1,1382 @@
+\documentclass[11pt, a4paper]{report}
+
+% --- PREAMBLE ---
+\usepackage[a4paper, top=2.5cm, bottom=2.5cm, left=2cm, right=2cm]{geometry}
+\usepackage{fontspec}
+\usepackage{amsmath}
+\usepackage{amssymb}
+\usepackage{listings}
+\usepackage{xcolor}
+\usepackage[hidelinks]{hyperref}
+\usepackage{graphicx}
+\usepackage{booktabs}
+\usepackage{array}
+
+\usepackage[english]{babel}
+
+% Code highlighting
+\definecolor{codegreen}{rgb}{0,0.6,0}
+\definecolor{codegray}{rgb}{0.5,0.5,0.5}
+\definecolor{codepurple}{rgb}{0.58,0,0.82}
+\definecolor{backcolour}{rgb}{0.95,0.95,0.92}
+
+\lstdefinestyle{mystyle}{
+    backgroundcolor=\color{backcolour},
+    commentstyle=\color{codegreen},
+    keywordstyle=\color{magenta},
+    numberstyle=\tiny\color{codegray},
+    stringstyle=\color{codepurple},
+    basicstyle=\ttfamily\footnotesize,
+    breakatwhitespace=false,
+    breaklines=true,
+    captionpos=b,
+    keepspaces=true,
+    numbers=left,
+    numbersep=5pt,
+    showspaces=false,
+    showstringspaces=false,
+    showtabs=false,
+    tabsize=2,
+    frame=single
+}
+
+\lstset{style=mystyle}
+
+\title{\textbf{Universal Stochastic Predictor \\ Phase 4: IO Layer \\ v2.1.0 (Level 4 Autonomy)}}
+\author{Implementation Team}
+\date{February 19, 2026}
+
+\begin{document}
+
+\maketitle
+
+\tableofcontents
+
+\chapter{Phase 4: IO Layer Overview}
+
+\section{Tag Information}
+\begin{itemize}
+    \item \textbf{Tag}: \texttt{impl/v2.1.0}
+    \item \textbf{Commit}: \texttt{03a06ef} (+ pending V-MAJ fixes)
+    \item \textbf{Status}: Level 4 Autonomy compliance (V-MAJ-4, V-MAJ-5 implemented)
+\end{itemize}
+
+Phase 4 introduces the asynchronous I/O layer for snapshots, streaming, and telemetry export. The primary design goal is to preserve JAX/XLA throughput by decoupling compute from disk or network latency.
+
+\section{Scope}
+
+Phase 4 covers:
+\begin{itemize}
+    \item \textbf{Telemetry Buffering}: Non-blocking emission of telemetry snapshots
+    \item \textbf{Deterministic Logging}: Hash-based parity checks for CPU/GPU validation
+    \item \textbf{Snapshot Strategy}: Atomic persistence of predictor state
+    \item \textbf{Ingestion and Validation}: Input filtering, staleness policy, frozen signal detection
+    \item \textbf{Security Enforcement}: Credential injection and secret exclusion
+    \item \textbf{IO Modules}: validators, loaders, telemetry, snapshots, credentials
+\end{itemize}
+
+\section{Design Principles}
+
+\begin{itemize}
+    \item \textbf{No Compute Stalls}: JAX compute threads never block on I/O
+    \item \textbf{Determinism}: Logs capture reproducible hashes instead of raw state dumps
+    \item \textbf{Security}: No raw signals or secrets in logs
+    \item \textbf{Configurability}: Logging intervals and destinations injected via config
+    \item \textbf{Integrity}: Snapshots and parity logs are hash-verified
+\end{itemize}
+
+\chapter{Ingestion and Validation}
+
+\section{Implementation Modules}
+
+Phase 4 IO introduces the following modules:
+
+\begin{itemize}
+    \item \texttt{io/validators.py}: Outlier, frozen signal, and staleness checks
+    \item \texttt{io/loaders.py}: Ingestion gate and decision flags
+    \item \texttt{io/telemetry.py}: Non-blocking telemetry buffer and parity hashes
+    \item \texttt{io/snapshots.py}: Binary snapshots, hash verification, atomic writes
+    \item \texttt{io/credentials.py}: Environment-based credential injection helpers
+\end{itemize}
+
+\section{Catastrophic Outlier Filter}
+
+Input validation must reject catastrophic outliers when $|y_t| > 20\sigma$ relative to historical normalization. In this case, the system must preserve inertial state and emit a critical alert without advancing the transport update.
+
+\begin{itemize}
+    \item Reject observation and keep current state unchanged.
+    \item Emit a critical alert for audit visibility.
+    \item Do not update JKO/Sinkhorn weights for the rejected step.
+\end{itemize}
+
+\subsection{Implementation Notes}
+
+Outlier detection is implemented as a pure function with configuration-driven thresholds. The ingestion gate returns a decision object that preserves inertial state when an outlier is detected.
+
+\section{Frozen Signal Alarm}
+
+If the exact same value is observed for $N_{freeze} \geq 5$ consecutive steps, emit a \texttt{FrozenSignalAlarmEvent}. This invalidates the multifractal spectrum and requires:
+
+\begin{itemize}
+    \item Freeze the topological branch (Kernel D).
+    \item Switch to degraded inference mode.
+    \item Continue monitoring until signal variation resumes.
+\end{itemize}
+
+\subsection{Recovery Criteria (V-MAJ-6: Frozen Signal Recovery Ratio)}
+
+The frozen signal lock is released when variance recovers above a configurable ratio of historical variance for a configurable number of consecutive steps.
+
+\subsubsection{Algorithm}
+
+\begin{equation}
+\text{recovered} = \text{detect\_frozen\_recovery}(\text{variance\_history}, \text{historical\_var}, \rho, n_c)
+\end{equation}
+
+where:
+\begin{itemize}
+    \item $\text{variance\_history}$: Recent residual variances
+    \item $\text{historical\_var}$: Baseline variance reference
+    \item $\rho = \texttt{config.frozen\_signal\_recovery\_ratio}$ (default: 0.1): Recovery threshold multiplier
+    \item $n_c = \texttt{config.frozen\_signal\_recovery\_steps}$ (default: 2): Confirmation window
+\end{itemize}
+
+Recovery is confirmed when:
+\begin{equation}
+\text{variance}_t > \rho \cdot \text{historical\_var} \quad \text{for} \quad n_c \text{ consecutive steps}
+\end{equation}
+
+\subsubsection{Implementation}
+
+\begin{lstlisting}[language=Python]
+# In evaluate_ingestion():
+if frozen:
+    residual_variance = np.var(state.residual_buffer)
+    in_recovery = detect_frozen_recovery(
+        variance_history=[residual_variance],
+        historical_variance=referenc_variance,
+        ratio_threshold=config.frozen_signal_recovery_ratio,  # V-MAJ-6: Use parameter
+        consecutive_steps=config.frozen_signal_recovery_steps
+    )
+    if in_recovery:
+        frozen = False  # Lift the frozen signal flag
+\end{lstlisting}
+
+\subsubsection{Configuration Parameters}
+
+From \texttt{PredictorConfig}:
+
+\begin{table}[h!]
+\centering
+\begin{tabular}{|l|l|p{6cm}|}
+\hline
+\textbf{Parameter} & \textbf{Default} & \textbf{Purpose} \\
+\hline
+\texttt{frozen\_signal\_min\_steps} & 5 & Consecutive equal values to trigger alarm \\
+\texttt{frozen\_signal\_recovery\_ratio} & 0.1 & Variance ratio threshold for recovery (10\% of baseline) \\
+\texttt{frozen\_signal\_recovery\_steps} & 2 & Confirmation window for recovery \\
+\hline
+\end{tabular}
+\caption{V-MAJ-6 Frozen Signal Recovery Configuration}
+\end{table}
+
+\subsubsection{Benefits}
+
+\begin{itemize}
+    \item \textbf{Automatic Recovery}: No manual intervention needed when signal variance improves
+    \item \textbf{Hysteresis}: Recovery threshold ($\rho=0.1$) is more lenient than typical alarm threshold, preventing oscillation
+    \item \textbf{Configuration-Driven}: All parameters injected from config.toml (zero-heuristics policy)
+    \item \textbf{State Preservation}: Maintains frozen flag during low-variance periods, automatically lifts when variance returns
+    \item \textbf{Signal Quality Supervision}: Enables secondary observability on signal quality degradation patterns
+\end{itemize}
+
+\section{Staleness Policy (TTL)}
+
+Every observation must carry a timestamp for TTL evaluation. If the target delay exceeds $\Delta_{max}$, the JKO update must be suspended immediately.
+
+\begin{itemize}
+    \item Compute staleness as $\Delta_t = t_{now} - t_{obs}$.
+    \item If $\Delta_t > \Delta_{max}$, skip the transport update.
+    \item Preserve state and record a staleness warning event.
+\end{itemize}
+
+\subsection{Implementation Notes}
+
+Staleness is computed as the difference between current time and observation timestamp. The ingestion decision flags a suspended JKO update when the TTL is exceeded.
+
+\chapter{Telemetry Abstraction}
+
+\section{TelemetryBuffer Emission}
+
+The JKO orchestrator should emit a \texttt{TelemetryBuffer} at the end of each step. This buffer is consumed by a dedicated process outside the JAX execution thread.
+
+\begin{itemize}
+    \item The buffer contains summary metrics (CUSUM, entropy, regime flags, OT cost).
+    \item The compute path only enqueues the buffer and continues.
+    \item The consumer is responsible for serialization and persistence.
+\end{itemize}
+
+\subsection{Implementation Notes}
+
+The telemetry buffer is a bounded, thread-safe queue. Buffer capacity is explicitly injected from \texttt{PredictorConfig.telemetry\_buffer\_capacity} to eliminate implicit defaults (zero-heuristics policy). Parity hashes are emitted on a configurable interval and derived from canonical float64 serialization.
+
+\begin{lstlisting}[language=Python]
+# Instantiation pattern (capacity injected from config)
+buffer = TelemetryBuffer(capacity=config.telemetry_buffer_capacity)
+\end{lstlisting}
+
+\section{No Compute Stalls}
+
+JAX compute threads must never block on I/O. Telemetry buffers must be non-blocking and consumed by a separate process or thread outside the JAX execution path.
+
+\chapter{Deterministic Logging}
+
+\section{Hash-Based Parity Checks}
+
+For hardware parity audits, the logger records SHA-256 hashes of the weight vector $\rho$ and the OT cost at configurable intervals. This permits CPU/GPU parity validation without dumping VRAM data.
+
+\begin{itemize}
+    \item Hash interval configured per deployment.
+    \item Hashes derived from canonical float64 serialization.
+    \item Logs are append-only and immutable.
+\end{itemize}
+
+\section{Audit Hashes}
+
+Parity audits must log SHA-256 hashes of $\rho$ and OT cost at configured intervals. Hash input must be derived from canonical float64 serialization to ensure reproducibility across CPU and GPU.
+
+\chapter{Snapshot Strategy}
+
+\section{Atomic Persistence}
+
+Snapshots must be persisted atomically to prevent partial writes. The IO layer is responsible for:
+\begin{itemize}
+    \item Writing to temporary files and renaming atomically.
+    \item Optional compression configured by policy.
+    \item Coordinating snapshot cadence with telemetry output.
+\end{itemize}
+
+\section{Binary Serialization}
+
+Text formats (JSON, XML) are prohibited for critical snapshots due to latency and ambiguity. Use dense binary formats such as Protocol Buffers or MessagePack.
+
+\begin{itemize}
+    \item Encode all fields deterministically.
+    \item Preserve float64 for numerical fidelity.
+\end{itemize}
+
+\subsection{Implementation Notes}
+
+The snapshot serializer uses MessagePack as the default binary format. Hash verification is performed before state injection.
+
+\section{Integrity Verification}
+
+Each snapshot $\Sigma_t$ must include a hash footer (SHA-256 or CRC32c). The load routine must verify the hash before injecting state into memory.
+
+\begin{itemize}
+    \item Fail closed if hash verification fails.
+    \item Log integrity failures at critical severity.
+\end{itemize}
+
+\section{Atomic Write Protocol}
+
+To avoid partial writes, persist snapshots to a temporary file and then atomically rename to the target path. The rename step must be the only visible operation to consumers.
+
+\begin{itemize}
+    \item Use a unique temporary filename per snapshot.
+    \item Ensure the target file is replaced atomically.
+\end{itemize}
+
+\subsection{Implementation Notes}
+
+Snapshots are written to a unique temporary file and moved into place using atomic rename. Optional fsync ensures persistence across power loss.
+
+\chapter{Security Policies}
+
+\section{Credential Injection}
+
+Tokens and API keys must not appear in source code. Credentials must be injected at runtime via environment variables or .env files.
+
+\subsection{Implementation Notes}
+
+Credential helpers read from environment variables or .env files and raise explicit errors on missing values.
+
+\section{Version Control Exclusion}
+
+The repository must exclude .env files and credential directories via .gitignore. Secrets must never be committed.
+
+\chapter{Orchestrator Integration}
+
+\section{Ingestion Gate in orchestrate\_step()}
+
+The core orchestration pipeline now integrates ingestion validation as a pre-kernel gate. The \texttt{orchestrate\_step()} function signature is extended to accept observation metadata:
+
+\begin{lstlisting}[language=Python]
+def orchestrate_step(
+    signal: Float[Array, "n"],
+    timestamp_ns: int,
+    state: InternalState,
+    config: PredictorConfig,
+    observation: ProcessState,
+    now_ns: int,
+) -> OrchestrationResult:
+    """Run a single orchestration step with IO ingestion validation."""
+\end{lstlisting}
+
+\subsection{Execution Flow}
+
+The ingestion gate operates as follows:
+
+\begin{enumerate}
+    \item \textbf{Input Validation}: Standard signal length and dtype checks.
+    \item \textbf{Ingestion Decision}: Call \texttt{evaluate\_ingestion()} with current state, observation, and configuration.
+    \item \textbf{Rejection Logic}: If \texttt{accept\_observation == False}, reject the entire observation without state update (emergency mode).
+    \item \textbf{Degradation Flags}: Apply \texttt{suspend\_jko\_update} and \texttt{freeze\_kernel\_d} flags to control fusion behavior.
+    \item \textbf{Kernel Execution}: Run kernels A-D; if \texttt{freeze\_kernel\_d == True}, mark kernel D output as frozen.
+    \item \textbf{Fusion Selection}: Skip JKO/Sinkhorn if degraded mode or \texttt{suspend\_jko\_update} is set.
+    \item \textbf{State Update}: Only update InternalState if observation is accepted.
+\end{enumerate}
+
+\subsection{Flag Semantics}
+
+The \texttt{IngestionDecision} object carries the following flags:
+
+\begin{itemize}
+    \item \textbf{accept\_observation}: If False, reject and preserve inertial state.
+    \item \textbf{suspend\_jko\_update}: If True, freeze weights and skip Sinkhorn.
+    \item \textbf{degraded\_mode}: If True, emit degraded inference mode prediction.
+    \item \textbf{freeze\_kernel\_d}: If True, mark kernel D output as frozen (no weight update).
+    \item \textbf{staleness\_ns}: Staleness in nanoseconds for audit logging.
+    \item \textbf{events}: Emitted validation events (outliers, frozen signals, staleness alarms).
+\end{itemize}
+
+\subsection{Early Return on Rejection}
+
+If an observation is rejected (catastrophic outlier), the orchestrator returns a degraded result without advancing the state:
+
+\begin{lstlisting}[language=Python]
+# If observation is rejected, skip state update entirely
+if reject_observation:
+    updated_state = state
+else:
+    updated_state = atomic_state_update(...)
+\end{lstlisting}
+
+\section{PRNG Constant}
+
+To eliminate magic numbers in PRNG splitting, we introduce a module-level constant in \texttt{api/prng.py}:
+
+\begin{lstlisting}[language=Python]
+# api/prng.py: GLOBAL PRNG CONFIGURATION
+RNG_SPLIT_COUNT = 2  # For kernel execution subkeys
+\end{lstlisting}
+
+This constant is now imported by \texttt{core/orchestrator.py} to maintain layer isolation and clarity. All PRNG-related constants reside in the API layer.
+
+\section{64-bit Precision Enforcement}
+
+To ensure Malliavin calculus and Signature computation stability, 64-bit precision must be activated at module import time, before any XLA tracing:
+
+\begin{lstlisting}[language=Python]
+# api/config.py: JAX CONFIGURATION (at module level)
+import jax
+jax.config.update("jax_enable_x64", True)
+\end{lstlisting}
+
+This enforces bit-exact reproducibility across CPU/GPU/FPGA backends and must execute before \texttt{ConfigManager} initialization.
+
+\chapter{Telemetry Buffer Integration (P2.3)}
+
+\section{Motivation}
+
+Phase 2 implementations (P2.1 WTMM, P2.2 SDE stiffness, V-MAJ violations) generate rich diagnostic data during orchestration. To enable post-mortem analysis, compliance audits, and debugging without stalling inference, P2.3 integrates a \textbf{non-blocking telemetry buffer} into the orchestration pipeline.
+
+Key requirements:
+\begin{itemize}
+    \item \textbf{Non-Blocking}: Logging never blocks compute threads (async enqueue only)
+    \item \textbf{Thread-Safe}: Multiple consumers can safely drain buffer
+    \item \textbf{Audit Trail}: Records capture complete prediction state snapshot
+    \item \textbf{Integrity}: Parity hashes verify weights and free energy
+    \item \textbf{Config-Driven}: Emission interval and buffer capacity injected from config
+\end{itemize}
+
+\section{Data Model}
+
+Each telemetry record captures:
+
+\begin{lstlisting}[language=Python]
+@dataclass(frozen=True)
+class TelemetryRecord:
+    step: int                     # Monotonic counter
+    payload: dict                 # Rich diagnostic data
+
+
+# Payload structure (P2.3):
+payload = {
+    "step": 42,
+    "timestamp_ns": 1708308000000000000,  # Nanosecond precision
+    "prediction": 1.234,                  # Fused kernel prediction
+    "weights": [0.25, 0.25, 0.25, 0.25], # Kernel ensemble weights (rho)
+    "kurtosis": 3.5,
+    "holder_exponent": 0.65,              # Signal regularity
+    "dgm_entropy": 0.45,
+    "mode_collapse_warning": false,       # V-MAJ-5 flag
+    "degraded_mode": false,               # V-MAJ-7 hysteresis
+    "emergency_mode": false,              # Circuit breaker
+    "parity_hashes": {
+        "rho_sha256": "abc123...",        # Hash of weight vector
+        "ot_cost_sha256": "def456..."     # Hash of Sinkhorn free energy
+    }
+}
+\end{lstlisting}
+
+\section{Integration into orchestrate\_step()}
+
+The orchestrator now accepts optional \texttt{telemetry\_buffer} and \texttt{step\_counter} parameters:
+
+\begin{lstlisting}[language=Python]
+def orchestrate_step(
+    signal: Float[Array, "n"],
+    timestamp_ns: int,
+    state: InternalState,
+    config: PredictorConfig,
+    observation: ProcessState,
+    now_ns: int,
+    telemetry_buffer: Optional[TelemetryBuffer] = None,  # P2.3
+    step_counter: int = 0,  # P2.3
+) -> OrchestrationResult:
+    """
+    Run a single orchestration step with telemetry buffering.
+    
+    If telemetry_buffer is None, skips telemetry (backward compatible).
+    If provided, enqueues record when hash_interval triggers.
+    """
+    # ... existing orchestration logic ...
+    
+    # P2.3: Telemetry Buffer Integration (before return)
+    if telemetry_buffer is not None:
+        parity_record = parity_hashes(
+            rho=final_rho,
+            ot_cost=float(free_energy) if fusion is not None else 0.0
+        )
+        
+        telemetry_payload = {
+            "step": step_counter,
+            "timestamp_ns": timestamp_ns,
+            "prediction": float(fused_prediction),
+            "weights": [float(w) for w in final_rho],
+            "kurtosis": float(updated_state.kurtosis),
+            "holder_exponent": float(updated_state.holder_exponent),
+            "dgm_entropy": float(updated_state.dgm_entropy),
+            "mode_collapse_warning": mode_collapse_warning,
+            "degraded_mode": degraded_mode,
+            "emergency_mode": emergency_mode,
+            "parity_hashes": parity_record,
+        }
+        
+        # Emit only when hash_interval triggers (config-driven)
+        if should_emit_hash(step_counter, config.telemetry_hash_interval_steps):
+            telemetry_record = TelemetryRecord(step=step_counter, payload=telemetry_payload)
+            telemetry_buffer.enqueue(telemetry_record)
+    
+    return OrchestrationResult(...)
+\end{lstlisting}
+
+\section{Configuration Parameters}
+
+\begin{table}[h!]
+\centering
+\begin{tabular}{|l|c|p{6cm}|}
+\hline
+\textbf{Parameter} & \textbf{Default} & \textbf{Purpose} \\
+\hline
+\texttt{telemetry\_buffer\_capacity} & 1024 & Maximum records in ring buffer \\
+\hline
+\texttt{telemetry\_hash\_interval\_steps} & 1 & Emit telemetry every N steps \\
+\hline
+\end{tabular}
+\caption{P2.3 Telemetry Configuration}
+\end{table}
+
+\subsection{Configuration Injection Example}
+
+\begin{lstlisting}[language=bash]
+# config.toml
+[io]
+# Telemetry
+telemetry_hash_interval_steps = 1          # Emit every step (or 10 for sparser logging)
+telemetry_buffer_capacity = 1024           # Ring buffer size (zero-heuristics injection)
+\end{lstlisting}
+
+\section{Thread-Safety Model}
+
+\texttt{TelemetryBuffer} uses \texttt{threading.Lock} for atomic operations:
+
+\begin{itemize}
+    \item \textbf{enqueue()}: Acquires lock, appends record, releases (O(1) amortized)
+    \item \textbf{drain()}: Acquires lock, extracts all records, clears buffer, releases
+    \item \textbf{size()}: Acquires lock, returns current count, releases
+\end{itemize}
+
+This prevents race conditions when orchestrator (compute thread) enqueues while consumer thread drains.
+
+\section{Backward Compatibility}
+
+P2.3 is fully backward compatible:
+\begin{itemize}
+    \item If \texttt{telemetry\_buffer=None}, no telemetry is emitted (default)
+    \item Existing calls to \texttt{orchestrate\_step()} without telemetry params continue working
+    \item No changes to compute path (telemetry entirely outside @jax.jit scope)
+\end{itemize}
+
+\section{Usage Example}
+
+\begin{lstlisting}[language=Python]
+from stochastic_predictor.io.telemetry import TelemetryBuffer
+from stochastic_predictor.api.config import PredictorConfigInjector
+
+# Initialize
+config = PredictorConfigInjector().create_config()
+telemetry_buffer = TelemetryBuffer(capacity=config.telemetry_buffer_capacity)
+
+# In prediction loop:
+for step in range(num_steps):
+    result = orchestrate_step(
+        signal=current_signal,
+        timestamp_ns=now_ns(),
+        state=state,
+        config=config,
+        observation=obs,
+        now_ns=now_ns(),
+        telemetry_buffer=telemetry_buffer,     # P2.3: Pass buffer
+        step_counter=step,                     # P2.3: Pass step
+    )
+    
+    # Optional: Drain telemetry in background thread
+    if step\% 100 == 0:
+        records = telemetry_buffer.drain()
+        # Write to file/database (non-blocking, doesn't stall orchestrator)
+        write_telemetry_async(records)
+\end{lstlisting}
+
+\section{Benefits}
+
+\begin{itemize}
+    \item \textbf{Non-Blocking}: Telemetry enqueue is O(1), never stalls inference
+    \item \textbf{Audit Trail}: Complete state snapshots for compliance and debugging
+    \item \textbf{Integrity}: Parity hashes enable CPU/GPU parity validation
+    \item \textbf{Configurable}: Emission interval and buffer size injected from config
+    \item \textbf{Thread-Safe}: Lock-based synchronization for multi-threaded consumers
+    \item \textbf{Backward Compatible}: Fully optional, no impact on existing code paths
+\end{itemize}
+
+\chapter{Level 4 Autonomy: Configuration Mutation Safety}
+
+\section{Overview}
+
+Phase 2.1.0 introduces \textbf{Level 4 Autonomy} compliance for autonomous configuration mutations during meta-optimization. This chapter documents the implementation of V-CRIT-2, V-MAJ-4, V-MAJ-5, and V-MAJ-7 violations identified during the specification compliance audit (AUDIT\_SPEC\_COMPLIANCE\_2026-02-19.md).
+
+\textbf{Specification References:}
+\begin{itemize}
+    \item \texttt{IO.tex} §3.3 - Configuration Mutation Protocol (Atomic Write)
+    \item \texttt{IO.tex} §3.3.6 - Rate Limiting and Safety Guardrails
+    \item \texttt{Implementation.tex} §5.4.3 - Degradation Detection Protocol
+    \item \texttt{Theory.tex} §2.3.6 - Monitoring and Telemetry for adaptive SDE schemes
+\end{itemize}
+
+\textbf{Implementation Scope:}
+\begin{itemize}
+    \item \textbf{V-CRIT-2}: Atomic TOML mutation protocol with locked subsection protection ✅
+    \item V-MAJ-4: Configuration mutation rate limiting
+    \item V-MAJ-5: Degradation detection with automatic rollback
+    \item V-MAJ-7: Adaptive telemetry monitoring (partial - safety guardrails)
+\end{itemize}
+
+\section{V-CRIT-2: Atomic Configuration Mutation Protocol}
+
+\subsection{Problem Statement}
+
+\textbf{Violation:} No atomic write mechanism for config.toml mutations during autonomous meta-optimization. Race conditions, partial writes, and locked parameter violations could corrupt system configuration without rollback capability.
+
+\textbf{Impact:} 
+\begin{itemize}
+    \item Partial file corruption during concurrent writes
+    \item No protection for immutable subsections (e.g., float\_precision, snapshot\_path)
+    \item No audit trail for forensic analysis
+    \item Cannot rollback to previous working configuration
+    \item Loss of checkpoint resumability if meta-optimization paths corrupted
+\end{itemize}
+
+\subsection{Requirements}
+
+\textbf{IO.tex §3.3.2 - Atomic TOML Update Algorithm:}
+\begin{enumerate}
+    \item \textbf{Phase 1 - Validation}: Check parameter ranges, types, locked subsections
+    \item \textbf{Phase 2 - Backup}: Create timestamped backup + latest .bak
+    \item \textbf{Phase 3 - Atomic Write}: Write to .tmp, fsync(), os.replace()
+    \item \textbf{Phase 4 - Audit Log}: Record mutation to io/mutations.log
+    \item \textbf{Phase 5 - Success}: Return or raise on failure
+\end{enumerate}
+
+\textbf{IO.tex §3.3.4 - Locked Subsections (Asimov's Zeroth Law):}
+\begin{itemize}
+    \item \texttt{[io]}: snapshot\_path, telemetry\_buffer\_maxlen, credentials\_vault\_path
+    \item \texttt{[security]}: hash algorithms, mutation rate limits, audit parameters
+    \item \texttt{[core]}: float\_precision, jax\_platform (substrate parameters)
+    \item \texttt{[meta\_optimization]}: checkpoint\_path, max iterations (prevents infinite loops)
+\end{itemize}
+
+\subsection{Implementation}
+
+\textbf{Module:} \texttt{stochastic\_predictor/io/config\_mutation.py} (EXTENDED)
+
+\textbf{Functions Added:}
+\begin{itemize}
+    \item \texttt{atomic\_write\_config()}: 5-phase POSIX-compliant atomic mutation
+    \item \texttt{validate\_config\_mutation()}: Schema validation + locked subsection checks
+    \item \texttt{append\_audit\_log()}: JSON Lines audit trail logging
+    \item \texttt{create\_config\_backup()}: Timestamped backup creation
+\end{itemize}
+
+\textbf{Constants Added:}
+\begin{itemize}
+    \item \texttt{LOCKED\_SUBSECTIONS}: Immutable parameter dictionary
+    \item \texttt{VALIDATION\_SCHEMA}: Type/range constraints for mutable parameters
+\end{itemize}
+
+\subsubsection{Atomic Write Protocol Implementation}
+
+\begin{lstlisting}[language=Python]
+def atomic_write_config(
+    config_path: Path,
+    new_params: Dict[str, Any],
+    trigger: str = "ManualMutation",
+    best_objective: Optional[float] = None,
+    audit_log_path: Optional[Path] = None,
+) -> None:
+    """
+    Atomically mutate configuration with POSIX-compliant write protocol.
+    
+    COMPLIANCE: IO.tex §3.3.2 - Atomic TOML Update Algorithm
+    """
+    audit_log_path = audit_log_path or Path("io/mutations.log")
+    
+    # Phase 1: Validation
+    current_config = toml.load(config_path)
+    merged_config = validate_config_mutation(current_config, new_params)
+    
+    # Compute delta for audit log
+    delta = {
+        param_key: (_get_nested_param(current_config, param_key), new_value)
+        for param_key, new_value in new_params.items()
+    }
+    
+    # Phase 2: Immutable Backup
+    timestamp = datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
+    backup_path = config_path.with_suffix(f".bak.{timestamp}")
+    latest_backup_path = config_path.with_suffix(".bak")
+    
+    shutil.copy2(config_path, backup_path)
+    shutil.copy2(config_path, latest_backup_path)
+    
+    # Phase 3: Atomic Write via Temporary File
+    tmp_path = config_path.with_suffix(".tmp")
+    
+    # O_EXCL flag detects concurrent mutation
+    fd = os.open(tmp_path, os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o644)
+    
+    try:
+        toml_bytes = toml.dumps(merged_config).encode("utf-8")
+        os.write(fd, toml_bytes)
+        
+        # CRITICAL: fsync() ensures kernel buffer flush to disk
+        os.fsync(fd)
+    finally:
+        os.close(fd)
+    
+    # Phase 4: Atomic Replacement (POSIX os.replace)
+    os.replace(tmp_path, config_path)
+    
+    # Phase 5: Audit Logging
+    append_audit_log(audit_log_path, {
+        "timestamp": datetime.now(timezone.utc).isoformat(),
+        "event": "MUTATION_SUCCESS",
+        "trigger": trigger,
+        "delta": delta,
+        "best_objective": best_objective,
+        "backup": str(backup_path),
+        "status": "SUCCESS",
+    })
+\end{lstlisting}
+
+\subsubsection{Validation Schema Implementation}
+
+\begin{lstlisting}[language=Python]
+# Locked subsections (immutable to prevent self-corruption)
+LOCKED_SUBSECTIONS = {
+    "io": ["snapshot_path", "telemetry_buffer_maxlen", 
+           "credentials_vault_path"],
+    "security": ["telemetry_hash_interval_steps",
+                 "snapshot_integrity_hash_algorithm",
+                 "allowed_mutation_rate_per_hour"],
+    "core": ["float_precision", "jax_platform"],
+    "meta_optimization": ["max_deep_tuning_iterations",
+                          "checkpoint_path",
+                          "mutation_protocol_version"],
+}
+
+# Validation schema for mutable parameters
+VALIDATION_SCHEMA = {
+    "sensitivity.cusum_k": {"type": float, "range": (0.3, 1.5)},
+    "kernels.dgm_width_size": {"type": int, "range": (32, 256),
+                                "constraint": "power_of_2"},
+    "kernels.stiffness_low": {"type": float, "range": (50.0, 500.0)},
+    "kernels.stiffness_high": {"type": float, "range": (500.0, 5000.0)},
+    # ... 20+ additional mutable parameters
+}
+
+def validate_config_mutation(
+    current_config: Dict[str, Any],
+    new_params: Dict[str, Any],
+) -> Dict[str, Any]:
+    """
+    Validate configuration mutation against schema and locked subsections.
+    
+    Raises:
+        ConfigMutationError: If locked parameter mutation attempted
+        ConfigMutationError: If parameter out of safe range
+    """
+    # Check locked subsection violations
+    for param_key in new_params.keys():
+        subsection = param_key.split(".")[0]
+        param_name = ".".join(param_key.split(".")[1:])
+        
+        if subsection in LOCKED_SUBSECTIONS:
+            if param_name in LOCKED_SUBSECTIONS[subsection]:
+                raise ConfigMutationError(
+                    f"Parameter '{param_key}' is LOCKED (immutable)"
+                )
+    
+    # Validate against schema (ranges, types, constraints)
+    merged_config = dict(current_config)
+    for param_key, new_value in new_params.items():
+        rules = VALIDATION_SCHEMA[param_key]
+        
+        # Type check
+        if not isinstance(new_value, rules["type"]):
+            raise ConfigMutationError("Type mismatch")
+        
+        # Range check
+        min_val, max_val = rules["range"]
+        if not (min_val <= new_value <= max_val):
+            raise ConfigMutationError("Out of safe range")
+        
+        # Apply constraints (e.g., power_of_2)
+        if "constraint" in rules:
+            # Check constraint...
+        
+        _set_nested_param(merged_config, param_key, new_value)
+    
+    # Cross-parameter constraints (e.g., stiffness_low < stiffness_high)
+    # ...
+    
+    return merged_config
+\end{lstlisting}
+
+\subsection{Usage Example}
+
+\begin{lstlisting}[language=Python]
+from stochastic_predictor.io import atomic_write_config
+
+# After Deep Tuning completes
+best_params = {
+    "sensitivity.cusum_k": 0.72,
+    "kernels.dgm_width_size": 256,
+    "kernels.stiffness_low": 143.0,
+}
+
+# Atomic mutation with audit trail
+atomic_write_config(
+    Path("config.toml"),
+    best_params,
+    trigger="DeepTuning_Iteration_500",
+    best_objective=0.0234  # MAPE
+)
+
+# Creates:
+#   - config.toml.bak.2026-02-19T14:32:05Z (timestamped backup)
+#   - config.toml.bak (latest backup)
+#   - io/mutations.log (audit entry)
+\end{lstlisting}
+
+\subsection{Files Modified}
+
+\begin{itemize}
+    \item \texttt{stochastic\_predictor/io/config\_mutation.py}: +280 LOC
+    \item \texttt{stochastic\_predictor/io/\_\_init\_\_.py}: +7 exports
+\end{itemize}
+
+\subsection{Compliance Impact}
+
+\textbf{V-CRIT-2 Resolution:} Atomic TOML mutation protocol fully implemented with:
+\begin{itemize}
+    \item POSIX-compliant atomic write (fsync + os.replace)
+    \item Locked subsection protection (Asimov's Zeroth Law)
+    \item Validation schema enforcement (20+ mutable parameters)
+    \item Timestamped backups for manual rollback
+    \item JSON Lines audit trail for forensic analysis
+\end{itemize}
+
+\textbf{Level 4 Autonomy Enablement:} System can now autonomously mutate config.toml during Deep Tuning campaigns without human intervention, while maintaining safety guarantees.
+
+
+
+\section{V-MAJ-4: Configuration Mutation Rate Limiting}
+
+\subsection{Problem Statement}
+
+\textbf{Violation:} No safety guardrails enforced for autonomous configuration mutations during meta-optimization. Optimizer could thrash between configurations, mutate too frequently, or make excessively large parameter jumps.
+
+\textbf{Impact:} System instability, pathological optimizer behavior, configuration thrashing without convergence.
+
+\subsection{Safety Requirements}
+
+\textbf{IO.tex §3.3.6 Requirements:}
+\begin{itemize}
+    \item Maximum mutation rate: ≤10 mutations/hour
+    \item Minimum stability period: 1,000 prediction steps between mutations
+    \item Delta magnitude limit: ≤50\% relative change per parameter
+    \item Audit trail: JSON Lines log of all mutation events
+\end{itemize}
+
+\subsection{Implementation}
+
+\textbf{Module:} \texttt{stochastic\_predictor/io/config\_mutation.py} (NEW)
+
+\textbf{Class:} \texttt{MutationRateLimiter}
+
+\begin{lstlisting}[language=Python]
+@dataclass
+class MutationRateLimiter:
+    """Enforce safety guardrails for autonomous configuration mutations.
+    
+    Prevents optimizer pathologies:
+        - Thrashing between configurations
+        - Excessive mutation frequency
+        - Large parameter jumps
+        - Pathological degradation without rollback
+    
+    Args:
+        max_mutations_per_hour: Maximum allowed mutations/hour (default 10)
+        stability_steps_required: Minimum steps before next mutation (default 1000)
+        max_relative_change: Maximum parameter change per mutation (default 0.5)
+    """
+    
+    max_mutations_per_hour: int = 10
+    stability_steps_required: int = 1000
+    max_relative_change: float = 0.5
+    
+    _mutation_history: List[Tuple[float, Dict]] = field(default_factory=list)
+    _last_mutation_timestamp: Optional[float] = None
+    _current_steps_since_mutation: int = 0
+    
+    def can_mutate(self) -> Tuple[bool, str]:
+        """Check if mutation is allowed under safety guardrails.
+        
+        Returns:
+            (allowed: bool, reason: str)
+        """
+        # Check maximum mutation rate (sliding 1-hour window)
+        one_hour_ago = time.time() - 3600
+        recent_mutations = [
+            ts for ts, _ in self._mutation_history if ts > one_hour_ago
+        ]
+        if len(recent_mutations) >= self.max_mutations_per_hour:
+            return False, f"Rate limit: {len(recent_mutations)}/10 mutations"
+        
+        # Check minimum stability period
+        if self._current_steps_since_mutation < self.stability_steps_required:
+            return False, f"Stability: {self._current_steps_since_mutation}/1000"
+        
+        return True, "OK"
+    
+    def validate_delta(
+        self,
+        delta: Dict[str, Tuple[float, float]],
+        max_relative_change: Optional[float] = None
+    ) -> Tuple[bool, str]:
+        """Validate parameter delta magnitude.
+        
+        Args:
+            delta: {param: (old_value, new_value)}
+            max_relative_change: Override default max change
+        
+        Returns:
+            (valid: bool, reason: str)
+        """
+        max_change = max_relative_change or self.max_relative_change
+        
+        for param, (old_val, new_val) in delta.items():
+            if abs(old_val) < 1e-12:
+                continue  # Skip zero division
+            
+            relative_change = abs((new_val - old_val) / old_val)
+            
+            if relative_change > max_change:
+                return False, (
+                    f"{param} change too large: {relative_change:.1%} > 50%"
+                )
+        
+        return True, "OK"
+    
+    def record_mutation(self, delta: Dict) -> None:
+        """Record successful mutation."""
+        now = time.time()
+        self._mutation_history.append((now, delta))
+        self._current_steps_since_mutation = 0
+    
+    def increment_stability_counter(self) -> None:
+        """Call after each prediction step."""
+        self._current_steps_since_mutation += 1
+\end{lstlisting}
+
+\subsection{Usage Pattern}
+
+\begin{lstlisting}[language=Python]
+# In meta-optimizer loop
+limiter = MutationRateLimiter(max_mutations_per_hour=10)
+
+# Before applying mutation
+can_mutate, reason = limiter.can_mutate()
+if not can_mutate:
+    logger.info(f"Mutation blocked: {reason}")
+    continue
+
+# Validate parameter delta
+delta = {"learning_rate": (0.01, 0.015)}  # 50% increase
+valid, msg = limiter.validate_delta(delta)
+if not valid:
+    logger.warning(f"Delta rejected: {msg}")
+    continue
+
+# Apply mutation and record
+apply_config_mutation(delta)
+limiter.record_mutation(delta)
+
+# In main prediction loop
+for step in range(1000):
+    prediction = orchestrate_step(...)
+    limiter.increment_stability_counter()
+\end{lstlisting}
+
+\section{V-MAJ-5: Degradation Detection Auto-Rollback}
+
+\subsection{Problem Statement}
+
+\textbf{Violation:} No automatic rollback mechanism when post-mutation performance degrades beyond acceptable threshold. Pathological mutations persist indefinitely, requiring manual operator intervention.
+
+\textbf{Impact:} System can enter degraded state without automatic recovery, violating Level 4 autonomy requirements.
+
+\subsection{Safety Requirements}
+
+\textbf{IO.tex §3.3.6 Requirements:}
+\begin{itemize}
+    \item Monitor RMSE over N=100 predictions post-mutation
+    \item Compare to pre-mutation baseline RMSE
+    \item If relative increase > 30\%, trigger automatic rollback
+    \item Restore \texttt{config.toml} from \texttt{config.toml.bak}
+    \item Log rollback event to audit trail
+\end{itemize}
+
+\subsection{Implementation}
+
+\textbf{Module:} \texttt{stochastic\_predictor/io/config\_mutation.py}
+
+\textbf{Class:} \texttt{DegradationMonitor}
+
+\begin{lstlisting}[language=Python]
+@dataclass
+class DegradationMonitor:
+    """Monitor post-mutation performance and trigger rollback on degradation.
+    
+    Implements closed-loop safety mechanism:
+        1. Record pre-mutation baseline RMSE
+        2. Monitor post-mutation predictions (N=100 sample window)
+        3. Compute post-mutation RMSE
+        4. If relative increase > threshold (default 30%), auto-rollback
+    
+    Args:
+        degradation_threshold: Max allowed RMSE increase (default 0.3 = 30%)
+        monitoring_window: Predictions to sample post-mutation (default 100)
+        config_path: Path to config.toml (default "config.toml")
+        backup_path: Path to backup config (default "config.toml.bak")
+        audit_log_path: Path to mutation audit log
+    """
+    
+    degradation_threshold: float = 0.3
+    monitoring_window: int = 100
+    config_path: Path = Path("config.toml")
+    backup_path: Path = Path("config.toml.bak")
+    audit_log_path: Path = Path("io/mutations.log")
+    
+    _pre_mutation_rmse: Optional[float] = None
+    _post_mutation_errors: List[float] = field(default_factory=list)
+    _monitoring_active: bool = False
+    
+    def start_monitoring(self, baseline_rmse: float) -> None:
+        """Record pre-mutation baseline and start monitoring."""
+        self._pre_mutation_rmse = baseline_rmse
+        self._post_mutation_errors = []
+        self._monitoring_active = True
+    
+    def record_prediction_error(self, error: float) -> None:
+        """Accumulate post-mutation prediction error."""
+        if not self._monitoring_active:
+            return
+        self._post_mutation_errors.append(error)
+    
+    def check_degradation(self) -> Tuple[bool, float]:
+        """Check if post-mutation performance degraded beyond threshold.
+        
+        Returns:
+            (degraded: bool, relative_increase: float)
+        """
+        if not self._monitoring_active:
+            return False, 0.0
+        
+        # Require full monitoring window
+        if len(self._post_mutation_errors) < self.monitoring_window:
+            return False, 0.0
+        
+        # Compute post-mutation RMSE
+        post_mutation_rmse = np.sqrt(
+            np.mean(np.square(self._post_mutation_errors))
+        )
+        
+        # Compute relative increase
+        relative_increase = (
+            (post_mutation_rmse - self._pre_mutation_rmse) / 
+            self._pre_mutation_rmse
+        )
+        
+        degraded = relative_increase > self.degradation_threshold
+        
+        # Stop monitoring after check
+        if degraded or len(self._post_mutation_errors) >= self.monitoring_window:
+            self._monitoring_active = False
+        
+        return degraded, relative_increase
+    
+    def trigger_rollback(self) -> None:
+        """Execute automatic rollback to pre-mutation configuration.
+        
+        CRITICAL: Overwrites config.toml with backup.
+        """
+        if not self.backup_path.exists():
+            raise FileNotFoundError(f"Backup config not found: {self.backup_path}")
+        
+        # Restore config from backup
+        shutil.copy2(self.backup_path, self.config_path)
+        
+        # Compute post-mutation RMSE for logging
+        post_mutation_rmse = float(np.sqrt(
+            np.mean(np.square(self._post_mutation_errors))
+        ))
+        
+        # Append rollback event to audit log (JSON Lines format)
+        audit_entry = {
+            'timestamp': datetime.now(timezone.utc).isoformat(),
+            'event': 'AUTO_ROLLBACK',
+            'reason': 'Performance degradation detected',
+            'pre_mutation_rmse': self._pre_mutation_rmse,
+            'post_mutation_rmse': post_mutation_rmse,
+            'relative_increase': (
+                (post_mutation_rmse - self._pre_mutation_rmse) / 
+                self._pre_mutation_rmse
+            ),
+            'degradation_threshold': self.degradation_threshold,
+            'monitoring_window': self.monitoring_window,
+            'status': 'ROLLBACK_SUCCESS'
+        }
+        
+        # Append to audit log
+        self.audit_log_path.parent.mkdir(parents=True, exist_ok=True)
+        with open(self.audit_log_path, 'a') as f:
+            f.write(json.dumps(audit_entry) + '\n')
+        
+        # Reset monitoring state
+        self._monitoring_active = False
+        self._post_mutation_errors = []
+\end{lstlisting}
+
+\subsection{Usage Pattern}
+
+\begin{lstlisting}[language=Python]
+# Before mutation
+monitor = DegradationMonitor(degradation_threshold=0.3)
+
+# Compute baseline RMSE over recent predictions
+recent_errors = [0.04, 0.05, 0.06, 0.05, 0.04]
+baseline_rmse = np.sqrt(np.mean(np.square(recent_errors)))
+
+# Apply mutation
+create_config_backup()  # Save config.toml → config.toml.bak
+apply_config_mutation(delta)
+
+# Start monitoring
+monitor.start_monitoring(baseline_rmse)
+
+# In prediction loop (next 100 predictions)
+for i in range(100):
+    prediction = orchestrate_step(...)
+    actual_next = load_actual_observation()
+    error = abs(prediction.predicted_next - actual_next)
+    
+    monitor.record_prediction_error(error)
+    
+    # Check for degradation
+    degraded, increase = monitor.check_degradation()
+    if degraded:
+        logger.critical(f"Degradation detected: RMSE +{increase:.1%}")
+        monitor.trigger_rollback()
+        logger.info("Config rolled back to pre-mutation state")
+        break
+\end{lstlisting}
+
+\subsection{Audit Log Format}
+
+Mutation events are logged in JSON Lines format to \texttt{io/mutations.log}:
+
+\begin{lstlisting}
+{"timestamp": "2026-02-19T14:30:00Z", "event": "MUTATION_APPLIED", 
+ "delta": {"learning_rate": [0.01, 0.015]}, "status": "SUCCESS"}
+{"timestamp": "2026-02-19T14:35:00Z", "event": "AUTO_ROLLBACK", 
+ "reason": "Performance degradation detected", 
+ "pre_mutation_rmse": 0.05, "post_mutation_rmse": 0.07, 
+ "relative_increase": 0.40, "degradation_threshold": 0.30, 
+ "status": "ROLLBACK_SUCCESS"}
+\end{lstlisting}
+
+\section{V-MAJ-7: Adaptive Telemetry Monitoring}
+
+\subsection{Implementation Status}
+
+V-MAJ-7 requires comprehensive telemetry for adaptive architecture and solver selection metrics. This implementation extends \texttt{InternalState} with counters for Level 4 autonomy monitoring and provides full adaptive telemetry collection.
+
+\subsection{InternalState Extensions}
+
+\textbf{Module:} \texttt{stochastic\_predictor/api/types.py}
+
+Added fields to \texttt{InternalState} (lines 443-447):
+
+\begin{lstlisting}[language=Python]
+# V-MAJ-7: Level 4 Autonomy Adaptive Telemetry
+baseline_entropy: Float[Array, "1"]     # H_baseline: Reference entropy for κ
+solver_explicit_count: int              # N_explicit: Explicit SDE solver steps
+solver_implicit_count: int              # N_implicit: Implicit SDE solver steps
+architecture_scaling_events: int        # N_scale: DGM architecture scaling events
+\end{lstlisting}
+
+\textbf{Purpose:}
+\begin{itemize}
+    \item \texttt{baseline\_entropy}: Reference entropy $H_{\text{baseline}}$ for computing entropy ratio $\kappa = H_{\text{current}} / H_{\text{baseline}}$
+    \item \texttt{solver\_explicit\_count}, \texttt{solver\_implicit\_count}: Track SDE solver scheme frequencies within monitoring window (default 100 steps)
+    \item \texttt{architecture\_scaling\_events}: Count DGM architecture scaling events (cumulative)
+\end{itemize}
+
+\subsection{Adaptive Telemetry Collection}
+
+\textbf{Module:} \texttt{stochastic\_predictor/io/telemetry.py}
+
+\textbf{Function:} \texttt{collect\_adaptive\_telemetry()}
+
+\begin{lstlisting}[language=Python]
+def collect_adaptive_telemetry(
+    state: Any,  # InternalState
+    config: Any,  # PredictorConfig
+    window_size: int = 100
+) -> Optional[AdaptiveTelemetry]:
+    """
+    Collect telemetry for adaptive architecture/solver diagnostics.
+    
+    COMPLIANCE: V-MAJ-7 - Adaptive Telemetry Monitoring
+    
+    Args:
+        state: Current InternalState (contains counters, entropy, etc.)
+        config: Current PredictorConfig (may have been mutated)
+        window_size: Monitoring window for frequency calculations
+    
+    Returns:
+        AdaptiveTelemetry instance or None if insufficient data
+    """
+    import jax.numpy as jnp
+    
+    # Compute solver frequencies (clipped to [0,1])
+    total_solver_steps = state.solver_explicit_count + state.solver_implicit_count
+    if total_solver_steps == 0:
+        return None  # Insufficient data
+    
+    freq_explicit = float(state.solver_explicit_count) / total_solver_steps
+    freq_implicit = float(state.solver_implicit_count) / total_solver_steps
+    
+    # Compute entropy ratio κ = H_current / H_baseline
+    baseline_entropy_val = float(state.baseline_entropy)
+    if baseline_entropy_val <= 0.0:
+        entropy_ratio = 1.0  # Avoid division by zero
+    else:
+        entropy_ratio = float(state.dgm_entropy) / baseline_entropy_val
+    
+    # Extract DGM architecture from config
+    dgm_width = 2 ** config.dgm_width_pow2
+    dgm_depth = config.dgm_depth
+    
+    # Extract JKO flow parameters from config
+    entropy_window = config.entropy_window
+    learning_rate = config.learning_rate
+    volatility_sigma_squared = float(state.ema_variance)
+    
+    # Extract adaptive stiffness thresholds from config
+    stiffness_low = config.stiffness_low
+    stiffness_high = config.stiffness_high
+    holder_exponent_val = float(state.holder_exponent)
+    
+    return AdaptiveTelemetry(
+        # SDE Solver Frequency
+        scheme_frequency_explicit=freq_explicit,
+        scheme_frequency_implicit=freq_implicit,
+        max_stiffness_metric=0.0,  # Placeholder
+        num_internal_iterations_mean=0.0,  # Placeholder
+        implicit_residual_norm_max=0.0,  # Placeholder
+        
+        # DGM Architecture
+        entropy_ratio_current=entropy_ratio,
+        dgm_width_current=dgm_width,
+        dgm_depth_current=dgm_depth,
+        architecture_scaling_events=state.architecture_scaling_events,
+        
+        # JKO Flow
+        entropy_window_current=entropy_window,
+        learning_rate_current=learning_rate,
+        volatility_sigma_squared=volatility_sigma_squared,
+        
+        # Stiffness Thresholds
+        stiffness_low_adaptive=stiffness_low,
+        stiffness_high_adaptive=stiffness_high,
+        holder_exponent_wtmm=holder_exponent_val
+    )
+\end{lstlisting}
+
+\subsection{Integration Pattern}
+
+Adaptive telemetry collection is called periodically (e.g., every 100 steps) in the orchestration loop:
+
+\begin{lstlisting}[language=Python]
+# In orchestrate_step() or meta-loop
+if step % telemetry_interval == 0:
+    adaptive_tel = collect_adaptive_telemetry(state, config)
+    if adaptive_tel:
+        emit_adaptive_telemetry(adaptive_tel)
+\end{lstlisting}
+
+\textbf{Output:} JSON Lines format appended to \texttt{io/adaptive\_telemetry.jsonl}
+
+\subsection{Metrics Tracked}
+
+\textbf{SDE Solver Frequency:}
+\begin{itemize}
+    \item \texttt{scheme\_frequency\_explicit}: Fraction of explicit Euler steps in window $\in [0,1]$
+    \item \texttt{scheme\_frequency\_implicit}: Fraction of implicit solver steps in window $\in [0,1]$
+\end{itemize}
+
+\textbf{DGM Architecture:}
+\begin{itemize}
+    \item \texttt{entropy\_ratio\_current}: $\kappa = H_{\text{current}} / H_{\text{baseline}}$ (regime transition detector)
+    \item \texttt{dgm\_width\_current}, \texttt{dgm\_depth\_current}: Current DGM network dimensions (may be scaled dynamically)
+    \item \texttt{architecture\_scaling\_events}: Cumulative count of architecture mutations
+\end{itemize}
+
+\textbf{JKO Flow:}
+\begin{itemize}
+    \item \texttt{entropy\_window\_current}: Current entropy window $W \propto L^2 / \sigma^2$
+    \item \texttt{learning\_rate\_current}: Current JKO learning rate $\eta < 2\varepsilon\sigma^2$
+    \item \texttt{volatility\_sigma\_squared}: Current EWMA variance $\sigma^2$
+\end{itemize}
+
+\textbf{Stiffness Thresholds:}
+\begin{itemize}
+    \item \texttt{stiffness\_low\_adaptive}, \texttt{stiffness\_high\_adaptive}: Hölder-informed thresholds $\theta_L, \theta_H \propto 1/(1-\alpha)^2$
+    \item \texttt{holder\_exponent\_wtmm}: Current Hölder exponent $\alpha \in [0.2, 0.9]$
+\end{itemize}
+
+\subsection{Future Extensions}
+
+\begin{itemize}
+    \item \texttt{max\_stiffness\_metric}: Maximum stiffness metric $\mathcal{S}$ in window (requires Kernel C integration)
+    \item \texttt{num\_internal\_iterations\_mean}: Average Newton iterations for implicit solver
+    \item \texttt{implicit\_residual\_norm\_max}: Maximum residual norm for implicit solver convergence
+\end{itemize}
+
+These metrics require deeper integration with Kernel C's SDE solver internals and are currently placeholders (set to 0.0).
+
+\section{Utility Functions}
+
+\textbf{Module:} \texttt{stochastic\_predictor/io/config\_mutation.py}
+
+\begin{lstlisting}[language=Python]
+def create_config_backup(
+    config_path: Path = Path("config.toml"),
+    backup_path: Path = Path("config.toml.bak")
+) -> None:
+    """Create config backup before mutation."""
+    if not config_path.exists():
+        raise FileNotFoundError(f"Config file not found: {config_path}")
+    shutil.copy2(config_path, backup_path)
+
+def append_audit_log(log_path: Path, entry: Dict) -> None:
+    """Append mutation event to audit log (JSON Lines format)."""
+    log_path.parent.mkdir(parents=True, exist_ok=True)
+    with open(log_path, 'a') as f:
+        f.write(json.dumps(entry) + '\n')
+\end{lstlisting}
+
+\section{Implementation Status}
+
+\begin{table}[h]
+\centering
+\begin{tabular}{|l|c|c|}
+\hline
+\textbf{V-MAJ Violation} & \textbf{Status} & \textbf{Module} \\
+\hline
+V-MAJ-4 (Rate Limiting) & ✅ Implemented & config\_mutation.py \\
+V-MAJ-5 (Auto-Rollback) & ✅ Implemented & config\_mutation.py \\
+V-MAJ-7 (Telemetry) & ✅ Implemented & telemetry.py, types.py \\
+\hline
+\end{tabular}
+\caption{Level 4 Autonomy - Configuration Mutation Safety Implementation}
+\end{table}
+
+\textbf{Note:} V-MAJ-7 is fully implemented with \texttt{InternalState} extensions (solver counters, baseline entropy, architecture scaling events) and \texttt{collect\_adaptive\_telemetry()} function. Three Kernel C solver metrics remain as placeholders (max\_stiffness\_metric, num\_internal\_iterations\_mean, implicit\_residual\_norm\_max) requiring deeper SDE solver integration in a future phase.
+
+\chapter{Compliance Checklist}
+
+\begin{itemize}
+    \item \textbf{No Compute Stalls}: All logging is asynchronous
+    \item \textbf{Binary Format}: Protocol Buffers or MessagePack for snapshots
+    \item \textbf{Atomic Snapshots}: Write-then-rename protocol
+    \item \textbf{Deterministic Hashing}: SHA-256 on $\rho$ and OT cost
+    \item \textbf{Security}: No raw signals, VRAM dumps, or secrets
+    \item \textbf{Integrity}: Snapshot hashes verified before load
+    \item \textbf{Config-Driven}: Intervals and destinations are injected
+    \item \textbf{Module Coverage}: IO helpers implemented for validation, telemetry, snapshots, and credentials
+    \item \textbf{Orchestrator Integration}: IO ingestion gate integrated into \texttt{orchestrate\_step()}
+    \item \textbf{PRNG Constants}: Named constants (RNG\_SPLIT\_COUNT) reside in \texttt{api/prng.py}
+    \item \textbf{Buffer Capacity Injection}: TelemetryBuffer capacity injected from config (zero-heuristics policy)
+    \item \textbf{64-bit Precision}: Enforced at module load time (\texttt{api/config.py}) before XLA tracing
+    \item \textbf{Layer Isolation}: PRNG constants in API layer, not Core layer
+\end{itemize}
+
+\chapter{Phase 4 Summary}
+
+Phase 4 introduces a non-blocking I/O architecture that preserves deterministic compute while enabling telemetry, logging, and atomic snapshot persistence.
+
+\end{document}

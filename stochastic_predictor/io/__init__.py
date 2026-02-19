@@ -73,6 +73,16 @@ from stochastic_predictor.io.credentials import (
   get_required_env,
 )
 
+from stochastic_predictor.io.config_mutation import (
+  ConfigMutationError,
+  atomic_write_config,
+  validate_config_mutation,
+  append_audit_log,
+  create_config_backup,
+  LOCKED_SUBSECTIONS,
+  VALIDATION_SCHEMA,
+)
+
 __all__ = [
   "OutlierRejectedEvent",
   "FrozenSignalAlarmEvent",
@@ -96,4 +106,11 @@ __all__ = [
   "MissingCredentialError",
   "load_env_file",
   "get_required_env",
+  "ConfigMutationError",
+  "atomic_write_config",
+  "validate_config_mutation",
+  "append_audit_log",
+  "create_config_backup",
+  "LOCKED_SUBSECTIONS",
+  "VALIDATION_SCHEMA",
 ]

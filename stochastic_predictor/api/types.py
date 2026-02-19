@@ -444,6 +444,12 @@ class InternalState:
     mode_collapse_consecutive_steps: int    # V-MAJ-5: Counter for consecutive low-entropy steps
     degraded_mode_recovery_counter: int     # V-MAJ-7: Steps needed to recover from degraded mode
     
+    # V-MAJ-7: Level 4 Autonomy Adaptive Telemetry
+    baseline_entropy: Float[Array, "1"]     # H_baseline: Reference entropy for κ = H_current / H_baseline
+    solver_explicit_count: int              # N_explicit: Explicit SDE solver steps in window
+    solver_implicit_count: int              # N_implicit: Implicit SDE solver steps in window
+    architecture_scaling_events: int        # N_scale: DGM architecture scaling events
+    
     # State Flags
     degraded_mode: bool                     # Degraded mode active
     emergency_mode: bool                    # Emergency mode active

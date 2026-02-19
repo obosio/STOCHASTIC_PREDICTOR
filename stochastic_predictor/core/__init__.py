@@ -32,27 +32,39 @@ from .orchestrator import (
     orchestrate_step,
     orchestrate_step_batch,
     initialize_batched_states,
+    compute_entropy_ratio,
+    scale_dgm_architecture,
+    compute_adaptive_stiffness_thresholds,
+    compute_adaptive_jko_params,
 )
 from .sinkhorn import SinkhornResult, compute_sinkhorn_epsilon
 from .meta_optimizer import (
     BayesianMetaOptimizer,
+    AsyncMetaOptimizer,
     MetaOptimizationConfig,
     OptimizationResult,
+    IntegrityError,
     walk_forward_split,
 )
 
 __all__ = [
+    "AsyncMetaOptimizer",
     "BayesianMetaOptimizer",
     "FusionResult",
+    "IntegrityError",
     "MetaOptimizationConfig",
     "OptimizationResult",
     "OrchestrationResult",
     "SinkhornResult",
+    "compute_adaptive_jko_params",
+    "compute_adaptive_stiffness_thresholds",
+    "compute_entropy_ratio",
     "compute_sinkhorn_epsilon",
     "fuse_kernel_outputs",
     "initialize_batched_states",
     "initialize_state",
     "orchestrate_step",
     "orchestrate_step_batch",
+    "scale_dgm_architecture",
     "walk_forward_split",
 ]
