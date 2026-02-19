@@ -5,8 +5,8 @@ This module defines the data transfer objects (DTOs) used across the USP system.
 Schemas enforce invariants at module boundaries and enable external validation.
 
 References:
-    - Predictor_Estocastico_API_Python.tex §1
-    - Predictor_Estocastico_Implementacion.tex §3.1
+    - Stochastic_Predictor_API_Python.tex §1
+    - Stochastic_Predictor_Implementation.tex §3.1
 """
 
 from datetime import datetime

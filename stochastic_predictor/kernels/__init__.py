@@ -1,14 +1,14 @@
-"""Kernels - XLA Motors for Prediction Branches
+"""Kernels - XLA Engines for Prediction Branches.
 
-Pure XLA-compiled prediction engines for 4 branches of the system.
+Pure XLA-compiled prediction engines for four branches of the system.
 
 Architecture:
-  - Rama A (Hilbert): RKHS projections for smooth processes
-  - Rama B (Markov): Deep Generative Models via Fokker-Planck equations
-  - Rama C (Itô/Lévy): Differentiable SDE integration with dynamic scheme switching
-  - Rama D (Rough Paths): Signature-based topology for low Hölder regularity
+  - Branch A (Hilbert): RKHS projections for smooth processes
+  - Branch B (Markov): Deep Generative Models via Fokker-Planck equations
+  - Branch C (Ito/Levy): Differentiable SDE integration with dynamic scheme switching
+  - Branch D (Rough Paths): Signature-based topology for low Holder regularity
 
-See: doc/Predictor_Estocastico_Python.tex §2 - Capa de Motores XLA
+See: doc/latex/specification/Stochastic_Predictor_Python.tex §2 - XLA Engine Layer
 
 Each kernel must:
   - Accept time series and return predictions
@@ -17,15 +17,15 @@ Each kernel must:
   - Reference exact theory section in docstrings
 
 Branch specifications:
-  - A (Hilbert): doc/Predictor_Estocastico_Python.tex (searched for Rama A)
-  - B (Fokker-Planck): doc/Predictor_Estocastico_Implementacion.tex + doc/Predictor_Estocastico_Python.tex
-  - C (Itô/Lévy): doc/Predictor_Estocastico_Teoria.tex §2.3.3 + doc/Predictor_Estocastico_Python.tex
-  - D (Signatures): doc/Predictor_Estocastico_Python.tex + doc/Predictor_Estocastico_Teoria.tex §5
+  - A (Hilbert): doc/latex/specification/Stochastic_Predictor_Python.tex (search for Branch A)
+  - B (Fokker-Planck): doc/latex/specification/Stochastic_Predictor_Implementation.tex + doc/latex/specification/Stochastic_Predictor_Python.tex
+  - C (Ito/Levy): doc/latex/specification/Stochastic_Predictor_Theory.tex §2.3.3 + doc/latex/specification/Stochastic_Predictor_Python.tex
+  - D (Signatures): doc/latex/specification/Stochastic_Predictor_Python.tex + doc/latex/specification/Stochastic_Predictor_Theory.tex §5
 
 Expected module structure:
   - kernel_a.py: Hilbert/RKHS kernel
   - kernel_b.py: Fokker-Planck/DGM kernel (Equinox Neural ODE)
-  - kernel_c.py: Itô/Lévy kernel (Diffrax SDE solver)
+  - kernel_c.py: Ito/Levy kernel (Diffrax SDE solver)
   - kernel_d.py: Signatures kernel (Signax)
   - base.py: Base classes and utilities
 """

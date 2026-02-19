@@ -9,9 +9,9 @@ Design Rationale:
     - Warm-up pass pre-compiles all critical paths with representative shapes
 
 References:
-    - API_Python.tex §5.2: JIT Compilation Strategy
-    - Python.tex §4: Performance Optimization
-    - Implementacion.tex §6: Production Deployment
+    - Stochastic_Predictor_API_Python.tex §5.2: JIT Compilation Strategy
+    - Stochastic_Predictor_Python.tex §4: Performance Optimization
+    - Stochastic_Predictor_Implementation.tex §6: Production Deployment
 
 Usage:
     >>> from stochastic_predictor.api.warmup import warmup_all_kernels
@@ -49,7 +49,7 @@ def warmup_kernel_a(config: PredictorConfig, key: PRNGKeyArray) -> float:
         Warm-up execution time (ms)
     
     References:
-        - Python.tex §2.2.1: Kernel A Implementation
+        - Stochastic_Predictor_Python.tex §2.2.1: Kernel A Implementation
     """
     from stochastic_predictor.kernels.kernel_a import kernel_a_predict
     
@@ -83,7 +83,7 @@ def warmup_kernel_b(config: PredictorConfig, key: PRNGKeyArray) -> float:
         Warm-up execution time (ms)
     
     References:
-        - Python.tex §2.2.2: Kernel B Implementation
+        - Stochastic_Predictor_Python.tex §2.2.2: Kernel B Implementation
     """
     from stochastic_predictor.kernels.kernel_b import kernel_b_predict
     
@@ -116,8 +116,8 @@ def warmup_kernel_c(config: PredictorConfig, key: PRNGKeyArray) -> float:
         Warm-up execution time (ms)
     
     References:
-        - Python.tex §2.2.3: Kernel C Implementation
-        - Teoria.tex §2.3.3: Stiffness-Adaptive SDE Solvers
+        - Stochastic_Predictor_Python.tex §2.2.3: Kernel C Implementation
+        - Stochastic_Predictor_Theory.tex §2.3.3: Stiffness-Adaptive SDE Solvers
     """
     from stochastic_predictor.kernels.kernel_c import kernel_c_predict
     
@@ -149,7 +149,7 @@ def warmup_kernel_d(config: PredictorConfig, key: PRNGKeyArray) -> float:
         Warm-up execution time (ms)
     
     References:
-        - Python.tex §2.2.4: Kernel D Implementation
+        - Stochastic_Predictor_Python.tex §2.2.4: Kernel D Implementation
     """
     from stochastic_predictor.kernels.kernel_d import kernel_d_predict
     
@@ -191,7 +191,7 @@ def warmup_all_kernels(
         >>> print(f"Total warm-up: {sum(timings.values()):.1f} ms")
     
     References:
-        - Implementacion.tex §6.2: Production Deployment Checklist
+        - Stochastic_Predictor_Implementation.tex §6.2: Production Deployment Checklist
     """
     if key is None:
         key = initialize_jax_prng(seed=42)
@@ -321,7 +321,7 @@ def profile_warmup_and_recommend_timeout(
         >>> # data_feed_timeout = <profile["recommended_timeout"]>
     
     References:
-        - Implementacion.tex §6.3: Deployment on Heterogeneous Hardware
+        - Stochastic_Predictor_Implementation.tex §6.3: Deployment on Heterogeneous Hardware
     """
     if verbose:
         print("🔍 Profiling JIT Compilation Times...")

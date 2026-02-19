@@ -1,28 +1,28 @@
 # Universal Stochastic Predictor (USP)
 
 ![License](https://img.shields.io/badge/license-MIT-blue.svg)
-![Status](https://img.shields.io/badge/status-Phase%203%20Complete-brightgreen.svg)
+![Status](https://img.shields.io/badge/status-Phase%204%20In%20Progress-blue.svg)
 ![Version](https://img.shields.io/badge/version-v2.0.3-blue.svg)
 
-## 📋 Descripción
+## Description
 
-**Sistema de predicción estocástica universal** capaz de operar sobre procesos dinámicos cuya ley de probabilidad subyacente es desconocida *a priori*.
+Universal stochastic prediction system that operates on dynamic processes with unknown underlying probability laws.
 
-Este repositorio contiene:
+This repository contains:
 
-- ✅ **Especificación técnica completa**: 7 documentos LaTeX (3000+ líneas, 1.73 MB PDFs)
-- ✅ **Scaffold de implementación**: Estructura de 5 capas validada (Nivel Diamante)
-- ✅ **Golden Master**: Dependency pinning estricto (`==`)
-- 🚧 **Código de implementación**: En desarrollo activo (branch `implementation/base-jax`)
+- Full technical specification: 7 LaTeX documents (3000+ lines, 1.73 MB PDFs)
+- Implementation scaffold: validated 5-layer structure (Diamond level)
+- Golden Master: strict dependency pinning (`==`)
+- Implementation code: active development (branch `implementation/base-jax`)
 
-## �️ Versionado por Rama
+## Branch Versioning
 
-| Rama | Convención | Descripción |
+| Branch | Convention | Description |
 | ---- | ---------- | ----------- |
-| `main` | `spec/v1.x.x` | **Specification phase** (immutable, frozen) |
-| `implementation/base-jax` | `impl/v2.x.x` | **Implementation phases** (active development) |
+| `main` | `spec/v1.x.x` | Specification phase (immutable, frozen) |
+| `implementation/base-jax` | `impl/v2.x.x` | Implementation phases (active development) |
 
-### Tags Actuales
+### Current Tags
 
 **Specification**:
 
@@ -34,9 +34,9 @@ Este repositorio contiene:
 - `impl/v2.0.1` - Phase 1 Complete: Full API Layer (types, PRNG, validation, schemas, config)
 - `impl/v2.0.2` - Phase 2 Complete: Kernels A, B, C, D (RKHS, DGM, SDE, Signatures)
 - `impl/v2.0.3` - Phase 3 Complete: Core Orchestration (JKO, Sinkhorn) [CURRENT]
-- `impl/v2.1.x` - *Pending*: Phase 4 - I/O (snapshots, streaming)
-- `impl/v2.2.x` - *Pending*: Phase 5 - Tests and hardening
-- `impl/v3.0.0` - *Pending*: First production-ready version
+- `impl/v2.1.x` - In progress: Phase 4 - I/O (snapshots, streaming)
+- `impl/v2.2.x` - Pending: Phase 5 - Tests and hardening
+- `impl/v3.0.0` - Pending: First production-ready version
 
 **Legacy** (for history):
 
@@ -44,23 +44,23 @@ Este repositorio contiene:
 - `v1.0.0-Specification`
 - `v1.1.0-Implementation-Scaffold`
 
-## �🎯 Características Principales del Sistema Especificado
+## Key Capabilities of the Specified System
 
-### Arquitectura Multinúcleo
+### Multicore Architecture
 
-1. **Motor de Identificación (SIA)**: Caracterización topológica del proceso mediante WTMM, detección de estacionariedad, estimación de exponentes de Hölder, cálculo de entropía.
+1. **Identification Engine (SIA)**: topological characterization via WTMM, stationarity detection, Holder exponent estimation, entropy computation.
 
-2. **Núcleos de Predicción Especializados**:
-   - **Rama A (Hilbert)**: RKHS
-   - **Rama B (Fokker-Planck)**: DGM/Neural ODEs
-   - **Rama C (Itô/Lévy)**: Ecuaciones diferenciales estocásticas diferenciables
-   - **Rama D (Signatures)**: Análisis topológico de rough paths
+2. **Specialized Prediction Kernels**:
+   - **Branch A (Hilbert)**: RKHS
+   - **Branch B (Fokker-Planck)**: DGM/Neural ODEs
+   - **Branch C (Ito/Levy)**: differentiable stochastic differential equations
+   - **Branch D (Signatures)**: rough paths topological analysis
 
-3. **Orquestador Adaptativo**: Transporte de Wasserstein con esquema JKO, detección de cambios CUSUM.
+3. **Adaptive Orchestrator**: Wasserstein transport with JKO scheme, CUSUM change detection.
 
-## 🛠️ Stack Tecnológico Especificado
+## Specified Tech Stack
 
-### Golden Master (Dependency Pinning Obligatorio)
+### Golden Master (Dependency Pinning Required)
 
 ```bash
 JAX          == 0.4.20
@@ -72,34 +72,34 @@ PyWavelets   == 1.4.1
 Python       == 3.10.12
 ```
 
-**Restricción crítica**: Versiones congeladas con `==`. Prohibido `>=` o `-U`. Ver [Python.tex §2.1](doc/latex/specification/Predictor_Estocastico_Python.tex).
+**Critical restriction**: versions must be pinned with `==`. No `>=` or `-U`. See [doc/latex/specification/Stochastic_Predictor_Python.tex](doc/latex/specification/Stochastic_Predictor_Python.tex).
 
-### Arquitectura de 5 Capas Obligatoria
+### Required 5-Layer Architecture
 
-Para futuras implementaciones:
+For future implementations:
 
 ```bash
 stochastic_predictor/
-|-- api/          # Façade, config, load shedding
+|-- api/          # Facade, config, load shedding
 |-- core/         # JKO, Sinkhorn, monitoring
-|-- kernels/      # Motores XLA (A,B,C,D)
-|-- io/           # I/O física, snapshots atómicos
-`-- tests/        # Validación externa
+|-- kernels/      # XLA engines (A,B,C,D)
+|-- io/           # Physical I/O, atomic snapshots
+`-- tests/        # External validation
 ```
 
-Ver [Python.tex §2](doc/latex/specification/Predictor_Estocastico_Python.tex).
+See [doc/latex/specification/Stochastic_Predictor_Python.tex](doc/latex/specification/Stochastic_Predictor_Python.tex).
 
-### Políticas de Seguridad
+### Security Policies
 
-- **Prohibido**: Credenciales hardcoded
-- **Obligatorio**: Inyección de variables de entorno (`.env`)
-- **Regla `.gitignore`**: `.env`, `secrets/`, `*.log`
+- Forbidden: hardcoded credentials
+- Required: environment variable injection (`.env`)
+- `.gitignore` rule: `.env`, `secrets/`, `*.log`
 
-Ver [IO.tex §2.2](doc/latex/specification/Predictor_Estocastico_IO.tex).
+See [doc/latex/specification/Stochastic_Predictor_IO.tex](doc/latex/specification/Stochastic_Predictor_IO.tex).
 
-### Validación de Entorno CI/CD
+### CI/CD Environment Validation
 
-Antes de pytest, validar Golden Master:
+Before pytest, validate Golden Master:
 
 ```bash
 EXPECTED_JAX=$(grep "^jax==" requirements.txt | cut -d'=' -f3)
@@ -107,134 +107,139 @@ ACTUAL_JAX=$(python -c "import jax; print(jax.__version__)")
 [[ "$EXPECTED_JAX" == "$ACTUAL_JAX" ]] || exit 1
 ```
 
-Ver [Tests_Python.tex §1.1](doc/latex/specification/Predictor_Estocastico_Tests_Python.tex).
+See [doc/latex/specification/Stochastic_Predictor_Tests_Python.tex](doc/latex/specification/Stochastic_Predictor_Tests_Python.tex).
 
-## 📚 Documentación
+## Documentation
 
-7 documentos LaTeX compilados a PDFs en `doc/pdf/specification/`:
+Seven LaTeX documents compiled into PDFs in `doc/pdf/specification/`:
 
-| Documento | Líneas | Contenido |
-| --------- | -------- | ---------- |
-| Teoria.tex | 500+ | Fundamentación matemática, procesos estocásticos, transporte óptimo |
-| Implementacion.tex | 800+ | Algoritmos, dinámica de Sinkhorn acoplada a volatilidad |
-| Python.tex | 1700+ | Stack JAX/Python, arquitectura 5 capas, especificaciones técnicas |
-| API_Python.tex | 685+ | API de alto nivel, período de gracia CUSUM |
-| IO.tex | 292+ | Interfaz I/O, políticas de seguridad |
-| Tests_Python.tex | 1623+ | Suite de tests, validación CI/CD, entorno |
-| Pruebas.tex | 400+ | Casos de prueba adicionales |
+| Document | Lines | Content |
+| -------- | ----- | ------- |
+| Theory.tex | 500+ | Mathematical foundations, stochastic processes, optimal transport |
+| Implementation.tex | 800+ | Algorithms, Sinkhorn dynamics coupled to volatility |
+| Python.tex | 1700+ | JAX/Python stack, 5-layer architecture, technical specs |
+| API_Python.tex | 685+ | High-level API, CUSUM grace period |
+| IO.tex | 292+ | I/O interface, security policies |
+| Tests_Python.tex | 1623+ | Test suite, CI/CD validation, environment |
+| Test_Cases.tex | 400+ | Additional test cases |
 
-### Compilación (Automática)
+### Compilation (Automatic)
 
 The `compile.sh` script automatically detects and compiles all LaTeX source files:
 
 ```bash
 cd doc
 
-# Ver opciones
+# Show options
 ./compile.sh help
 
-# Compilar documentos con cambios
+# Compile documents with changes
 ./compile.sh --all
 
-# Forzar recompilación total (ignora timestamps)
+# Force full rebuild (ignore timestamps)
 ./compile.sh --all --force
 
-# Compilar documento específico
-./compile.sh Predictor_Estocastico_Python.tex
+# Compile a specific document
+./compile.sh Stochastic_Predictor_Python.tex
 
-# Limpiar artefactos de compilación
+# Clean build artifacts
 ./compile.sh clean
 ```
 
-**Estructura automática:**
+**Automatic structure:**
 
-- Fuente: `latex/specification/*.tex` → Compilado: `pdf/specification/*.pdf`
-- El script es agnóstico - funciona con cualquier carpeta en `latex/`
+- Source: `latex/specification/*.tex` -> Output: `pdf/specification/*.pdf`
+- The script is folder-agnostic and works with any subfolder under `latex/`
 
-Para detalles, ver [doc/README.md](doc/README.md).
+For details, see [doc/README.md](doc/README.md).
 
-## 🚀 Estado Actual
+## Current Status
 
-### FASE: Phase 3 Complete (v2.0.3) - Core Orchestration Materialized ✅
+### PHASE: Phase 4 In Progress (v2.1.x) - IO Layer Initiation
 
-**Branch activo**: `implementation/base-jax`  
-**Tag actual**: `impl/v2.0.3`  
-**Fecha**: 19 Feb 2026
+**Active branch**: `implementation/base-jax`
+**Current tag**: `impl/v2.0.3`
+**Date**: 19 Feb 2026
 
-✅ **Completado (Phase 1-3: Foundations + Kernels + Core)**:
+Completed (Phase 1-3: Foundations + Kernels + Core):
 
-- 7 documentos LaTeX especificación exhaustiva (1.73 MB PDFs)
-- Estructura de 5 capas implementada (`api/`, `core/`, `kernels/`, `io/`, `utils/`)
+- 7 LaTeX specification documents (1.73 MB PDFs)
+- 5-layer structure implemented (`api/`, `core/`, `kernels/`, `io/`, `utils/`)
 - **API layer materialized**:
-  - `types.py` (347 líneas): PredictorConfig, ProcessState, PredictionResult
-  - `prng.py` (301 líneas): JAX threefry2x32 deterministic PRNG management
-  - `validation.py` (467 líneas): Input/output domain validation
-  - `schemas.py` (330 líneas): Pydantic models for serialization (ProcessStateSchema, PredictionResultSchema, TelemetryDataSchema)
-  - `config.py` (220 líneas): ConfigManager singleton with config.toml injection
+  - `types.py` (347 lines): PredictorConfig, ProcessState, PredictionResult
+  - `prng.py` (301 lines): JAX threefry2x32 deterministic PRNG management
+  - `validation.py` (467 lines): input/output domain validation
+  - `schemas.py` (330 lines): Pydantic models for serialization (ProcessStateSchema, PredictionResultSchema, TelemetryDataSchema)
+  - `config.py` (220 lines): ConfigManager singleton with config.toml injection
 - **Kernels layer materialized**:
   - `kernels/base.py`: normalization and shared utilities
   - `kernel_a.py`: RKHS (Gaussian kernel ridge)
   - `kernel_b.py`: DGM PDE solver (HJB)
   - `kernel_c.py`: SDE integration (Levy)
-  - `kernel_d.py`: Path signatures
+  - `kernel_d.py`: path signatures
 - **Core orchestration materialized**:
   - `core/sinkhorn.py`: Sinkhorn scan-based OT with volatility coupling
   - `core/fusion.py`: JKO fusion and free-energy tracking
   - `core/orchestrator.py`: state updates, degraded modes, telemetry outputs
-- Golden Master con dependency pinning estricto (`==`)
-- Documentación reorganizada en estructura jerárquica
-- Políticas de seguridad (.env, .gitignore)
-- Configuración centralizada (config.toml)
-- Tests base configurados (pytest, 10 reusable fixtures in conftest.py)
-- LaTeX Workshop configurado
-- Stack tecnológico completo (JAX 0.4.20 + Equinox 0.11.2 + Diffrax 0.4.1 + Pydantic 2.0.0)
+- Golden Master strict dependency pinning (`==`)
+- Documentation reorganized into hierarchical structure
+- Security policies (.env, .gitignore)
+- Centralized config (config.toml)
+- Base tests configured (pytest, 10 reusable fixtures in conftest.py)
+- LaTeX Workshop configured
+- Full tech stack (JAX 0.4.20 + Equinox 0.11.2 + Diffrax 0.4.1 + Pydantic 2.0.0)
 - 100% English code enforcement (language policy verified)
 
-🚧 **En desarrollo próximo (Phase 4)**:
+In active development (Phase 4):
 
-- Capa I/O (snapshots atómicos, streaming asíncrono)
-- Motor SIA (WTMM, entropía, estacionariedad)
-- Suite de tests por kernel y core
-- Validación CPU/GPU parity
+- I/O layer (atomic snapshots, async streaming)
+- SIA engine (WTMM, entropy, stationarity)
+- Test suite per kernel and core
+- CPU/GPU parity validation
 
-**Este repositorio está listo para desarrollo activo** con scaffold validado y especificación rigurosa como referencia.
+### IO Guidelines (Phase 4)
 
-## 🔬 Conceptos Clave Especificados
+- **TelemetryBuffer**: the orchestrator emits a telemetry buffer at the end of each step for out-of-thread consumption.
+- **Deterministic logging**: record sha256 hashes of $\rho$ weights and OT cost at configurable intervals for CPU/GPU parity.
 
-- **Análisis Multifractal (WTMM)**: Detección de singularidades locales
-- **Transporte Óptimo Adaptativo**: Regularización dinámica acoplada a volatilidad
-- **Esquemas SDE Dinámicos**: Transición automática Euler → implícito según rigidez
-- **Truncamiento de Gradientes**: Optimización XLA para SIA/CUSUM (30-50% VRAM)
-- **Período de Gracia CUSUM**: Refractario post-cambio de régimen (10-60 pasos)
-- **Rough Paths Theory**: Signatures para procesos con H ≤ 1/2
-- **Circuit Breaker**: Protección cuando H < H_min, activa Rama D
+This repository is ready for active development with a validated scaffold and a rigorous specification baseline.
 
-Ver documentos LaTeX para derivaciones completas y pseudocódigo.
+## Key Concepts
 
-## 🤝 Contribuciones
+- **Multifractal Analysis (WTMM)**: local singularity detection
+- **Adaptive Optimal Transport**: dynamic regularization coupled to volatility
+- **Dynamic SDE Schemes**: automatic Euler -> implicit transition based on stiffness
+- **Gradient Truncation**: XLA optimization for SIA/CUSUM (30-50% VRAM)
+- **CUSUM Grace Period**: post-regime-change refractory period (10-60 steps)
+- **Rough Paths Theory**: signatures for processes with $H \le 1/2$
+- **Circuit Breaker**: protection when $H < H_{\min}$, activates Branch D
 
-Este repositorio es especificación. Contribuciones enfocadas en:
+See LaTeX documents for full derivations and pseudocode.
 
-- **Mejoras a especificación**: Correcciones, aclaraciones, extensiones matemáticas
-- **Revisión técnica**: Validación de algoritmos, detección de inconsistencias
-- **Uso futuro**: Base para implementaciones en JAX, otros lenguajes, etc.
+## Contributions
 
-Consulta [CONTRIBUTING.md](CONTRIBUTING.md) antes de contribuir.
+This repository is a specification baseline. Contributions focus on:
 
-## 👥 Autores
+- Specification improvements: corrections, clarifications, mathematical extensions
+- Technical review: algorithm validation, inconsistency detection
+- Future use: foundation for JAX implementations, other languages, etc.
 
-Consorcio de Desarrollo de Meta-Predicción Adaptativa
+See [CONTRIBUTING.md](CONTRIBUTING.md) before contributing.
 
-## 📄 Licencia
+## Authors
+
+Adaptive Meta-Prediction Development Consortium
+
+## License
 
 [MIT License](LICENSE)
 
-## 🙏 Agradecimientos
+## Acknowledgments
 
-Especificación integra JAX, Equinox, Diffrax, Signax, PyWavelets, OTT-JAX.
+Specification integrates JAX, Equinox, Diffrax, Signax, PyWavelets, OTT-JAX.
 
 ---
 
-📐 **v2.0.3-Phase3-Complete**: Core orchestration materialized with JKO/Sinkhorn fusion  
-⚡ **Stack garantizado**: JAX==0.4.20 | Equinox==0.11.2 | Diffrax==0.4.1 | Signax==0.1.4 | OTT-JAX==0.4.5 | Pydantic==2.0.0  
-🏗️ **Branch activo**: `implementation/base-jax` - Phase 3 (Core) completo
+v2.0.3-Phase3-Complete: core orchestration materialized with JKO/Sinkhorn fusion
+Guaranteed stack: JAX==0.4.20 | Equinox==0.11.2 | Diffrax==0.4.1 | Signax==0.1.4 | OTT-JAX==0.4.5 | Pydantic==2.0.0
+Active branch: `implementation/base-jax` - Phase 3 (Core) complete

@@ -4,8 +4,8 @@ This package implements the complete specification for the Universal Stochastic 
 a system for prediction of dynamic processes with unknown underlying probability law.
 
 References:
-  - doc/Predictor_Estocastico_Python.tex §2: Physical Directory Architecture
-  - doc/Predictor_Estocastico_Teoria.tex: Mathematical Foundations
+  - doc/latex/specification/Stochastic_Predictor_Python.tex §2: Physical Directory Architecture
+  - doc/latex/specification/Stochastic_Predictor_Theory.tex: Mathematical Foundations
 
 Architecture (5-Layer Clean Architecture):
   - api/: Exposure layer (facade, configuration, load shedding)
@@ -26,19 +26,19 @@ import os
 import jax
 
 # ─────────────────────────────────────────────────────────────────────────────
-# 1. NUMERICAL PRECISION (MANDATORY per Python.tex §1.3, API_Python.tex §5)
+# 1. NUMERICAL PRECISION (MANDATORY per Stochastic_Predictor_Python.tex §1.3, Stochastic_Predictor_API_Python.tex §5)
 # ─────────────────────────────────────────────────────────────────────────────
 
 # Enable float64 precision globally
 # Required for:
 # - Malliavin derivative stability (Kernel C - SDE)
-# - Hölder exponent precision (Kernel A - WTMM)
-# - Sinkhorn convergence under extreme conditions (JKO Orchestrator, ε→0)
+# - Holder exponent precision (Kernel A - WTMM)
+# - Sinkhorn convergence under extreme conditions (JKO Orchestrator, epsilon -> 0)
 # - Path signature accuracy (Kernel D - rough paths with H < 0.5)
 jax.config.update('jax_enable_x64', True)
 
 # ─────────────────────────────────────────────────────────────────────────────
-# 2. DETERMINISTIC EXECUTION (MANDATORY per Tests_Python.tex §1.1)
+# 2. DETERMINISTIC EXECUTION (MANDATORY per Stochastic_Predictor_Tests_Python.tex §1.1)
 # ─────────────────────────────────────────────────────────────────────────────
 
 # Force threefry2x32 PRNG implementation for bit-exact parity

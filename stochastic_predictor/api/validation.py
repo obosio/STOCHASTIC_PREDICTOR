@@ -5,9 +5,9 @@ This module provides domain validation, data sanitization, and anomaly detection
 to ensure the integrity of the predictive pipeline.
 
 References:
-    - Predictor_Estocastico_API_Python.tex §1.2: validate_domain()
-    - Predictor_Estocastico_IO.tex §2: Observation Protocol
-    - Predictor_Estocastico_Implementacion.tex §3: Quality Control
+    - Stochastic_Predictor_API_Python.tex §1.2: validate_domain()
+    - Stochastic_Predictor_IO.tex §2: Observation Protocol
+    - Stochastic_Predictor_Implementation.tex §3: Quality Control
 """
 
 from typing import Union, Tuple, TYPE_CHECKING
@@ -50,7 +50,7 @@ def validate_magnitude(
         Tuple (is_valid: bool, error_message: str)
         
     References:
-        - API_Python.tex §1.2: ProcessState.validate_domain()
+        - Stochastic_Predictor_API_Python.tex §1.2: ProcessState.validate_domain()
         
     Example:
         >>> from stochastic_predictor.api.validation import validate_magnitude
@@ -107,8 +107,8 @@ def validate_timestamp(
         Tuple (is_valid: bool, error_message: str)
         
     References:
-        - API_Python.tex §3.1: Staleness TTL
-        - IO.tex §2.2: Timestamp Validation
+        - Stochastic_Predictor_API_Python.tex §3.1: Staleness TTL
+        - Stochastic_Predictor_IO.tex §2.2: Timestamp Validation
         
     Example:
         >>> config = PredictorConfigInjector().create_config()
@@ -156,7 +156,7 @@ def check_staleness(
         Tuple (is_stale: bool, age_ns: int)
         
     References:
-        - API_Python.tex §3.1: Staleness Policy (Staleness TTL)
+        - Stochastic_Predictor_API_Python.tex §3.1: Staleness Policy (Staleness TTL)
         - types.py: PredictorConfig.staleness_ttl_ns
         
     Example:
@@ -251,7 +251,7 @@ def validate_finite(
         Tuple (is_valid: bool, error_message: str)
         
     References:
-        - Tests_Python.tex §2.1: test_levy_cms_basic_properties
+        - Stochastic_Predictor_Tests_Python.tex §2.1: test_levy_cms_basic_properties
     """
     # Check NaN
     if not allow_nan and jnp.any(jnp.isnan(array)):
@@ -288,7 +288,7 @@ def validate_simplex(
         Tuple (is_valid: bool, error_message: str)
         
     References:
-        - API_Python.tex §3.2: Simplex Constraint
+        - Stochastic_Predictor_API_Python.tex §3.2: Simplex Constraint
         - types.py: PredictionResult.__post_init__()
         
     Example:
@@ -340,7 +340,7 @@ def validate_holder_exponent(
         Tuple (is_valid: bool, error_message: str)
         
     References:
-        - Teoria.tex §2.1: Properties of Lévy Processes
+        - Stochastic_Predictor_Theory.tex §2.1: Properties of Levy Processes
         - types.py: PredictorConfig.holder_threshold
     """
     H_val = float(jnp.asarray(H))
@@ -375,8 +375,8 @@ def validate_alpha_stable(
         Tuple (is_valid: bool, error_message: str)
         
     References:
-        - Teoria.tex §2.2: Alpha-Stable Distributions
-        - Tests_Python.tex §2.3: Property-Based Testing (alpha bounds)
+        - Stochastic_Predictor_Theory.tex §2.2: Alpha-Stable Distributions
+        - Stochastic_Predictor_Tests_Python.tex §2.3: Property-Based Testing (alpha bounds)
         
     Note:
         alpha = 2.0 corresponds to Gaussian distribution
@@ -416,8 +416,8 @@ def validate_beta_stable(
         Tuple (is_valid: bool, error_message: str)
         
     References:
-        - Teoria.tex §2.2: Lévy Parametrization
-        - Tests_Python.tex §2.3: Hypothesis strategies (beta bounds)
+        - Stochastic_Predictor_Theory.tex §2.2: Levy Parametrization
+        - Stochastic_Predictor_Tests_Python.tex §2.3: Hypothesis strategies (beta bounds)
     """
     if beta < min_val or beta > max_val:
         return False, (
@@ -529,7 +529,7 @@ def ensure_float64(
         >>> assert x_float64.dtype == jnp.float64
     
     References:
-        - API_Python.tex §5: Floating-Point Determinism
+        - Stochastic_Predictor_API_Python.tex §5: Floating-Point Determinism
         - __init__.py: jax_enable_x64 = True enforcement
     """
     return jnp.asarray(value, dtype=jnp.float64)
@@ -571,7 +571,7 @@ def sanitize_external_observation(
         >>> obs = ProcessState(magnitude=mag_f64, timestamp_ns=ts, metadata=meta)
     
     References:
-        - Implementacion.tex §6.4: External Data Feed Integration
+        - Stochastic_Predictor_Implementation.tex §6.4: External Data Feed Integration
         - types.py: ProcessState definition
     """
     # Cast magnitude to float64 explicitly

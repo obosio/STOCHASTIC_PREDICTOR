@@ -9,13 +9,13 @@ Responsibilities:
   - CUSUM regime change detection with grace period
   - Entropy monitoring and diagnostics
 
-See: doc/Predictor_Estocastico_Python.tex §2 - Orchestration Layer
+See: doc/latex/specification/Stochastic_Predictor_Python.tex §2 - Orchestration Layer
 
 Key algorithms:
-  - Dynamic SDE scheme transition: doc/Predictor_Estocastico_Teoria.tex §2.3.3
-  - Volatility-coupled Sinkhorn: doc/Predictor_Estocastico_Implementacion.tex §2.4
-  - CUSUM grace period: doc/Predictor_Estocastico_API_Python.tex §3.2
-  - JAX stop_gradient optimization: doc/Predictor_Estocastico_Python.tex §3.1
+  - Dynamic SDE scheme transition: doc/latex/specification/Stochastic_Predictor_Theory.tex §2.3.3
+  - Volatility-coupled Sinkhorn: doc/latex/specification/Stochastic_Predictor_Implementation.tex §2.4
+  - CUSUM grace period: doc/latex/specification/Stochastic_Predictor_API_Python.tex §3.2
+  - JAX stop_gradient optimization: doc/latex/specification/Stochastic_Predictor_Python.tex §3.1
 
 Expected module structure:
   - orchestrator.py: Main orchestration logic

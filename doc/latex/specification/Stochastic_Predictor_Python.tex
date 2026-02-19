@@ -1,0 +1,321 @@
+\documentclass[11pt, a4paper]{report}
+
+% --- PYTHON PREAMBLE ---
+\usepackage[a4paper, top=2.5cm, bottom=2.5cm, left=2cm, right=2cm]{geometry}
+\usepackage{fontspec}
+\usepackage{amsmath}
+\usepackage{amssymb}
+\usepackage{listings}
+\usepackage{xcolor}
+\usepackage[english]{babel}
+\usepackage[hidelinks]{hyperref}
+
+% Listings
+\definecolor{codegreen}{rgb}{0,0.6,0}
+\definecolor{codegray}{rgb}{0.5,0.5,0.5}
+\definecolor{codepurple}{rgb}{0.58,0,0.82}
+\definecolor{backcolour}{rgb}{0.95,0.95,0.92}
+
+\lstdefinestyle{mystyle}{
+    backgroundcolor=\color{backcolour},
+    commentstyle=\color{codegreen},
+    keywordstyle=\color{magenta},
+    numberstyle=\tiny\color{codegray},
+    stringstyle=\color{codepurple},
+    basicstyle=\ttfamily\footnotesize,
+    breakatwhitespace=false,
+    breaklines=true,
+    captionpos=b,
+    keepspaces=true,
+    numbers=left,
+    numbersep=5pt,
+    showspaces=false,
+    showstringspaces=false,
+    showtabs=false,
+    tabsize=2
+}
+
+\lstset{style=mystyle}
+
+\title{\textbf{Python Implementation Guide \\ for Universal Stochastic Predictors}}
+\author{Adaptive Meta-Prediction Development Consortium}
+\date{\today}
+
+\begin{document}
+
+\maketitle
+
+\tableofcontents
+
+\chapter{Environment and Technology Stack}
+
+This guide translates the universal algorithmic specification into a high-performance Python production ecosystem.
+
+\section{Library Selection}
+
+\subsection{JAX: Numerical Compute Engine}
+\textbf{JAX 0.4.20} is the foundational layer. It provides:
+\begin{itemize}
+    \item \textbf{XLA}: JIT compilation to optimized CPU/GPU/TPU kernels
+    \item \textbf{Automatic Differentiation}: \texttt{jax.grad}, \texttt{jax.jacfwd}, \texttt{jax.hessian}
+    \item \textbf{Vectorization}: \texttt{vmap} for parallelism without explicit loops
+    \item \textbf{Composability}: \texttt{jit(vmap(grad(...)))}
+\end{itemize}
+
+\textbf{Design decision:} JAX is mandatory because JKO requires Wasserstein gradients and Branches B/C require backprop through differential equations.
+
+\subsection{Equinox 0.11.2: Neural Framework}
+\textbf{Equinox} is used for Branch B (DGM) and Branch C (Neural ODEs). It is selected for:
+\begin{enumerate}
+    \item Pure functional design compatible with JAX transforms
+    \item Native Pytrees with no manual conversion
+    \item Minimal hidden state or metaclass machinery
+    \item Full differentiability of parameters
+    \item Parameter filtering via \texttt{eqx.filter}
+\end{enumerate}
+
+\subsection{Diffrax 0.4.1: ODE/SDE Solvers}
+\textbf{Diffrax} integrates Branch C (Neural SDE/ODE).
+\begin{enumerate}
+    \item JAX-native, fully JIT-able
+    \item End-to-end differentiable via adjoint methods
+    \item Supports Ito/Stratonovich SDEs
+    \item Adaptive solvers (Heun, Tsit5, Dopri5)
+\end{enumerate}
+
+\subsection{Signax 0.1.4: Log-Signatures}
+\textbf{Signax} provides signature and log-signature computation for Branch D.
+\begin{itemize}
+    \item GPU-native kernels
+    \item Differentiable signatures
+    \item Configurable truncation depth
+    \item Stable log-domain computation
+\end{itemize}
+
+\subsection{OTT-JAX 0.4.5: Differentiable Optimal Transport}
+\textbf{OTT-JAX} implements stabilized log-domain Sinkhorn for the JKO orchestrator.
+
+\subsection{Full Stack Summary}
+\begin{table}[h]
+\centering
+\begin{tabular}{|l|l|l|l|}
+\hline
+\textbf{Component} & \textbf{Library} & \textbf{Version} & \textbf{Role} \\
+\hline
+Compute core & JAX & 0.4.20 & XLA, AD, vmap, jit \\
+Neural models & Equinox & 0.11.2 & DGM (Branch B) \\
+ODE/SDE solvers & Diffrax & 0.4.1 & Branch C \\
+Signatures & Signax & 0.1.4 & Branch D \\
+Optimal Transport & OTT-JAX & 0.4.5 & JKO orchestrator \\
+Wavelets & PyWavelets & 1.4.1 & WTMM (SIA) \\
+\hline
+\end{tabular}
+\end{table}
+
+\section{Global Numerical Precision}
+Enable x64 globally when running Malliavin and signature computations:
+\begin{lstlisting}[language=Python]
+import jax
+jax.config.update('jax_enable_x64', True)
+\end{lstlisting}
+This improves stability for Holder exponent estimation, Skorokhod integrals, and Sinkhorn convergence at small $\varepsilon$.
+
+\section{Directory Architecture (Implementation Constraint)}
+All implementations must respect the five-layer layout:
+\begin{itemize}
+    \item \texttt{stochastic\_predictor/api/}: external contracts, config, validation
+    \item \texttt{stochastic\_predictor/core/}: orchestration, JKO flow
+    \item \texttt{stochastic\_predictor/kernels/}: pure XLA kernels (A, B, C, D)
+    \item \texttt{stochastic\_predictor/io/}: I/O, snapshots, sanitization
+    \item \texttt{tests/}: causal and parity validation
+\end{itemize}
+
+\section{Dependency Pinning (Golden Master)}
+Dynamic version ranges are prohibited. Environments must be frozen to exact versions. Use strict pinning in CI/CD and production.
+
+\chapter{Module 1: Identification Engine (SIA)}
+
+\section{WTMM Estimation with Async Callback}
+Use \texttt{jax.pure\_callback} to call PyWavelets on CPU without breaking JIT:
+\begin{lstlisting}[language=Python]
+import pywt
+import jax
+import jax.numpy as jnp
+import numpy as np
+
+class WTMMEstimator:
+    def __init__(self, n_scales=40, j_min=1.0, j_max=6.0):
+        powers = jnp.linspace(j_min, j_max, num=n_scales)
+        self.scales = jnp.power(2.0, powers)
+        self.wavelet = 'gaus1'
+
+    def compute_cwt_safe(self, signal):
+        result_shape = (len(self.scales), signal.shape[0])
+
+        def _cwt_cpu(s, sc):
+            coefs, _ = pywt.cwt(np.array(s), np.array(sc), 'gaus1')
+            return coefs.astype(np.float32)
+
+        coefs = jax.pure_callback(
+            _cwt_cpu,
+            jax.ShapeDtypeStruct(result_shape, jnp.float32),
+            signal, self.scales
+        )
+        return coefs
+\end{lstlisting}
+
+\chapter{Module 2: Prediction Kernels}
+
+\section{Branch A: Levy Processes}
+\begin{lstlisting}[language=Python]
+import jax.numpy as jnp
+from jax import random
+
+def simulate_stable_levy(key, alpha, beta, gamma, delta, n_samples):
+    k1, k2 = random.split(key)
+    phi = random.uniform(k1, shape=(n_samples,), minval=-jnp.pi/2, maxval=jnp.pi/2)
+    w = random.exponential(k2, shape=(n_samples,))
+
+    s_alpha_beta = (1 + (beta * jnp.tan(jnp.pi * alpha / 2))**2)**(1 / (2 * alpha))
+    b_alpha_beta = jnp.arctan(beta * jnp.tan(jnp.pi * alpha / 2)) / alpha
+
+    term1 = s_alpha_beta * (jnp.sin(alpha * (phi + b_alpha_beta))) / ((jnp.cos(phi))**(1/alpha))
+    term2 = ((jnp.cos(phi - alpha * (phi + b_alpha_beta))) / w)**((1 - alpha) / alpha)
+
+    z = term1 * term2
+    return gamma * z + delta
+\end{lstlisting}
+
+\section{Branch B: DGM-PDE Solvers}
+\begin{lstlisting}[language=Python]
+import equinox as eqx
+import jax
+import jax.numpy as jnp
+from jax import vmap
+
+class DGMHJBSolver(eqx.Module):
+    mlp: eqx.nn.MLP
+
+    def __init__(self, in_size, key):
+        self.mlp = eqx.nn.MLP(in_size, 1, width_size=64, depth=4, key=key, activation=jax.nn.tanh)
+
+    def __call__(self, t, x):
+        t = jnp.array([t]) if jnp.ndim(t) == 0 else t
+        tx = jnp.concatenate([t, x])
+        return self.mlp(tx)[0]
+
+def loss_hjb(model, t_batch, x_batch, hamiltonian_fn, terminal_cond_fn, boundary_cond_fn, T):
+    def residual(t_val, x_val):
+        v_t = jax.grad(lambda _t: model(_t, x_val))(t_val)
+        v_x = jax.grad(lambda _x: model(t_val, _x))(x_val)
+        v_xx = jax.hessian(lambda _x: model(t_val, _x))(x_val)
+        return v_t + hamiltonian_fn(x_val, v_x, v_xx)
+
+    residuals = vmap(residual)(t_batch, x_batch)
+    loss_interior = jnp.mean(residuals**2)
+
+    v_terminal_pred = vmap(lambda x: model(T, x))(x_batch)
+    v_terminal_target = vmap(terminal_cond_fn)(x_batch)
+    loss_terminal = jnp.mean((v_terminal_pred - v_terminal_target)**2)
+
+    loss_boundary = 0.0
+    if boundary_cond_fn is not None:
+        loss_boundary = 0.0
+
+    return loss_interior + loss_terminal + loss_boundary
+\end{lstlisting}
+
+\section{Branch B: Entropy Monitoring}
+\begin{lstlisting}[language=Python]
+import jax.numpy as jnp
+from jax import vmap
+
+def compute_entropy_dgm(model, t, x_samples, num_bins=50):
+    v_values = vmap(lambda x: model(t, x))(x_samples)
+    hist, bin_edges = jnp.histogram(v_values, bins=num_bins, density=True)
+    bin_width = bin_edges[1] - bin_edges[0]
+    probs = hist * bin_width
+    log_probs = jnp.log(probs + 1e-10)
+    entropy = -jnp.sum(probs * log_probs)
+    return entropy
+\end{lstlisting}
+
+\section{Branch C: IMEX Scheme}
+\begin{lstlisting}[language=Python]
+import jaxopt
+import jax.numpy as jnp
+
+def imex_step(x_curr, dt, drift_stiff, jump_kernel_fft, diffusion, key):
+    noise = random.normal(key, x_curr.shape) * jnp.sqrt(dt)
+    jump_term = compute_jump_fft(x_curr, jump_kernel_fft)
+    explicit_part = x_curr + dt * jump_term + diffusion(x_curr) * noise
+
+    def fixed_point_op(y, _):
+        return explicit_part + dt * drift_stiff(y)
+
+    solver = jaxopt.AndersonAcceleration(fixed_point_op, maxiter=10, tol=1e-5)
+    x_new, _ = solver.run(x_curr, None)
+    return x_new
+\end{lstlisting}
+
+\section{Branch D: Log-Signatures}
+\begin{lstlisting}[language=Python]
+import signax
+
+def compute_features(path, depth=3):
+    signature = signax.signature(path, depth)
+    log_sig = signax.logsignature(path, depth)
+    return log_sig
+\end{lstlisting}
+
+\chapter{Module 3: JKO Orchestrator}
+
+\section{Stop-Gradient for Diagnostic Modules}
+SIA and CUSUM are diagnostics. Enforce:
+\begin{lstlisting}[language=Python]
+import jax
+raw_holder = self.sia.estimate_holder_exponent(self.signal_buffer)
+meta_state_h = jax.lax.stop_gradient(raw_holder)
+raw_alarm, raw_kurtosis = self._check_regime_change_with_kurtosis(last_error)
+regime_changed = jax.lax.stop_gradient(raw_alarm)
+\end{lstlisting}
+
+\section{AOT Compilation Cache}
+Use persistent compilation cache for hot-starts:
+\begin{lstlisting}[language=Python]
+import os
+import jax
+
+cache_dir = os.path.expanduser("~/.jax_cache")
+os.makedirs(cache_dir, exist_ok=True)
+
+jax.config.update('jax_compilation_cache_dir', cache_dir)
+\end{lstlisting}
+
+\section{Warm-Up Pass}
+Execute a full dummy pass before opening market sockets to transfer XLA kernels to GPU and initialize CUDA context.
+
+\section{Deterministic Matmul Precision}
+Force float32 determinism:
+\begin{lstlisting}[language=Python]
+import jax
+jax.config.update("jax_default_matmul_precision", "highest")
+\end{lstlisting}
+
+\chapter{Walk-Forward Validation and Bayesian Tuning}
+
+\section{Walk-Forward Validator}
+Use rolling windows without look-ahead. Vectorize windows with \texttt{jax.vmap} when models are stateless.
+
+\section{Optuna Meta-Optimization}
+Use TPE to optimize hyperparameters (signature depth, $\varepsilon$, $\tau$, CUSUM parameters, Besov cone).
+
+\chapter{Telemetry and Flags}
+
+Expose $\mathbb{S}_{risk}$ as a structured telemetry object, including Holder exponent, CUSUM drift, kurtosis, adaptive threshold, kernel weights, and operational flags.
+
+\chapter{Strict Dependency Pinning}
+
+All environments must pin exact versions (JAX, OTT-JAX, Signax, Equinox, Diffrax, NumPy, SciPy). Open version ranges and dynamic upgrades are forbidden.
+
+\end{document}

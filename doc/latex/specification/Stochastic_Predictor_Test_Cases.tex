@@ -1,0 +1,1162 @@
+\documentclass[11pt, a4paper]{report}
+
+% --- PREAMBLE ---
+\usepackage[a4paper, top=2.5cm, bottom=2.5cm, left=2cm, right=2cm]{geometry}
+\usepackage{fontspec}
+\usepackage{amsmath}
+\usepackage{amssymb}
+\usepackage{amsfonts}
+\usepackage{mathtools}
+\usepackage{booktabs}
+\usepackage{enumitem}
+\usepackage{amsthm}
+
+\usepackage[english]{babel}
+
+% Environments
+\newtheorem{definition}{Definition}[chapter]
+\newtheorem{testcase}{Test Case}[chapter]
+\newtheorem{criterion}{Criterion}[chapter]
+\newtheorem{remark}{Note}[chapter]
+
+% --- HYPERREF (must be last) ---
+\usepackage[hidelinks]{hyperref}
+
+\title{\textbf{Validation and Test Protocol \\ for the Universal Stochastic Predictor}}
+\author{Adaptive Meta-Prediction Development Consortium}
+\date{\today}
+
+\begin{document}
+
+\maketitle
+
+\tableofcontents
+
+\chapter{Unit Tests: Kernels and Fundamental Algorithms}
+
+These tests verify isolated implementation of critical algorithms without relying on global system state.
+
+\section{Entropy and Random Variable Generation}
+
+\subsection{CMS Algorithm}
+
+\begin{testcase}[Validation of $\alpha$-Stable Distributions]
+Validate that generating $\alpha$-stable variables via the Chambers-Mallows-Stuck method produces distributions with the desired parameters $(\alpha, \beta, \gamma, \delta)$.
+\end{testcase}
+
+\begin{criterion}
+For a sample size $N \geq 10^4$, empirical moments must match the theoretical properties of the stable distribution within a 95\% confidence interval.
+\end{criterion}
+
+\subsection{Pseudo-Random Generator Integrity}
+
+\begin{testcase}[Mersenne Twister/PCG64]
+Verify the absence of serial correlations and the long period guarantees of the pseudo-random number generator.
+\end{testcase}
+
+\begin{criterion}
+Apply standard statistical test batteries (TestU01, Diehard) and verify that no randomness tests fail. The generator period must be $\geq 2^{127}$ for Mersenne Twister and $\geq 2^{128}$ for PCG64.
+\end{criterion}
+
+\section{Singularity Analysis (SIA)}
+
+\subsection{Holder Exponent Detection}
+
+\begin{testcase}[WTMM Validation]
+Use synthetic signals with known Holder exponent $H$ to validate that the WTMM (Wavelet Transform Modulus Maxima) algorithm recovers the singularity spectrum $D(h)$ with error $< 5\%$.
+\end{testcase}
+
+\begin{criterion}
+Let $f(t)$ be a synthetic signal with known $H = H_0$. The Holder exponent estimated by WTMM must satisfy:
+\[
+|\hat{H} - H_0| < 0.05 \cdot H_0
+\]
+where $\hat{H}$ is the estimate from multiscale analysis.
+\end{criterion}
+
+\subsection{Cone of Influence}
+
+\begin{testcase}[Besov Influence Radius]
+Verify that maxima linking in the scale space respects the influence radius defined by $C_{besov}$.
+\end{testcase}
+
+\begin{criterion}
+For two consecutive maxima at scales $s_1 < s_2$, their temporal positions $(t_1, t_2)$ must satisfy:
+\[
+|t_2 - t_1| \leq C_{besov} \cdot (s_2 - s_1)
+\]
+where $C_{besov}$ is the Besov-space constant associated with the chosen wavelet.
+\end{criterion}
+
+\subsection{Soft Nyquist Limit Validation}
+
+The I/O specification defines a minimum data injection frequency to preserve multifractal analysis integrity. This test explicitly validates that operational limit.
+
+\begin{testcase}[Multifractal Aliasing]
+Gradually reduce the input sampling frequency until the spectrum $D(h)$ collapses, validating that the system detects the undersampling condition before irreversible degradation occurs.
+\end{testcase}
+
+\begin{criterion}
+Consider a reference multifractal signal with known singularity spectrum $D_0(h)$ and nominal sampling frequency $f_0$. Use the following protocol:
+\begin{enumerate}
+    \item Reduce sampling frequency by decimation: $f_k = f_0 / 2^k$ with $k = 0, 1, 2, \ldots$
+    \item For each $f_k$, compute the estimated spectrum $\hat{D}_k(h)$ via WTMM
+    \item Compute relative error:
+    \[
+    \varepsilon_k = \frac{\|D_0(h) - \hat{D}_k(h)\|_{L^2}}{\|D_0(h)\|_{L^2}}
+    \]
+    \item Monitor the dominant Holder exponent: $\hat{H}_k = \arg\max_h D_k(h)$
+\end{enumerate}
+The system must satisfy:
+\begin{itemize}
+    \item \textbf{Preventive detection:} Emit \texttt{FreezingTopologicalBranchEvent} when $\varepsilon_k > 0.05$ (error $> 5\%$)
+    \item \textbf{Acceptance criterion:} The signal must trigger \textit{before} Holder error exceeds 10\%:
+    \[
+    \frac{|\hat{H}_k - H_0|}{H_0} < 0.10 \quad \text{at the moment of freezing}
+    \]
+    \item \textbf{Corrective action:} After the signal, freeze the topological branch weight at its last reliable value: $w_C \to w_C^{frozen}$ with no dynamic updates
+\end{itemize}
+\end{criterion}
+
+\begin{remark}
+The Nyquist limit in multifractal analysis is a soft boundary. Self-similarity allows some tolerance to undersampling, but below a threshold fine-scale structures collapse and $D(h)$ degrades. This test ensures the system operates in a safe resolution regime.
+\end{remark}
+
+\begin{remark}
+The critical frequency $f_{critical}$ depends on:
+\begin{enumerate}
+    \item The scale range $[s_{min}, s_{max}]$ of the wavelet transform
+    \item The temporal support of the mother wavelet $\psi(t)$
+    \item The expected minimum Holder regularity $H_{min}$
+\end{enumerate}
+A practical heuristic:
+\[
+f_{min} \geq \frac{10}{s_{min}} \cdot (1 + H_{min}^{-1})
+\]
+This ensures at least 10 points per minimum scale, adjusted by roughness.
+\end{remark}
+
+\section{Algebraic Structures (Branch D)}
+
+\subsection{Chen Identity}
+
+\begin{testcase}[Signature Concatenation]
+Validate that concatenating signatures of two path segments via the tensor product ($\otimes$) equals the signature of the full path.
+\end{testcase}
+
+\begin{criterion}
+Let $\gamma_1: [0, T_1] \to \mathbb{R}^d$ and $\gamma_2: [0, T_2] \to \mathbb{R}^d$ be two paths. Chen's identity states:
+\[
+\text{Sig}(\gamma_1 \star \gamma_2) = \text{Sig}(\gamma_1) \otimes \text{Sig}(\gamma_2)
+\]
+where $\gamma_1 \star \gamma_2$ denotes concatenation. Numerical error must be $< 10^{-6}$ in Euclidean norm.
+\end{criterion}
+
+\subsection{Scale Invariance}
+
+\begin{testcase}[Temporal Reparametrization]
+Check that the level-$M$ truncated signature is invariant under strictly increasing time reparametrizations of the input path.
+\end{testcase}
+
+\begin{criterion}
+For a strictly increasing reparametrization $\phi: [0,1] \to [0,1]$ with $\phi(0)=0$ and $\phi(1)=1$, we must have:
+\[
+\text{Sig}^{(M)}(\gamma) = \text{Sig}^{(M)}(\gamma \circ \phi)
+\]
+where $\text{Sig}^{(M)}$ is the level-$M$ truncated signature.
+\end{criterion}
+
+\chapter{Integration Tests and Stochastic Convergence}
+
+Validate that component interactions respect continuous probability laws and numerical stability conditions.
+
+\section{Stochastic Differential Equation (SDE) Solvers}
+
+\subsection{Convergence of Numerical Schemes}
+
+\begin{testcase}[Euler-Maruyama vs Milstein]
+For diffusion with non-constant volatility, verify that Milstein achieves strong convergence order 1.0 versus order 0.5 for Euler-Maruyama.
+\end{testcase}
+
+\begin{criterion}
+Consider the SDE:
+\[
+ dX_t = \mu(X_t, t)\, dt + \sigma(X_t, t)\, dW_t
+\]
+with non-constant $\sigma(x,t)$. For a sequence of time steps $\Delta t_n = 2^{-n} \Delta t_0$, the strong error must satisfy:
+\begin{align*}
+E[|X_T - X_T^{EM}|^2] &= O(\Delta t^{0.5}) \quad \text{(Euler-Maruyama)} \\
+E[|X_T - X_T^{M}|^2] &= O(\Delta t^{1.0}) \quad \text{(Milstein)}
+\end{align*}
+where $X_T^{EM}$ and $X_T^{M}$ are the numerical approximations.
+\end{criterion}
+
+\subsection{Mixed CFL Condition}
+
+\begin{testcase}[Stability Violation]
+Force a time step $\Delta t$ that violates the Courant-Friedrichs-Lewy restriction and confirm numerical instability or NaNs as expected behavior to calibrate the safety monitor.
+\end{testcase}
+
+\begin{criterion}
+For an explicit scheme, the CFL condition requires:
+\[
+\Delta t \leq \frac{C}{\sup_x |\mu'(x)| + \sigma^2(x)/2}
+\]
+Force $\Delta t > 10 C$ and verify divergence detection via:
+\begin{itemize}
+    \item NaN or Inf emergence in simulated trajectories
+    \item Instability alert emitted by the safety module
+\end{itemize}
+\end{criterion}
+
+\section{Transport Optimization (Orchestrator)}
+
+\subsection{Sinkhorn Algorithm Stability}
+
+\begin{testcase}[Log-Domain Convergence]
+Evaluate Sinkhorn convergence in the log domain with decreasing regularization $\varepsilon$, ensuring no underflow down to $\varepsilon \geq 10^{-4}$.
+\end{testcase}
+
+\begin{criterion}
+The log-domain Sinkhorn-Knopp algorithm must converge when:
+\[
+\varepsilon \geq 10^{-4}
+\]
+For $\varepsilon < 10^{-4}$, the system must detect underflow risk and emit a warning. Convergence is measured by:
+\[
+\|K \text{diag}(u) K^T \text{diag}(v) - \mu\|_1 < 10^{-6}
+\]
+where $K_{ij} = \exp(-C_{ij}/\varepsilon)$ is the Gibbs kernel.
+\end{criterion}
+
+\subsection{Simplex Normalization}
+
+\begin{testcase}[Probabilistic Mass Conservation]
+Confirm that after any JKO update the sum of kernel weights is strictly $\sum_i \rho_i = 1.0$.
+\end{testcase}
+
+\begin{criterion}
+After each JKO iteration:
+\[
+\rho^{n+1} = \arg\min_{\rho \in \mathcal{P}(\mathcal{X})} \left\{ W_2^2(\rho, \rho^n) + \tau \mathcal{F}[\rho] \right\}
+\]
+verify that $\rho^{n+1}$ belongs to the probability simplex:
+\[
+\sum_{i=1}^{N} \rho_i^{n+1} = 1.0, \quad \rho_i^{n+1} \geq 0 \quad \forall i
+\]
+with numerical tolerance $|\sum_i \rho_i^{n+1} - 1.0| < 10^{-10}$.
+\end{criterion}
+
+\section{HJB Solution via DGM (Branch B)}
+
+Branch B solves the Hamilton-Jacobi-Bellman equation with Deep Galerkin Method (DGM). These tests validate convergence and stability.
+
+\subsection{Gradient Stability}
+
+\begin{testcase}[Gradient Explosion Under High Volatility]
+Monitor gradient norms during PDE training to detect gradient explosions in high-volatility regimes.
+\end{testcase}
+
+\begin{criterion}
+The HJB equation:
+\[
+\frac{\partial V}{\partial t} + \sup_{u \in \mathcal{U}} \left\{ \mathcal{L}^u V(x,t) + f(x,u,t) \right\} = 0
+\]
+is approximated by a neural network $V_\theta(x,t)$ trained with DGM. During training, monitor:
+\begin{enumerate}
+    \item Loss gradient norm:
+    \[
+    \|\nabla_\theta \mathcal{L}_{DGM}(\theta)\|_2 = \left\| \frac{\partial}{\partial \theta} \mathbb{E}[|PDE[V_\theta]|^2 + |BC[V_\theta]|^2] \right\|_2
+    \]
+    \item Apply gradient clipping when $\|\nabla_\theta \mathcal{L}\|_2 > C_{clip}$ with $C_{clip} = 10.0$
+    \item In high-volatility scenarios ($\sigma(x,t) > 2\sigma_0$), the system must:
+    \begin{itemize}
+        \item Detect if $\|\nabla_\theta \mathcal{L}\|_2$ exceeds $C_{clip}$ for more than 5 consecutive iterations
+        \item Emit \texttt{GradientInstabilityEvent}
+        \item Adaptively reduce learning rate: $\eta \to 0.5 \eta$
+        \item Verify stabilization within the next 20 epochs
+    \end{itemize}
+\end{enumerate}
+\end{criterion}
+
+\begin{remark}
+Gradient explosions in DGM often arise from interactions between second-order derivatives and diffusion coefficients. Early detection and adaptive clipping are essential for convergence in high-volatility regimes.
+\end{remark}
+
+\subsection{Viscosity Solution Validation}
+
+\begin{testcase}[Crandall-Lions Comparison Principle]
+Validate that the neural solution $V_\theta(x,t)$ respects the comparison principle for viscosity solutions, ensuring uniqueness and consistency for non-linear PDEs.
+\end{testcase}
+
+\begin{criterion}
+The comparison principle states: if $u$ is a viscosity supersolution and $v$ is a viscosity subsolution of the same HJB equation with $u \geq v$ on the boundary, then $u \geq v$ on the full domain.
+
+Validation procedure:
+\begin{enumerate}
+    \item Construct a reference solution $V_{ref}(x,t)$ using a standard method (upwind finite differences, method of lines)
+    \item Train the DGM network to obtain $V_\theta(x,t)$
+    \item Verify time monotonicity (finite horizon):
+    \[
+    V_\theta(x, t_1) \geq V_\theta(x, t_2) \quad \forall t_1 < t_2, \forall x \in \mathcal{D}
+    \]
+    (assuming non-negative costs)
+    \item Validate sub/supersolution constraints on a test grid $\{(x_i, t_j)\}_{i,j}$:
+    \begin{align*}
+    \text{Subsolution:} \quad & PDE[V_\theta](x_i, t_j) \leq \epsilon_{tol} \\
+    \text{Supersolution:} \quad & PDE[V_\theta](x_i, t_j) \geq -\epsilon_{tol}
+    \end{align*}
+    with $\epsilon_{tol} = 10^{-3}$
+    \item Compare with reference solution:
+    \[
+    \|V_\theta - V_{ref}\|_{L^\infty(\mathcal{D})} < \delta_{viscosity}
+    \]
+    where $\delta_{viscosity} = 0.05 \cdot \|V_{ref}\|_{L^\infty}$ (relative error $< 5\%$)
+\end{enumerate}
+\end{criterion}
+
+\begin{remark}
+Crandall-Lions viscosity theory is the rigorous framework for HJB equations. DGM networks, being smooth functions, must approximate these generalized solutions. The comparison principle test prevents spurious oscillations and causality violations.
+\end{remark}
+
+\subsection{Training Entropy Test (Mode Collapse)}
+
+During neural PDE training, the model can collapse to trivial constant solutions. This test detects and prevents that behavior.
+
+\begin{testcase}[Mode Collapse Detection]
+Verify that the neural network does not collapse to a trivial solution that satisfies the PDE but fails to capture structure.
+\end{testcase}
+
+\begin{criterion}
+Mode collapse occurs when the network learns a minimum-variance solution that minimizes PDE loss without solving the boundary-value problem.
+
+Detection protocol:
+\begin{enumerate}
+    \item Compute spatial variance at time $t < T$:
+    \[
+    \text{Var}_x[V_\theta(x,t)] = \mathbb{E}_x[(V_\theta(x,t) - \bar{V}_t)^2]
+    \]
+    where $\bar{V}_t = \mathbb{E}_x[V_\theta(x,t)]$
+    \item Compute variance of the terminal condition:
+    \[
+    \text{Var}[g(\xi)] = \mathbb{E}_\xi[(g(\xi) - \bar{g})^2]
+    \]
+    \item Verify proportionality:
+    \[
+    \kappa_{low} \leq \frac{\text{Var}_x[V_\theta(x,t)]}{\text{Var}[g(\xi)]} \leq \kappa_{high}
+    \]
+    with typical thresholds $\kappa_{low} = 0.3$ and $\kappa_{high} = 1.2$
+    \item If the ratio falls below $\kappa_{low}$: detect mode collapse
+    \item Monitor differential entropy:
+    \[
+    H[V_\theta] = -\int p(v) \log p(v) \, dv
+    \]
+    A collapsed solution yields $H[V_\theta] \to -\infty$ (delta distribution)
+\end{enumerate}
+
+Acceptance criteria:
+\begin{itemize}
+    \item Variance ratio in $[\kappa_{low}, \kappa_{high}]$ for at least 90\% of $t \in [0,T]$
+    \item Differential entropy satisfies $H[V_\theta] > H_{min}$
+    \item Spatial gradient norm does not collapse:
+    \[
+    \mathbb{E}_x[\|\nabla_x V_\theta(x,t)\|_2] > \epsilon_{grad} > 0
+    \]
+\end{itemize}
+\end{criterion}
+
+\begin{remark}
+Mode collapse is common in:
+\begin{enumerate}
+    \item Uniform or symmetric boundary conditions
+    \item Excessive learning rates leading to minimum-norm solutions
+    \item Under-parameterized networks
+    \item Biased weight initialization
+\end{enumerate}
+Early variance monitoring allows reinitialization or hyperparameter tuning before collapse is permanent.
+\end{remark}
+
+\begin{remark}
+From a control theory perspective, a collapsed solution $V_\theta(x,t) \approx c$ yields a degenerate control policy $u^*(x,t)$ that does not respond to state changes, which is operationally useless.
+\end{remark}
+
+\subsection{Mesh Refinement Convergence}
+
+\begin{testcase}[Consistency under Refinement]
+Verify that the DGM solution converges to the exact (or reference) solution as the density of collocation points increases.
+\end{testcase}
+
+\begin{criterion}
+For nested meshes $\mathcal{M}_1 \subset \mathcal{M}_2 \subset \mathcal{M}_3$ with densities $N_1 < N_2 < N_3$:
+\begin{enumerate}
+    \item Train DGM on each mesh to loss convergence: $\mathcal{L}_{DGM}^{(k)} < 10^{-4}$
+    \item Compute error on a fixed fine evaluation mesh:
+    \[
+    e_k = \|V_{\theta_k} - V_{ref}\|_{L^2(\mathcal{D}_{eval})}
+    \]
+    \item Verify monotone convergence:
+    \[
+    e_1 > e_2 > e_3
+    \]
+    \item Estimate empirical rate:
+    \[
+    r = \frac{\log(e_1/e_2)}{\log(N_2/N_1)}
+    \]
+    Expected $r \geq 0.5$ (at least order $N^{-0.5}$ convergence)
+\end{enumerate}
+\end{criterion}
+
+\subsection{Simplified Output Variance Test (Mode Collapse)}
+
+This test complements entropy monitoring with a direct variance ratio check.
+
+\begin{testcase}[Minimum Variance Threshold]
+Compare output variance of the neural solution $V_\theta(x,t)$ against a reference solution $V_{ref}(x,t)$ and verify that the network captures at least 10\% of the true variability.
+\end{testcase}
+
+\begin{criterion}
+Let $V_{ref}(x,t)$ be a reference solution obtained with a standard method. For the trained DGM network $V_\theta(x,t)$:
+\begin{enumerate}
+    \item Compute reference variance at time $t \in [0,T]$:
+    \[
+    \text{Var}_{ref}(t) = \frac{1}{|\mathcal{X}|} \sum_{x_i \in \mathcal{X}} (V_{ref}(x_i, t) - \bar{V}_{ref}(t))^2
+    \]
+    \item Compute neural variance:
+    \[
+    \text{Var}_{\theta}(t) = \frac{1}{|\mathcal{X}|} \sum_{x_i \in \mathcal{X}} (V_\theta(x_i, t) - \bar{V}_\theta(t))^2
+    \]
+    \item Variance ratio:
+    \[
+    R_{var}(t) = \frac{\text{Var}_{\theta}(t)}{\text{Var}_{ref}(t)}
+    \]
+    \item \textbf{Failure criterion:}
+    \[
+    R_{var}(t) < 0.10 \quad \text{for any } t \in [0, 0.9T]
+    \]
+    \item \textbf{Acceptance criterion:}
+    \[
+    R_{var}(t) \geq 0.10 \quad \forall t \in [0, 0.9T]
+    \]
+    and
+    \[
+    \text{median}_{t \in [0,T]} R_{var}(t) \geq 0.50
+    \]
+\end{enumerate}
+\end{criterion}
+
+\begin{remark}
+If $R_{var}(t) < 0.10$ before convergence, interrupt training and adjust hyperparameters (learning rate, architecture, initialization). The 10\% threshold is conservative; any solution below it is effectively constant. The $t \in [0, 0.9T]$ restriction excludes the terminal region where variance naturally contracts.
+\end{remark}
+
+\begin{remark}
+This criterion complements the entropy test. Practical interpretation:
+\begin{itemize}
+    \item $R_{var} < 0.10$: critical collapse (fail)
+    \item $0.10 \leq R_{var} < 0.30$: low-variance warning
+    \item $R_{var} \geq 0.50$: normal operation
+\end{itemize}
+\end{remark}
+
+\chapter{Robustness Tests and Circuit Breakers}
+
+These tests verify system protection against market anomalies or data failures.
+
+\section{Outlier and Regime Handling}
+
+\subsection{Outlier Injection}
+
+\begin{testcase}[Extreme Outlier Values]
+Inject values $> 20\sigma$ in the input stream and verify that the system rejects the point, emits a validation alert, and preserves inertial weights.
+\end{testcase}
+
+\begin{criterion}
+Given observations $\{y_t\}$ with rolling mean $\mu_t$ and standard deviation $\sigma_t$, inject:
+\[
+\tilde{y}_t = \mu_t + 20\sigma_t
+\]
+The system must:
+\begin{enumerate}
+    \item Detect $|\tilde{y}_t - \mu_t| > \theta\sigma_t$ with $\theta = 10$
+    \item Reject the observation and NOT update the meta-state $\Xi_t$
+    \item Emit \texttt{OutlierDetectedEvent} with metadata for the rejected value
+    \item Keep weights $\{w_i\}_{i=A}^D$ unchanged
+\end{enumerate}
+\end{criterion}
+
+\subsection{CUSUM Trigger}
+
+\begin{testcase}[Structural Regime Change]
+Simulate a regime change (structural drift) and validate that the change event is emitted exactly when $G_t^+$ exceeds the dynamic threshold $h$.
+\end{testcase}
+
+\begin{criterion}
+CUSUM detects mean shifts via:
+\[
+G_t^+ = \max(0, G_{t-1}^+ + (y_t - \mu_0) - k)
+\]
+where $k$ is the slack and $h$ is the alarm threshold. Verify:
+\begin{enumerate}
+    \item $G_t^+ > h \Rightarrow$ emit \texttt{RegimeChangedEvent}
+    \item Reset $G_t^+ = 0$ after detection
+    \item Detection delay is at most $\tau$ observations after the true change point
+\end{enumerate}
+\end{criterion}
+
+\section{Emergency Mode (Robustness Postulate)}
+
+\subsection{Critical Singularity}
+
+\begin{testcase}[Extreme Roughness Regime]
+Artificially reduce the Holder exponent below $H_{min}$ and verify that the orchestrator forces $w_D \to 1.0$ and switches the cost to the Huber metric.
+\end{testcase}
+
+\begin{criterion}
+Define a critical threshold $H_{min}$ (typically $H_{min} = 0.25$). When WTMM detects:
+\[
+\hat{H}_t < H_{min}
+\]
+The system must:
+\begin{enumerate}
+    \item Activate emergency mode: $w_A = w_B = w_C = 0$, $w_D = 1.0$
+    \item Switch orchestrator cost from Wasserstein to Huber:
+    \[
+    C(x,y) = \begin{cases}
+    \frac{1}{2}|x-y|^2 & \text{if } |x-y| \leq \delta \\
+    \delta(|x-y| - \frac{\delta}{2}) & \text{if } |x-y| > \delta
+    \end{cases}
+    \]
+    \item Emit \texttt{CriticalSingularityEvent}
+    \item Maintain this state until $\hat{H}_t > H_{min} + \epsilon_{hysteresis}$
+\end{enumerate}
+\end{criterion}
+
+\chapter{I/O and Persistence Tests}
+
+These tests guarantee operational continuity and latent state integrity.
+
+\section{Snapshot Protocol}
+
+\subsection{Hot-Start}
+
+\begin{testcase}[State Continuity]
+Serialize the meta-state $\Xi_t$, restart the system, and load it. The first prediction after restart must match the prediction without interruption.
+\end{testcase}
+
+\begin{criterion}
+Define the full meta-state:
+\[
+\Xi_t = \left\{ \{w_i\}_{i=A}^D, \{\theta_i^*\}_{i=A}^D, \mathcal{H}_t, \text{Sig}_t, G_t^{\pm}, \mu_t, \sigma_t^2 \right\}
+\]
+Validation procedure:
+\begin{enumerate}
+    \item At time $t_0$, serialize $\Xi_{t_0}$ to a binary file
+    \item Generate prediction $\hat{y}_{t_0+1}^{\text{original}}$
+    \item Restart the system (release memory)
+    \item Load $\Xi_{t_0}$ from file
+    \item Generate prediction $\hat{y}_{t_0+1}^{\text{restored}}$
+    \item Verify: $|\hat{y}_{t_0+1}^{\text{original}} - \hat{y}_{t_0+1}^{\text{restored}}| < 10^{-12}$
+\end{enumerate}
+\end{criterion}
+
+\subsection{Checksum Validation}
+
+\begin{testcase}[Cryptographic Integrity]
+Corrupt a single bit in the snapshot file and verify that the system rejects the load via SHA-256, forcing a cold start.
+\end{testcase}
+
+\begin{criterion}
+Each snapshot must include a SHA-256 hash. Load must:
+\begin{enumerate}
+    \item Read the binary file
+    \item Compute $H' = \text{SHA256}(\text{content})$
+    \item Compare to stored hash $H$
+    \item If $H' \neq H$: reject load, emit \texttt{CorruptedSnapshotEvent}, initialize cold start
+    \item If $H' = H$: proceed with deserialization
+\end{enumerate}
+Validate by flipping one random bit and verifying rejection.
+\end{criterion}
+
+\section{I/O Failure Recovery}
+
+Persisting $\Xi_t$ is critical for continuity. These tests validate robustness against write, read, and storage failures.
+
+\subsection{Write Interruption (Atomicity)}
+
+\begin{testcase}[Power Loss Simulation]
+Simulate a sudden power loss during snapshot serialization and verify that partially written files are handled safely.
+\end{testcase}
+
+\begin{criterion}
+Snapshotting must guarantee atomicity via write-then-rename:
+\begin{enumerate}
+    \item Serialize $\Xi_t$ to temporary file: \texttt{snapshot\_\{timestamp\}.tmp}
+    \item Compute $H = \text{SHA256}(\Xi_t)$ and append to file
+    \item Perform \texttt{fsync()} to flush to disk
+    \item Atomically rename: \texttt{snapshot\_\{timestamp\}.tmp} $\to$ \texttt{snapshot\_\{timestamp\}.bin}
+\end{enumerate}
+Validation:
+\begin{enumerate}
+    \item Start snapshot at time $t_0$
+    \item Interrupt at random progress $p \in \{0.1, 0.3, 0.5, 0.7, 0.9\}$
+    \item Simulate abrupt termination (\texttt{SIGKILL} or I/O cut)
+    \item Restart system
+    \item The system must:
+    \begin{itemize}
+        \item Detect absence of main \texttt{.bin} file
+        \item Detect presence of corrupted \texttt{.tmp}
+        \item Ignore the temp file
+        \item Load the latest valid snapshot before $t_0$
+        \item If none exist: execute cold start
+        \item Avoid infinite restart loops
+    \end{itemize}
+\end{enumerate}
+Success criterion:
+\[
+\text{Recovery time} < T_{recovery} = 30 \text{ seconds}
+\]
+No functional degradation after recovery.
+\end{criterion}
+
+\begin{remark}
+Atomic snapshot writes avoid the torn write problem. Most modern file systems (ext4, XFS, NTFS, APFS) guarantee atomic rename, which this protocol relies on.
+\end{remark}
+
+\subsection{Silent Disk Corruption}
+
+\begin{testcase}[Bit Rot and Storage Errors]
+Detect and handle silent data corruption that can occur between snapshot write and read.
+\end{testcase}
+
+\begin{criterion}
+The protocol must:
+\begin{enumerate}
+    \item Store verification metadata with each snapshot:
+    \begin{itemize}
+        \item SHA-256 hash
+        \item Creation timestamp
+        \item Serialization format version
+        \item Optional CRC32 pre-check
+    \end{itemize}
+    \item On load:
+    \begin{itemize}
+        \item Verify CRC32 if available
+        \item Verify full SHA-256
+        \item On failure, mark snapshot corrupt and search for previous valid snapshot
+    \end{itemize}
+    \item Retention policy:
+    \begin{itemize}
+        \item Keep last $N = 5$ valid snapshots
+        \item Allow recovery from $t_{-k}$ if $t_0$ is corrupt
+    \end{itemize}
+\end{enumerate}
+Validation:
+\begin{enumerate}
+    \item Create valid snapshot at $t_0$
+    \item Corrupt random bytes
+    \item Attempt load
+    \item Verify system:
+    \begin{itemize}
+        \item Detects corruption
+        \item Emits \texttt{CorruptedSnapshotEvent}
+        \item Falls back to previous valid snapshot
+        \item Executes cold start if no valid snapshot exists
+        \item Avoids infinite retry loops
+    \end{itemize}
+\end{enumerate}
+\end{criterion}
+
+\subsection{Disk Space Exhaustion}
+
+\begin{testcase}[Insufficient Capacity Handling]
+Validate behavior when storage is full during snapshot write.
+\end{testcase}
+
+\begin{criterion}
+During snapshotting, the system must:
+\begin{enumerate}
+    \item Before writing, verify free space:
+    \[
+    \text{FreeSpace} \geq 2 \times \text{EstimatedSize}(\Xi_t)
+    \]
+    (factor 2 for temp + rename)
+    \item If insufficient space:
+    \begin{itemize}
+        \item Emit \texttt{InsufficientStorageEvent}
+        \item Do not attempt write
+        \item Keep last valid snapshot
+        \item Continue operation in memory until space is available
+    \end{itemize}
+    \item If failure occurs mid-write:
+    \begin{itemize}
+        \item Catch I/O exception
+        \item Delete corrupted temp file
+        \item Emit \texttt{SnapshotWriteFailedEvent}
+        \item Preserve last valid snapshot
+    \end{itemize}
+\end{enumerate}
+Validation:
+\begin{enumerate}
+    \item Create a limited storage volume
+    \item Fill it, leaving insufficient space
+    \item Attempt snapshot
+    \item Verify graceful handling without crash
+\end{enumerate}
+\end{criterion}
+
+\begin{remark}
+Disk exhaustion is common in production. Design priorities: (1) do not corrupt valid snapshots, (2) degrade gracefully in memory, (3) provide clear telemetry, (4) recover automatically when space frees.
+\end{remark}
+
+\chapter{Hardware Parity and Fidelity Tests (Cross-Platform)}
+
+Given heterogeneous targets (CPU, GPU, FPGA), add bit-consistency tests to ensure equivalent outputs across architectures.
+
+\section{Bit-Consistency Tests}
+
+\begin{testcase}[Multi-Architecture Equivalence]
+Verify that critical algorithms produce consistent numerical results across hardware platforms (CPU, GPU, FPGA), within precision limits of each architecture.
+\end{testcase}
+
+\begin{criterion}
+For each critical component (random generation, signatures, SDE integration), execute identical inputs on:
+\begin{enumerate}
+    \item CPU with IEEE 754 floating-point (64-bit)
+    \item GPU with floating-point (32 or 64-bit)
+    \item FPGA with fixed-point arithmetic (configurable precision)
+\end{enumerate}
+Relative difference must satisfy:
+\[
+\frac{\|x^{CPU} - x^{GPU}\|_2}{\|x^{CPU}\|_2} < \epsilon_{GPU}, \quad \frac{\|x^{CPU} - x^{FPGA}\|_2}{\|x^{CPU}\|_2} < \epsilon_{FPGA}
+\]
+where $\epsilon_{GPU} = 10^{-6}$ for 32-bit arithmetic and $\epsilon_{FPGA}$ is the quantization error of the lower-precision hardware.
+\end{criterion}
+
+\section{Numerical Drift Test}
+
+\subsection{Branch D: Signatures on FPGA vs CPU}
+
+\begin{testcase}[Fixed-Point Error Accumulation]
+Compare Branch D signatures on FPGA (fixed-point) against CPU (64-bit floating-point).
+\end{testcase}
+
+\begin{criterion}[Drift Acceptance Criteria]
+For a path $\gamma: [0,T] \to \mathbb{R}^d$:
+\[
+\text{Sig}^{(M)}(\gamma) = \left(1, \int_0^T d\gamma_{t_1}, \int_0^T \int_0^{t_1} d\gamma_{t_2} \otimes d\gamma_{t_1}, \ldots \right)
+\]
+For 10,000 iterations:
+\begin{enumerate}
+    \item Compute CPU signature: $\text{Sig}^{CPU}_{10000}$
+    \item Compute FPGA signature: $\text{Sig}^{FPGA}_{10000}$
+    \item Compute accumulated divergence:
+    \[
+    \Delta_{acum} = \|\text{Sig}^{CPU}_{10000} - \text{Sig}^{FPGA}_{10000}\|_{\infty}
+    \]
+    \item \textbf{Primary criterion:}
+    \[
+    \Delta_{acum} \leq N \cdot \epsilon_{quant}
+    \]
+    where $N = 10000$ and $\epsilon_{quant} = 2^{-n+1}$ for $n$-bit fixed point
+
+    \item \textbf{Secondary topological preservation:}
+    \begin{itemize}
+        \item Norm preservation:
+        \[
+        \frac{|\|\text{Sig}^{FPGA}_{10000}\|_2 - \|\text{Sig}^{CPU}_{10000}\|_2|}{\|\text{Sig}^{CPU}_{10000}\|_2} < \tau_{norm}
+        \]
+        with $\tau_{norm} = 0.01$
+        \item Sign preservation:
+        \[
+        \text{sgn}(s_i^{(k),CPU}) = \text{sgn}(s_i^{(k),FPGA}) \quad \forall i,k
+        \]
+        \item Angular distance:
+        \[
+        \cos(\theta) = \frac{\langle \text{Sig}^{CPU}_{10000}, \text{Sig}^{FPGA}_{10000} \rangle}{\|\text{Sig}^{CPU}_{10000}\|_2 \cdot \|\text{Sig}^{FPGA}_{10000}\|_2}
+        \]
+        Require $\cos(\theta) > 0.9999$ (angular deviation $< 0.81^\circ$)
+        \item Relative error per level:
+        \[
+        \frac{\|\text{Sig}^{CPU,(k)}_{10000} - \text{Sig}^{FPGA,(k)}_{10000}\|_2}{\|\text{Sig}^{CPU,(k)}_{10000}\|_2} < \tau_k
+        \]
+        where $\tau_k = 0.05 \cdot k$
+    \end{itemize}
+\end{enumerate}
+\end{criterion}
+
+\begin{remark}
+Fixed-point drift is inevitable due to repeated truncation. The primary criterion bounds cumulative error by the worst-case independent error accumulation. For Branch D, qualitative properties must also be preserved: orientation, angular similarity, and low-level tensor accuracy.
+\end{remark}
+
+\begin{remark}
+For FPGA with $n = 32$ bits (Q16.16), $\epsilon_{quant} = 2^{-15} \approx 3.05 \times 10^{-5}$. After 10,000 iterations, the primary criterion allows $\Delta_{acum} \leq 0.305$, while topological criteria enforce tighter constraints:
+\begin{itemize}
+    \item Relative norm error $< 1\%$
+    \item Angular deviation $< 1^\circ$
+    \item Level-1 error $< 5\%$
+\end{itemize}
+\end{remark}
+
+\subsection{Deterministic Reproducibility}
+
+\begin{testcase}[Controlled Seed Initialization]
+Guarantee that, given the same pseudo-random seed, all platforms (CPU, GPU, FPGA) produce the same state sequence.
+\end{testcase}
+
+\begin{criterion}
+Set deterministic seed $s_0$ and run 1,000 simulation steps on each platform. Verify:
+\[
+\{X_t^{CPU}\}_{t=1}^{1000} = \{X_t^{GPU}\}_{t=1}^{1000} = \{X_t^{FPGA}\}_{t=1}^{1000}
+\]
+Equality must be bit-for-bit for platforms with the same representation (CPU and GPU floating-point). For FPGA, compare after converting fixed-point to floating-point.
+\end{criterion}
+
+\section{Latency and Throughput Validation}
+
+\begin{testcase}[Cross-Platform Performance Benchmark]
+Measure execution time and throughput for each predictor branch on all architectures to identify bottlenecks and validate heterogeneous acceleration.
+\end{testcase}
+
+\begin{criterion}
+For a batch of $N = 1000$ predictions:
+\begin{align*}
+T_{CPU} &= \text{total time on CPU} \\
+T_{GPU} &= \text{total time on GPU} \\
+T_{FPGA} &= \text{total time on FPGA}
+\end{align*}
+Expected:
+\begin{itemize}
+    \item GPU outperforms CPU for massively parallel operations: $T_{GPU} < 0.3 \cdot T_{CPU}$
+    \item FPGA outperforms CPU for deterministic low-latency operations: $T_{FPGA} < 0.1 \cdot T_{CPU}$
+\end{itemize}
+Throughput:
+\[
+\text{Throughput} = \frac{N}{T} \quad \text{[predictions/second]}
+\]
+\end{criterion}
+
+\chapter{Final Validation Protocol (Causality)}
+
+This is the definitive predictive test before any deployment.
+
+\section{Generalization}
+
+\begin{testcase}[Rolling Walk-Forward]
+Zero look-ahead bias. Training uses only data strictly prior to the test horizon.
+\end{testcase}
+
+\begin{criterion}
+Split the dataset into rolling windows:
+\[
+\mathcal{D} = \{(t_1, y_1), \ldots, (t_N, y_N)\}
+\]
+For each test window $\mathcal{T}_k = \{t_{n_k}, \ldots, t_{n_k+w}\}$:
+\begin{enumerate}
+    \item Train only with $\mathcal{D}_{\text{train}}^k = \{(t_i, y_i) : t_i < t_{n_k}\}$
+    \item Predict on $\mathcal{T}_k$
+    \item Advance window: $k \to k+1$
+    \item Aggregate out-of-sample metrics (RMSE, MAE, Sharpe ratio)
+\end{enumerate}
+The system must ensure that no future data is used to train the model at time $t$.
+\end{criterion}
+
+\section{Meta-Optimization Efficiency}
+
+\begin{testcase}[Bayesian Optimization]
+Iterative improvement of Expected Improvement on generalization error compared to random search.
+\end{testcase}
+
+\begin{criterion}
+Use a Gaussian Process surrogate model for the hyperparameter space $\Theta = \{\alpha, \beta, \gamma, \ldots\}$. For $n$ optimization iterations:
+\begin{enumerate}
+    \item Random search: $\theta_i \sim \text{Uniform}(\Theta)$
+    \item Bayesian optimization: $\theta_i = \arg\max_{\theta} \text{EI}(\theta | \mathcal{D}_{1:i-1})$
+\end{enumerate}
+Acceptance criterion:
+\[
+\min_{i \leq n} \mathcal{L}(\theta_i^{\text{BO}}) < \min_{i \leq n} \mathcal{L}(\theta_i^{\text{random}})
+\]
+where $\mathcal{L}$ is validation loss. Improvement must be significant (p-value $< 0.05$ in Mann-Whitney test).
+\end{criterion}
+
+\section{Temporal Integrity}
+
+\begin{testcase}[Staleness Metric (TTL)]
+Cancel JKO update if target signal delay $y_{target}$ exceeds $\Delta_{max}$.
+\end{testcase}
+
+\begin{criterion}
+Define time-to-live:
+\[
+\text{TTL}(y_t) = t_{current} - t
+\]
+If:
+\[
+\text{TTL}(y_t) > \Delta_{max}
+\]
+The system must:
+\begin{enumerate}
+    \item Discard the signal
+    \item NOT perform JKO update
+    \item Emit \texttt{StaleDataEvent}
+    \item Log the rejected timestamp
+\end{enumerate}
+Typical value: $\Delta_{max} = 5$ seconds for high-frequency systems.
+\end{criterion}
+
+\subsection{Lag Injection Test}
+
+The staleness policy prevents operating with obsolete weights. This test validates behavior under extreme latency.
+
+\begin{testcase}[Artificial Signal Delay]
+Artificially delay $y_{target}$ beyond $\Delta_{max}$ and validate that degraded inference mode is activated and optimal transport is suspended.
+\end{testcase}
+
+\begin{criterion}
+Validation procedure:
+\begin{enumerate}
+    \item Configure system with $\Delta_{max} = 5$ seconds
+    \item Generate real-time data stream with correct timestamps
+    \item Inject delayed signal $\tilde{y}_t$:
+    \[
+    \text{TTL}(\tilde{y}_t) = t_{current} - t = \Delta_{max} + \delta
+    \]
+    where $\delta > 0$ (typically $\delta = 1$ second)
+    \item Verify the sequence:
+    \begin{itemize}
+        \item Detect $\text{TTL}(\tilde{y}_t) > \Delta_{max}$
+        \item Activate \texttt{DegradedInferenceMode} = \texttt{True}
+        \item Suspend JKO transport:
+        \[
+        \text{JKO\_update}(\rho^{n+1}) \to \text{SUSPENDED}
+        \]
+        \item Freeze orchestrator weights at last valid value: $\{w_i\}_{frozen}$
+        \item Emit events:
+        \begin{itemize}
+            \item \texttt{StaleDataEvent} with metadata $(t, t_{current}, \text{TTL})$
+            \item \texttt{DegradedInferenceModeActivated}
+        \end{itemize}
+        \item Log lag duration for post-mortem analysis
+        \item Continue predictions using frozen weights only
+    \end{itemize}
+    \item Verify recovery when fresh signals satisfy $\text{TTL}(y_t) < 0.8 \cdot \Delta_{max}$:
+    \begin{itemize}
+        \item Deactivate \texttt{DegradedInferenceMode}
+        \item Resume JKO transport
+        \item Emit \texttt{NormalOperationRestoredEvent}
+    \end{itemize}
+\end{enumerate}
+Acceptance criteria:
+\begin{itemize}
+    \item Detection time $< 100$ ms from receiving $\tilde{y}_t$
+    \item No JKO iteration executed with stale data
+    \item No crash or undefined state
+    \item Predictions continue (degraded) with last valid configuration
+\end{itemize}
+\end{criterion}
+
+\begin{remark}
+Degraded inference mode is critical in high-frequency systems. Operating with stale weights is equivalent to optimizing the wrong objective. It is better to operate with consistent static weights than with weights optimized on obsolete data.
+\end{remark}
+
+\chapter{Edge Cases and Operational Limits}
+
+This chapter documents boundary conditions for theoretical and operational behavior.
+
+\section{CUSUM: Adaptive Dynamic Threshold}
+
+\begin{testcase}[Volatility Regime Adaptation]
+Validate that the CUSUM threshold adapts correctly to low and high volatility via $h = k \cdot \sigma_{resid}$.
+\end{testcase}
+
+\begin{criterion}
+CUSUM uses dynamic threshold:
+\[
+ h_t = k \cdot \sigma_{resid, t}
+\]
+where $k \in [3, 5]$ and $\sigma_{resid, t}$ is rolling residual standard deviation.
+
+Validation:
+\begin{enumerate}
+    \item \textbf{Low volatility:}
+    \begin{itemize}
+        \item Generate signal with $\sigma_{true} = 0.01$
+        \item Estimate $\hat{\sigma}_{resid} \approx 0.01$
+        \item Verify $h_t = k \cdot 0.01$
+        \item Inject small drift $\Delta \mu = 0.05$
+        \item Detector should trigger when $G_t^+ > h_t$
+    \end{itemize}
+    \item \textbf{High volatility:}
+    \begin{itemize}
+        \item Generate signal with $\sigma_{true} = 0.50$
+        \item Estimate $\hat{\sigma}_{resid} \approx 0.50$
+        \item Verify $h_t = k \cdot 0.50$
+        \item Inject the same drift $\Delta \mu = 0.05$
+        \item Detector should NOT trigger
+        \item Inject larger drift $\Delta \mu = 2.0$
+        \item Detector should trigger
+    \end{itemize}
+    \item \textbf{Transition:}
+    \begin{itemize}
+        \item Simulate transition from low to high volatility
+        \item Verify $h_t$ updates smoothly (rolling window)
+        \item No spurious activations during transition
+    \end{itemize}
+\end{enumerate}
+Acceptance criterion:
+\[
+\frac{h_{high}}{h_{low}} = \frac{\sigma_{high}}{\sigma_{low}} \pm 0.1
+\]
+Threshold ratio must match volatility ratio within 10\% tolerance.
+\end{criterion}
+
+\section{Orchestrator: Maximum Entropy Convergence}
+
+\begin{testcase}[Uniform Weights under Total Uncertainty]
+Confirm that the system converges to uniform weights $w = [0.25, 0.25, 0.25, 0.25]$ when Sinkhorn regularization tends to infinity ($\varepsilon \to \infty$), representing maximum uncertainty.
+\end{testcase}
+
+\begin{criterion}
+In Sinkhorn, entropy regularization $\varepsilon$ controls smoothing:
+\[
+\min_{\pi \in \Pi(\mu, \nu)} \left\{ \langle C, \pi \rangle - \varepsilon H(\pi) \right\}
+\]
+with $H(\pi) = -\sum_{ij} \pi_{ij} \log \pi_{ij}$.
+
+Limit behavior:
+\begin{enumerate}
+    \item $\varepsilon \to 0$: deterministic optimal transport
+    \item $\varepsilon \to \infty$: maximum entropy dispersion
+\end{enumerate}
+Validation:
+\begin{enumerate}
+    \item Configure four branches $(A, B, C, D)$
+    \item Run with $\varepsilon_k = 10^k$ for $k \in \{0, 1, 2, 3, 4\}$
+    \item Record weights $\{w_A^k, w_B^k, w_C^k, w_D^k\}$
+    \item Verify convergence:
+    \[
+    \lim_{\varepsilon \to \infty} \{w_i\} = \left\{\frac{1}{4}, \frac{1}{4}, \frac{1}{4}, \frac{1}{4}\right\}
+    \]
+    \item Numerical criterion for $\varepsilon = 10^4$:
+    \[
+    \max_{i \in \{A,B,C,D\}} |w_i - 0.25| < 0.01
+    \]
+\end{enumerate}
+Interpretation:
+\begin{itemize}
+    \item High $\varepsilon$ implies indistinguishable branches, thus uniform weights
+    \item Maximum entropy principle (Jaynes)
+\end{itemize}
+\end{criterion}
+
+\begin{remark}
+This test validates that the orchestrator respects fundamental information theory. Under total uncertainty it must not favor any branch.
+\end{remark}
+
+\section{Branch D: Time Reparametrization Invariance}
+
+\begin{testcase}[Signature Invariance to Time Warping]
+Test a signal and its time-stretched variants; the rough path signature must be identical under strictly increasing reparametrizations.
+\end{testcase}
+
+\begin{criterion}
+Signature invariance:
+\[
+\text{Sig}(\gamma) = \text{Sig}(\gamma \circ \phi)
+\]
+for any strictly increasing $\phi: [0,1] \to [0,1]$ with $\phi(0)=0$, $\phi(1)=1$.
+
+Validation:
+\begin{enumerate}
+    \item Generate reference signal $\gamma(t)$ for $t \in [0,1]$
+    \item Compute truncated signature $S_0 = \text{Sig}^{(M)}(\gamma)$
+    \item Apply nonlinear reparametrizations:
+    \[
+    \phi_1(t) = t^2
+    \]
+    \[
+    \phi_2(t) = \sqrt{t}
+    \]
+    \[
+    \phi_3(t) = \frac{1}{2}(1 - \cos(\pi t))
+    \]
+    \item For each, compute:
+    \[
+    \gamma_i(t) = \gamma(\phi_i(t)), \quad S_i = \text{Sig}^{(M)}(\gamma_i)
+    \]
+    \item Verify:
+    \[
+    \|S_i - S_0\|_2 < \epsilon_{inv} \quad \forall i \in \{1, 2, 3\}
+    \]
+    with $\epsilon_{inv} = 10^{-8}$
+\end{enumerate}
+Negative control:
+\begin{enumerate}
+    \item Apply a non-monotone reparametrization $\psi(t) = t^2 - 0.5t$
+    \item Verify $\text{Sig}(\gamma \circ \psi) \neq \text{Sig}(\gamma)$
+\end{enumerate}
+\end{criterion}
+
+\begin{remark}
+Signature invariance to time warping captures intrinsic path geometry regardless of execution speed. In finance, this means the signature captures the shape of a price move whether it occurred in 1 minute or 1 hour.
+\end{remark}
+
+\section{Edge Case Summary Table}
+
+\begin{table}[h]
+\centering
+\caption{Limit Scenarios and Edge Cases}
+\begin{tabular}{@{}llp{6cm}@{}}
+\toprule
+\textbf{Module} & \textbf{Test Scenario} & \textbf{Purpose} \\ \midrule
+CUSUM & Dynamic threshold & Validate $h = k \cdot \sigma_{resid}$ adapts to low/high volatility \\ \addlinespace
+Orchestrator & Maximum entropy ($\varepsilon \to \infty$) & Confirm convergence to uniform weights $[0.25, 0.25, 0.25, 0.25]$ \\ \addlinespace
+Branch D & Time reparametrization invariance & Signature remains identical under time warping ($< 10^{-8}$ error) \\ \bottomrule
+\end{tabular}
+\end{table}
+
+\chapter{Acceptance Criteria Summary}
+
+\begin{table}[h]
+\centering
+\caption{Global Validation Table}
+\begin{tabular}{@{}lll@{}}
+\toprule
+\textbf{Test} & \textbf{Method} & \textbf{Acceptance Criterion} \\ \midrule
+Generalization & Rolling walk-forward & No look-ahead bias; training uses $t < t_{test}$ \\ \addlinespace
+Meta-optimization efficiency & Bayesian optimization (GP) & Expected Improvement beats random search \\ \addlinespace
+Temporal integrity & TTL staleness metric & Cancel JKO update if TTL$(y) > \Delta_{max}$ \\ \addlinespace
+Lag injection & Artificial delay $> \Delta_{max}$ & Immediate degraded mode; JKO suspended \\ \addlinespace
+Nyquist soft limit & Multifractal aliasing (SIA) & Freeze topological branch before $H$ error exceeds 10\% \\ \addlinespace
+HJB-DGM stability & Gradient monitoring & Clip and reduce $\eta$ under sustained explosion \\ \addlinespace
+Viscosity solutions & Comparison principle & Error $< 5\%$ vs reference; sub/supersolution verified \\ \addlinespace
+Mode collapse & Training entropy & Variance ratio in $[0.3, 1.2]$ and proportional to terminal variance \\ \addlinespace
+I/O atomicity & Write interruption & Safe cold start; recovery $< 30$ s \\ \addlinespace
+Silent corruption & Bit rot detection & SHA-256 check with fallback to previous snapshot \\ \addlinespace
+Dynamic CUSUM & Volatility adaptation & Threshold ratio follows volatility ratio within 10\% \\ \addlinespace
+Maximum entropy & Sinkhorn $\varepsilon \to \infty$ & Uniform weights within 1\% \\ \addlinespace
+Time invariance & Path reparametrization & Signature error $< 10^{-8}$ \\ \addlinespace
+Bit consistency & Cross-platform tests & CPU/GPU/FPGA equivalence within quantization limits \\ \addlinespace
+Numerical drift & Branch D fixed-point & Cumulative divergence $\leq N \cdot \epsilon_{quant}$ after 10k iterations \\ \bottomrule
+\end{tabular}
+\end{table}
+
+\section{Final Considerations}
+
+All protocols here are language-agnostic and based solely on the mathematical and algorithmic foundations of the Universal Stochastic Predictor.
+
+\begin{remark}
+The full test suite must run before any production deployment. Results must be documented in a validation report including:
+\begin{itemize}
+    \item Executive summary of all tests executed
+    \item Numeric metrics for each criterion
+    \item Convergence plots and distributions
+    \item Failure case analysis (if any)
+    \item Parameter calibration recommendations
+\end{itemize}
+\end{remark}
+
+\begin{remark}
+This protocol is a living document that must evolve with the system. Any architectural change in theory must be reflected in new test cases or updates to existing ones.
+\end{remark}
+
+\end{document}

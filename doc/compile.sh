@@ -1,22 +1,22 @@
 #!/bin/bash
-# Compilador LaTeX - Universal Stochastic Predictor
-# Estructura:
+# LaTeX Compiler - Universal Stochastic Predictor
+# Structure:
 #   latex/specification/ → .tex source files
-#   latex/implementation/ → future implementation docs (TBD)
+#   latex/implementation/ → implementation docs
 #   pdf/specification/ → compiled PDFs
-#   pdf/implementation/ → future implementation PDFs (TBD)
+#   pdf/implementation/ → compiled PDFs
 #   .build/ → temporary artifacts (git-ignored)
 
 set -e
 
-# Directorio base
+# Base directory
 DOC_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 cd "$DOC_DIR"
 
-# Asegurar directorios
+# Ensure directories
 mkdir -p "$DOC_DIR/.build" "$DOC_DIR/pdf/specification"
 
-# Limpiar PDFs obsoletos (sin .tex correspondiente)
+# Remove stale PDFs (no corresponding .tex)
 cleanup_old_pdfs() {
     local source_dir="$1"
     local pdf_dir="$2"
@@ -30,13 +30,13 @@ cleanup_old_pdfs() {
             base_name=$(basename "$pdf_file" .pdf)
             if [ ! -f "$source_dir/$base_name.tex" ]; then
                 rm -f "$pdf_file"
-                echo "🗑️  Borrado: $(basename $pdf_file) (sin .tex correspondiente)"
+                echo "🗑️  Deleted: $(basename $pdf_file) (no matching .tex)"
             fi
         fi
     done
 }
 
-# Verificar si archivo .tex necesita recompilación
+# Check whether a .tex file needs recompilation
 needs_recompile() {
     local tex_file="$1"
     local pdf_dir="$2"
@@ -44,110 +44,110 @@ needs_recompile() {
     local pdf_file="$pdf_dir/$base_name.pdf"
     
     if [ ! -f "$pdf_file" ]; then
-        return 0  # true: no existe PDF
+        return 0  # true: PDF missing
     fi
     
     if [ "$tex_file" -nt "$pdf_file" ]; then
-        return 0  # true: .tex más nuevo que PDF
+        return 0  # true: .tex newer than PDF
     fi
     
-    return 1  # false: PDF actualizado
+    return 1  # false: PDF up to date
 }
 
-# Compilar un archivo .tex
+# Compile a .tex file
 compile_doc() {
     local tex_file="$1"
     local pdf_dir="$2"
     local base_name=$(basename "$tex_file" .tex)
     local log_file="$DOC_DIR/.build/$base_name.log"
     
-    echo "📄 Compilando $base_name.tex..."
+    echo "📄 Compiling $base_name.tex..."
     
-    # Primera pasada
+    # First pass
     if ! lualatex -interaction=nonstopmode \
              -file-line-error \
              -synctex=1 \
              -output-directory="$DOC_DIR/.build" \
              "$tex_file" > "$log_file" 2>&1; then
-        echo "❌ Error en primera pasada"
+        echo "❌ Error on first pass"
         _show_errors "$log_file" "$base_name"
         return 1
     fi
     
-    # Segunda pasada (referencias cruzadas)
+    # Second pass (cross-references)
     if ! lualatex -interaction=nonstopmode \
              -file-line-error \
              -synctex=1 \
              -output-directory="$DOC_DIR/.build" \
              "$tex_file" > "$log_file" 2>&1; then
-        echo "❌ Error en segunda pasada"
+        echo "❌ Error on second pass"
         _show_errors "$log_file" "$base_name"
         return 1
     fi
     
-    # Copiar PDF al destino
+    # Copy PDF to destination
     if [ -f "$DOC_DIR/.build/$base_name.pdf" ]; then
         cp "$DOC_DIR/.build/$base_name.pdf" "$pdf_dir/$base_name.pdf"
         echo "✅ $base_name.pdf → pdf/$(basename $pdf_dir)/"
     else
-        echo "❌ No se generó $base_name.pdf"
+        echo "❌ $base_name.pdf was not generated"
         return 1
     fi
 }
 
-# Mostrar errores LaTeX
+# Show LaTeX errors
 _show_errors() {
     local log_file="$1"
     local base_name="$2"
     echo ""
-    echo "🔴 ERRORES EN $base_name.tex:"
+    echo "🔴 ERRORS IN $base_name.tex:"
     grep -E "^.*\.tex:[0-9]+:" "$log_file" | head -10 || true
     grep -E "^!|^l\.[0-9]+" "$log_file" | head -10 || true
     echo "📋 Log: $log_file"
     echo ""
 }
 
-# Limpiar artefactos
+# Clean artifacts
 clean_all() {
-    echo "🧹 Limpiando artefactos..."
+    echo "🧹 Cleaning artifacts..."
     rm -rf "$DOC_DIR/.build"
     mkdir -p "$DOC_DIR/.build"
-    echo "✅ Limpieza completa"
+    echo "✅ Cleanup complete"
 }
 
-# Parsear argumentos
+# Parse arguments
 case "${1:-help}" in
     help|-h|--help)
-        echo "Compilador de LaTeX - Stochastic Predictor"
+        echo "LaTeX Compiler - Stochastic Predictor"
         echo ""
-        echo "Uso:"
-        echo "  ./compile.sh                      # Muestra esta ayuda (por defecto)"
-        echo "  ./compile.sh <archivo>            # Compila archivo específico"
-        echo "  ./compile.sh <archivo>.tex        # Compila archivo específico (con extensión)"
-        echo "  ./compile.sh --all                # Compila documentos con cambios"
-        echo "  ./compile.sh --all --force        # Fuerza compilación de todos los documentos"
-        echo "  ./compile.sh -a -f                # Versión corta de --all --force"
-        echo "  ./compile.sh clean                # Limpia todos los artefactos"
+        echo "Usage:"
+        echo "  ./compile.sh                      # Show this help (default)"
+        echo "  ./compile.sh <file>               # Compile specific file"
+        echo "  ./compile.sh <file>.tex           # Compile specific file (with extension)"
+        echo "  ./compile.sh --all                # Compile documents with changes"
+        echo "  ./compile.sh --all --force        # Force compilation of all documents"
+        echo "  ./compile.sh -a -f                # Short version of --all --force"
+        echo "  ./compile.sh clean                # Clean all artifacts"
         echo ""
-        echo "Ejemplos:"
-        echo "  ./compile.sh Predictor_Estocastico_Python      # Compila solo Python.tex"
-        echo "  ./compile.sh --all                             # Compila solo cambios"
-        echo "  ./compile.sh --all --force                     # Recompila todo"
+        echo "Examples:"
+        echo "  ./compile.sh Stochastic_Predictor_Python       # Compile only Python.tex"
+        echo "  ./compile.sh --all                             # Compile only changes"
+        echo "  ./compile.sh --all --force                     # Recompile everything"
         ;;
     clean)
         clean_all
         ;;
     --all|-a|all)
-        # Compilar solo archivos que han cambiado, a menos que se especifique --force
+        # Compile only changed files unless --force is specified
         force_recompile=false
         if [ "${2:-}" = "--force" ] || [ "${2:-}" = "-f" ]; then
             force_recompile=true
         fi
         
-        echo "🚀 Compilando documentos con cambios..."
+        echo "🚀 Compiling documents with changes..."
         if [ "$force_recompile" = true ]; then
-            echo "   (modo --force: compilará todos sin importar cambios)"
-            # Limpiar solo los artefactos temporales
+            echo "   (--force mode: compile everything regardless of changes)"
+            # Clean only temporary artifacts
             rm -rf "$DOC_DIR/.build"
             mkdir -p "$DOC_DIR/.build"
         fi
@@ -156,14 +156,14 @@ case "${1:-help}" in
         compiled_count=0
         skipped_count=0
         
-        # Procesar TODAS las carpetas en /doc/latex
+        # Process all folders under /doc/latex
         latex_dir="$DOC_DIR/latex"
         if [ ! -d "$latex_dir" ]; then
-            echo "❌ No existe directorio: $latex_dir"
+            echo "❌ Directory does not exist: $latex_dir"
             exit 1
         fi
         
-        # Iterar sobre cada carpeta en latex/
+        # Iterate over each folder in latex/
         for source_dir in "$latex_dir"/*/; do
             # Obtener nombre de la carpeta
             phase=$(basename "$source_dir")
@@ -172,10 +172,10 @@ case "${1:-help}" in
             # Crear directorio PDF correspondiente si no existe
             mkdir -p "$pdf_dir"
             
-            echo "📦 Procesando carpeta: $phase"
+            echo "📦 Processing folder: $phase"
             
             # Limpiar PDFs obsoletos
-            echo "🧹 Limpiando PDFs obsoletos en $phase..."
+            echo "🧹 Removing stale PDFs in $phase..."
             cleanup_old_pdfs "$source_dir" "$pdf_dir"
             
             # Compilar todos los .tex de esta carpeta
@@ -183,15 +183,15 @@ case "${1:-help}" in
                 if [ -f "$tex_file" ]; then
                     base_name=$(basename "$tex_file" .tex)
                     
-                    # Verificar si necesita compilación
+                    # Check if compilation is needed
                     if [ "$force_recompile" = true ] || needs_recompile "$tex_file" "$pdf_dir"; then
                         if compile_doc "$tex_file" "$pdf_dir"; then
                             ((compiled_count++))
                         else
-                            echo "⚠️  Falló compilación de $base_name.tex"
+                            echo "⚠️  Compilation failed for $base_name.tex"
                         fi
                     else
-                        echo "⏭️  $base_name.tex sin cambios, omitiendo..."
+                        echo "⏭️  $base_name.tex unchanged, skipping..."
                         ((skipped_count++))
                     fi
                 fi
@@ -199,19 +199,19 @@ case "${1:-help}" in
             echo ""
         done
         
-        echo "📊 Resumen: $compiled_count compilados, $skipped_count omitidos"
+        echo "📊 Summary: $compiled_count compiled, $skipped_count skipped"
         if [ $compiled_count -gt 0 ]; then
-            echo "✨ Compilación completa. PDFs generados en: $DOC_DIR/pdf/"
+            echo "✨ Compilation complete. PDFs generated in: $DOC_DIR/pdf/"
         else
-            echo "ℹ️  Todos los documentos están actualizados."
+            echo "ℹ️  All documents are up to date."
         fi
         ;;
     *)
-        # Compilar archivo específico
+        # Compile specific file
         tex_file=""
-        filename="${1%.tex}"  # Remover .tex si está puesto
+        filename="${1%.tex}"  # Strip .tex if provided
         
-        # Buscar archivo en latex/specification
+        # Look for file in latex/specification
         source_dir="$DOC_DIR/latex/specification"
         pdf_dir="$DOC_DIR/pdf/specification"
         
@@ -222,9 +222,9 @@ case "${1:-help}" in
         elif [ -f "$filename" ]; then
             tex_file="$filename"
         else
-            echo "❌ Archivo no encontrado: ${1}"
+            echo "❌ File not found: ${1}"
             echo ""
-            echo "Uso: ./compile.sh <archivo> | --all | --all --force | clean | help"
+            echo "Usage: ./compile.sh <file> | --all | --all --force | clean | help"
             exit 1
         fi
         

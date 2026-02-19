@@ -12,8 +12,7 @@
 \usepackage{booktabs}
 \usepackage{array}
 
-\usepackage[spanish, provide=*]{babel}
-\babelprovide[import, onchar=ids fonts]{spanish}
+\usepackage[english]{babel}
 
 % Code highlighting
 \definecolor{codegreen}{rgb}{0,0.6,0}
@@ -59,7 +58,7 @@ Phase 2 implements four computational kernels for heterogeneous stochastic proce
 \begin{itemize}
     \item \textbf{Kernel A}: RKHS (Reproducing Kernel Hilbert Space) for smooth Gaussian processes
     \item \textbf{Kernel B}: PDE/DGM (Deep Galerkin Method) for nonlinear Hamilton-Jacobi-Bellman equations
-    \item \textbf{Kernel C}: SDE (Stochastic Differential Equations) integration for Lévy processes
+    \item \textbf{Kernel C}: SDE (Stochastic Differential Equations) integration for Levy processes
     \item \textbf{Kernel D}: Signatures (Path signatures) for high-dimensional temporal sequences
 \end{itemize}
 
@@ -437,7 +436,7 @@ self.mlp = eqx.nn.MLP(..., activation=activation_fn)
 
 \begin{itemize}
     \item \textbf{Zero-Heuristics}: No hardcoded architectural choices
-    \item \textbf{Lévy Support}: Enables non-smooth activations for jump processes
+    \item \textbf{Levy Support}: Enables non-smooth activations for jump processes
     \item \textbf{Extensibility}: Easy to add custom activation functions
     \item \textbf{Reproducibility}: Activation choice documented in config.toml
 \end{itemize}
@@ -446,7 +445,7 @@ self.mlp = eqx.nn.MLP(..., activation=activation_fn)
 
 \section{Purpose}
 
-Kernel C predicts processes governed by Stochastic Differential Equations (SDEs), particularly Lévy processes with alpha-stable jump components. Optimal for heavy-tailed distributions.
+Kernel C predicts processes governed by Stochastic Differential Equations (SDEs), particularly Levy processes with alpha-stable jump components. Optimal for heavy-tailed distributions.
 
 \section{Mathematical Foundation}
 
@@ -456,7 +455,7 @@ Models stochastic dynamics:
 dX_t = \mu(X_t) dt + \sigma(X_t) dL_t^\alpha
 \end{equation}
 
-where $L_t^\alpha$ is an alpha-stable Lévy process.
+where $L_t^\alpha$ is an alpha-stable Levy process.
 
 \section{Implementation}
 
@@ -491,7 +490,7 @@ def estimate_stiffness(drift_fn, diffusion_fn, y, t, args) -> float:
 
 def select_stiffness_solver(current_stiffness: float, config):
     """
-    Dynamic solver selection per Teoria.tex §2.3.3.
+    Dynamic solver selection per Stochastic_Predictor_Theory.tex §2.3.3.
     
     Stiffness-adaptive scheme:
     - Low (< stiffness_low): Explicit Euler (fast, stable for non-stiff)
@@ -516,7 +515,7 @@ def solve_sde(drift_fn, diffusion_fn, y0, t0, t1, key, config, args):
         - sde_pid_rtol, sde_pid_atol: Tolerances
         - sde_brownian_tree_tol: VirtualBrownianTree tolerance
     """
-    # Dynamic solver selection based on stiffness (Teoria.tex §2.3.3)
+    # Dynamic solver selection based on stiffness (Stochastic_Predictor_Theory.tex §2.3.3)
     current_stiffness = estimate_stiffness(drift_fn, diffusion_fn, y0, t0, args)
     solver_obj = select_stiffness_solver(current_stiffness, config)
     
@@ -1092,12 +1091,12 @@ float_precision = 64           # Must match jax_enable_x64 for Malliavin stabili
 
 \subsection{Finding}
 
-Kernel C (\texttt{kernel\_c.py}) uses static solver selection based solely on \texttt{config.sde\_solver\_type}. Per Teoria.tex §2.3.3, the specification mandates dynamic transition between explicit (Euler) and implicit/IMEX schemes based on process stiffness.
+Kernel C (\texttt{kernel\_c.py}) uses static solver selection based solely on \texttt{config.sde\_solver\_type}. Per \texttt{Stochastic\_Predictor\_Theory.tex} §2.3.3, the specification mandates dynamic transition between explicit (Euler) and implicit/IMEX schemes based on process stiffness.
 
 Existing code (INCORRECT):
 
 \begin{lstlisting}[language=Python]
-# Static selection - VIOLATES Teoria.tex §2.3.3
+# Static selection - VIOLATES Stochastic_Predictor_Theory.tex §2.3.3
 if config.sde_solver_type == "euler":
     solver_obj = diffrax.Euler()
 elif config.sde_solver_type == "heun":
@@ -1137,7 +1136,7 @@ def estimate_stiffness(drift_fn, diffusion_fn, y, t, args) -> float:
 
 def select_stiffness_solver(stiffness: float, config):
     """
-    Dynamic solver selection per Teoria.tex §2.3.3:
+    Dynamic solver selection per Stochastic_Predictor_Theory.tex §2.3.3:
     - stiffness < stiffness_low: Euler (explicit)
     - stiffness_low <= stiffness < stiffness_high: Heun (adaptive)
     - stiffness >= stiffness_high: ImplicitEuler (stiff-stable)
@@ -1682,7 +1681,7 @@ Phase 2 implements production-ready kernel ensemble:
 \begin{itemize}
     \item \textbf{Kernel A}: RKHS ridge regression (smooth processes)
     \item \textbf{Kernel B}: DGM PDE solver (nonlinear dynamics)
-    \item \textbf{Kernel C}: SDE integration (Lévy processes)
+    \item \textbf{Kernel C}: SDE integration (Levy processes)
     \item \textbf{Kernel D}: Path signatures (sequential patterns)
 \end{itemize}
 

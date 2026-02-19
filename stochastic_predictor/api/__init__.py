@@ -12,9 +12,9 @@ Responsibilities per Clean Architecture:
   - System global configuration
 
 References:
-  - Predictor_Estocastico_Python.tex §2.1, line 381: "api/ must contain exclusively
+  - Stochastic_Predictor_Python.tex §2.1, line 381: "api/ must contain exclusively
     global configuration, strict validation schemas, and degradation logic"
-  - Predictor_Estocastico_API_Python.tex §1: Data Structures (Typing)
+  - Stochastic_Predictor_API_Python.tex §1: Data Structures (Typing)
 """
 
 # Import and re-export from submodules

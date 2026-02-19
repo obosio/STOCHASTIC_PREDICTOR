@@ -9,7 +9,7 @@ Test implementation is reserved for v3.x.x and will include:
   - Hardware-parity tests (CPU vs GPU determinism)
   - End-to-end prediction accuracy benchmarks
 
-See: doc/Predictor_Estocastico_Tests_Python.tex for test specification
+See: doc/latex/specification/Stochastic_Predictor_Tests_Python.tex for test specification
 
 Current Implementation Status:
   - v2.0.0: Bootstrap (5-layer architecture scaffold)

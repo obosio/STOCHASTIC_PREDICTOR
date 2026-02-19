@@ -5,8 +5,8 @@ This module defines all immutable data structures used in the system,
 ensuring strict dimensional typing via jaxtyping.
 
 References:
-    - Predictor_Estocastico_API_Python.tex §1: Data Structures (Typing)
-    - Predictor_Estocastico_IO.tex §1: Configuration Vector
+    - Stochastic_Predictor_API_Python.tex §1: Data Structures (Typing)
+    - Stochastic_Predictor_IO.tex §1: Configuration Vector
 """
 
 from dataclasses import dataclass
@@ -31,8 +31,8 @@ class PredictorConfig:
     zero hardcoded heuristics policy (Diamond Level Specification).
     
     References:
-        - API_Python.tex §1.1: Configuration (Lambda)
-        - IO.tex Table 1: Functional Parameters
+        - Stochastic_Predictor_API_Python.tex §1.1: Configuration (Lambda)
+        - Stochastic_Predictor_IO.tex Table 1: Functional Parameters
         - config.toml: Project default values
     """
     # Snapshot Versioning (backward compatibility)

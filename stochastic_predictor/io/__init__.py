@@ -9,10 +9,10 @@ Responsibilities:
   - Credential injection via environment variables
   - Data validation and preprocessing
 
-See: doc/Predictor_Estocastico_Python.tex §2 - Physical I/O Layer
-See: doc/Predictor_Estocastico_IO.tex - Complete I/O interface specification
+See: doc/latex/specification/Stochastic_Predictor_Python.tex §2 - Physical I/O Layer
+See: doc/latex/specification/Stochastic_Predictor_IO.tex - Complete I/O interface specification
 
-CRITICAL SECURITY POLICIES (doc/Predictor_Estocastico_IO.tex §2.2):
+CRITICAL SECURITY POLICIES (doc/latex/specification/Stochastic_Predictor_IO.tex §2.2):
   
   ❌ PROHIBITED:
     - Hardcoding API keys, database passwords, tokens in code

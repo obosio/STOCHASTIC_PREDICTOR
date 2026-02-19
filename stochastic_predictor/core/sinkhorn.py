@@ -4,7 +4,7 @@ Implements volatility-coupled entropic regularization with a manual
 Sinkhorn loop using jax.lax.scan for predictable XLA lowering.
 
 References:
-    - Predictor_Estocastico_Implementacion.tex §2.4
+    - Stochastic_Predictor_Implementation.tex §2.4
 """
 
 from dataclasses import dataclass

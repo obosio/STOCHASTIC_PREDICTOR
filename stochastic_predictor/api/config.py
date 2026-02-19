@@ -6,7 +6,7 @@ variable overrides. Implements the Configuration pattern for dependency injectio
 
 References:
     - config.toml (auto-discovered at runtime)
-    - Predictor_Estocastico_Implementacion.tex §1.2
+    - Stochastic_Predictor_Implementation.tex §1.2
 """
 
 from __future__ import annotations
@@ -59,7 +59,7 @@ class ConfigManager:
         if not config_path:
             raise FileNotFoundError(
                 "config.toml not found. Expected in project root. "
-                "See doc/Predictor_Estocastico_Implementacion.tex §1.2"
+                "See doc/latex/specification/Stochastic_Predictor_Implementation.tex §1.2"
             )
         
         # Parse TOML

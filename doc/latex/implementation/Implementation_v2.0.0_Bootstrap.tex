@@ -12,8 +12,7 @@
 \usepackage{booktabs}
 \usepackage{array}
 
-\usepackage[spanish, provide=*]{babel}
-\babelprovide[import, onchar=ids fonts]{spanish}
+\usepackage[english]{babel}
 
 % Code highlighting
 \definecolor{codegreen}{rgb}{0,0.6,0}
@@ -75,7 +74,7 @@ This document records the Bootstrap phase (Tag: \texttt{impl/v2.0.0-Bootstrap}) 
 
 \section{Architectural Constraints}
 
-Per \texttt{Predictor\_Estocastico\_Python.tex §2.1}, the system enforces a strict 5-layer Clean Architecture:
+Per \texttt{Stochastic\_Predictor\_Python.tex §2.1}, the system enforces a strict 5-layer Clean Architecture:
 
 \begin{figure}[h]
 \centering
@@ -181,10 +180,10 @@ Bootstrap establishes the foundational language policy:
     \item README files and inline documentation
 \end{itemize}
 
-\textbf{Spanish reserved for}:
+\textbf{English-only policy}:
 \begin{itemize}
-    \item LaTeX specification documents (\texttt{.tex}, \texttt{.pdf})
-    \item Chat responses and external communication
+    \item All repository artifacts (code, docs, configs) are maintained in English
+    \item External communication may be multilingual, but committed files must be English
 \end{itemize}
 
 \textbf{Rationale}: Bit-exact reproducibility across global development environments requires linguistic homogeneity in all executable and configuration artifacts.
@@ -211,7 +210,7 @@ pandas==2.0.0
 
 \section{Rationale}
 
-Per \texttt{Predictor\_Estocastico\_Python.tex §1}:
+Per \texttt{Stochastic\_Predictor\_Python.tex §1}:
 
 \begin{itemize}
     \item \textbf{Bit-exactness}: Numerical results must be reproducible
@@ -307,14 +306,16 @@ doc/
 │
 ├── latex/
 │   ├── specification/                 Technical specifications (.tex)
-│   │   ├── Predictor_Estocastico_Teoria.tex
-│   │   ├── Predictor_Estocastico_Python.tex
+│   │   ├── Stochastic_Predictor_Theory.tex
+│   │   ├── Stochastic_Predictor_Python.tex
 │   │   ├── ...
 │   │
 │   └── implementation/                Implementation milestone docs
-│       ├── Implementacion_v2.0.0_Bootstrap.tex
-│       ├── Implementacion_v2.0.1_Phase1_Foundations.tex
-│       ├── Implementacion_v2.0.2_Phase1_Complete.tex
+│       ├── Implementation_v2.0.0_Bootstrap.tex
+│       ├── Implementation_v2.0.1_API.tex
+│       ├── Implementation_v2.0.2_Kernels.tex
+│       ├── Implementation_v2.0.3_Core.tex
+│       ├── Implementation_v2.0.4_IO.tex
 │       └── [future phases]
 │
 └── pdf/

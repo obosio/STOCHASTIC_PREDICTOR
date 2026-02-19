@@ -1,0 +1,595 @@
+\documentclass[11pt, a4paper]{report}
+
+% --- PREAMBLE ---
+\usepackage[a4paper, top=2.5cm, bottom=2.5cm, left=2cm, right=2cm]{geometry}
+\usepackage{fontspec}
+\usepackage{amsmath}
+\usepackage{amssymb}
+\usepackage{amsfonts}
+\usepackage{mathtools}
+\usepackage{algorithm}
+\usepackage{algpseudocode}
+\usepackage{booktabs}
+\usepackage{enumitem}
+
+\usepackage[english]{babel}
+\usepackage[hidelinks]{hyperref}
+
+% Theorem-like environments
+\newtheorem{definition}{Definition}[chapter]
+\newtheorem{scheme}{Numerical Scheme}[chapter]
+\newtheorem{remark}{Implementation Note}[chapter]
+
+\title{\textbf{Numerical and Algorithmic Implementation Treatise \\ for Universal Stochastic Predictors}}
+\author{Adaptive Meta-Prediction Development Consortium}
+\date{\today}
+
+\begin{document}
+
+\maketitle
+
+\tableofcontents
+
+\chapter{Discretization Fundamentals and Monte Carlo Simulations}
+
+\section{Pseudo-Random Number Generation}
+The stochastic integrator relies on an entropy source $\xi \sim \mathcal{D}$.
+\begin{itemize}
+    \item \textbf{Gaussian:} For Brownian motion $dW_t \approx \sqrt{\Delta t} Z$, with $Z \sim \mathcal{N}(0,1)$. Recommended generators are Mersenne Twister or PCG64 for long periods.
+    \item \textbf{Levy/Jumps:} Use the Chambers-Mallows-Stuck method to simulate stable variables $S(\alpha, \beta, \gamma, \delta)$.
+\end{itemize}
+
+\subsection{Chambers-Mallows-Stuck (CMS) Algorithm}
+To generate a standard $\alpha$-stable random variable $S(\alpha, \beta=0, \gamma=1, \delta=0)$ with $\alpha \neq 1$:
+\begin{enumerate}
+    \item Sample $U \sim \text{Uniform}(-\pi/2, \pi/2)$ and $W \sim \text{Exponential}(1)$.
+    \item Compute:
+    \[
+    X = \frac{\sin(\alpha U)}{(\cos U)^{1/\alpha}} \cdot \left[ \frac{\cos((1-\alpha)U)}{W} \right]^{(1-\alpha)/\alpha}
+    \]
+    \item Return $X$. For the general case $Y \sim S(\alpha, \beta, \gamma, \delta)$, apply the corresponding affine transform.
+\end{enumerate}
+
+\section{Stochastic Integration Schemes}
+\subsection{Euler-Maruyama Scheme}
+For the stochastic ODE $dX_t = b(X_t)dt + \sigma(X_t)dW_t$, the first-order discretization is:
+\begin{algorithm}
+\caption{Euler-Maruyama Integrator}
+\begin{algorithmic}[1]
+\State \textbf{Input:} $X_0, T, N, b(\cdot), \sigma(\cdot)$
+\State $\Delta t \gets T/N$
+\State $X \gets$ array of length $N+1$
+\For{$k \gets 0$ \textbf{to} $N-1$}
+    \State $Z \sim \mathcal{N}(0, 1)$
+    \State $X_{k+1} \gets X_k + b(X_k)\Delta t + \sigma(X_k)\sqrt{\Delta t} Z$
+\EndFor
+\State \textbf{Return} $X$
+\end{algorithmic}
+\end{algorithm}
+
+\subsection{Milstein Scheme}
+Improves strong convergence to order 1.0. Requires the derivative of volatility $\sigma'(x)$.
+\[
+\hat{X}_{k+1} = \hat{X}_k + b_k \Delta t + \sigma_k \Delta W_k + \frac{1}{2}\sigma_k \sigma'_k ((\Delta W_k)^2 - \Delta t)
+\]
+\textbf{Note:} If $\sigma(x)$ is constant (additive volatility), Milstein reduces to Euler-Maruyama.
+
+\section{Jump Process Simulation (Branch C)}
+For $dX_t = b(X_t)dt + \sigma(X_t)dW_t + dJ_t$, where $J_t$ is a compound Poisson process with intensity $\lambda$ and jump size $Y \sim F_Y$:
+\begin{enumerate}
+    \item Simulate the number of jumps in $[t, t+\Delta t]$: $N_{\text{jump}} \sim \text{Poisson}(\lambda \Delta t)$.
+    \item If $N_{\text{jump}} > 0$, generate sizes $Y_1, \dots, Y_{N_{\text{jump}}}$.
+    \item Update: $X_{k+1} = X_{k+1}^{\text{diff}} + \sum Y_i$.
+\end{enumerate}
+
+\chapter{System Identification Engine (SIA) Implementation}
+
+\section{Multifractal Estimation (WTMM)}
+The WTMM (Wavelet Transform Modulus Maxima) algorithm extracts the singularity spectrum $D(h)$ in quasi-real time.
+
+\begin{algorithm}
+\caption{Detailed Discrete WTMM - Maxima Tracking}
+\begin{algorithmic}[1]
+\State \textbf{Input:} Time series $X$, scales $a_i \in \{2^0, 2^{0.1}, \dots, 2^J\}$ (dense dyadic scales).
+\State \textbf{Step 1: CWT (FFT) and Local Maxima}
+    \State For each scale $a_j$, extract the maxima set $M_j = \{(b, |W_{a_j}(b)|)\}$.
+\State \textbf{Step 2: Maxima Linking (Tracking)}
+    \State Initialize lines $\mathcal{L} = \{ (b, |W_{a_J}(b)|) \}_{b \in M_J}$ (from coarse scale).
+    \For{$j \gets J-1$ \textbf{downto} 1}
+        \For{each line $L \in \mathcal{L}$ with last point $(b_{\text{last}}, \text{mod})$}
+            \State Search $(b_{\text{curr}}, \text{mod}_{\text{curr}}) \in M_j$ such that $|b_{\text{curr}} - b_{\text{last}}| < C \cdot a_j$ (cone of influence).
+            \State If multiple candidates, choose the one with highest modulus.
+            \State Extend $L \gets L \cup \{(b_{\text{curr}}, \text{mod}_{\text{curr}})\}$.
+        \EndFor
+    \EndFor
+\State \textbf{Step 3: Partition Function} For moments $q \in [-5, 5]$:
+    \State $Z(q, a) = \sum_{L \in \mathcal{L}} (\sup_{(b, \text{mod}) \in L \cap \text{scale}(a)} \text{mod})^q$
+\State \textbf{Step 4: Exponents}
+    \State $\tau(q) \gets$ slope of the linear regression $\log Z(q, a)$ vs $\log a$.
+\State \textbf{Output:} Legendre spectrum $D(h) = \min_q (qh - \tau(q))$.
+\end{algorithmic}
+\end{algorithm}
+
+\section{Regime Change Detection (CUSUM Test)}
+The \texttt{RegimeChangedEvent} is emitted when the Page statistic of cumulative residuals exceeds an adaptive threshold. To improve robustness in heavy-tail regimes, we incorporate a kurtosis adjustment.
+
+\begin{algorithm}
+\caption{Discrete CUSUM with Kurtosis Adjustment}
+\begin{algorithmic}[1]
+\State \textbf{Input:} Standardized residuals $e_t$, base factor $k$, rolling window $W$.
+\State $S_0 \gets 0$, $G_0^+ \gets 0$, $G_0^- \gets 0$
+\State Initialize buffer $\mathcal{B} \gets []$ (rolling residual window)
+\For{$t \gets 1$ \textbf{to} $N$}
+    \State Add $e_t$ to $\mathcal{B}$ and keep only the last $W$ values
+    \State Compute rolling statistics:
+    \State \quad $\mu_t \gets \text{mean}(\mathcal{B})$
+    \State \quad $\sigma_t \gets \text{std}(\mathcal{B})$
+    \State \quad $m_4 \gets \frac{1}{W} \sum_{i \in \mathcal{B}} (e_i - \mu_t)^4$ \Comment{Fourth moment}
+    \State \quad $\kappa_t \gets \frac{m_4}{\sigma_t^4}$ \Comment{Kurtosis}
+    \State Compute adaptive threshold:
+    \State \quad $h_t \gets k \cdot \sigma_t \cdot (1 + \ln(\kappa_t / 3))$ \Comment{Log tail adjustment}
+    \State Update CUSUM statistic:
+    \State \quad $G_t^+ \gets \max(0, G_{t-1}^+ + e_t - k)$
+    \State \quad $G_t^- \gets \max(0, G_{t-1}^- - e_t - k)$
+    \If{$G_t^+ > h_t$ \textbf{or} $G_t^- > h_t$}
+        \State \textbf{Emit} \texttt{RegimeChangedEvent}
+        \State $G_t^+, G_t^- \gets 0$ \Comment{Reset CUSUM}
+    \EndIf
+\EndFor
+\end{algorithmic}
+\end{algorithm}
+
+\begin{remark}[Kurtosis Adjustment Rationale]
+The term $(1 + \ln(\kappa_t/3))$ adjusts the threshold based on tail heaviness:
+\begin{itemize}
+    \item For Gaussian distributions: $\kappa \approx 3 \Rightarrow \ln(\kappa/3) \approx 0$, threshold remains $h_t \approx k\sigma_t$
+    \item For leptokurtic distributions (heavy tails): $\kappa > 3 \Rightarrow \ln(\kappa/3) > 0$, the threshold increases proportionally, reducing false alarms during high-volatility non-Gaussian periods without structural change
+    \item The logarithmic adjustment avoids explosive growth for extreme $\kappa$
+\end{itemize}
+This mechanism is consistent with the Adaptive Threshold with Kurtosis Lemma in the theory document.
+\end{remark}
+
+\section{Sensitivity Computation (Malliavin/AAD)}
+Instead of perturbing inputs (finite differences), we compute the exact derivative of the computational graph.
+\subsection{Tangential Processes and Bismut-Elworthy-Li}
+For a general diffusion $dX_t = b(X_t)dt + \sigma(X_t)dW_t$, the Malliavin weight formula generalizes as:
+\[
+\partial_{X_0} E[f(X_T)] = E \left[ f(X_T) \int_0^T (\sigma^{-1}(X_s) Y_s \nabla b(X_s))^\top dW_s \right]
+\]
+where $Y_t = \nabla_{X_0} X_t$ is the \textbf{first variation process}, satisfying the linearized ODE:
+\[ dY_t = \nabla b(X_t) Y_t dt + \sum_{k=1}^d \nabla \sigma_k(X_t) Y_t dW_t^k, \quad Y_0 = I \]
+We must solve the coupled system $(X_t, Y_t)$ or use automatic differentiation (forward-mode AD) to propagate the Jacobian along the trajectory.
+
+\subsection{Delta-Malliavin Monte Carlo Algorithm}
+To compute $\Delta = \partial_{X_0} E[f(X_T)]$ in the simplified case:
+\[
+\Delta \approx E \left[ f(X_T) \frac{W_T}{\sigma X_0 T} \right]
+\]
+In computation graphs (TensorFlow/PyTorch):
+\begin{enumerate}
+    \item Define the computational graph of the payoff $L = f(X_T)$.
+    \item Simulate forward paths $X_0 \to X_1 \dots \to X_T$.
+    \item Run the backward pass to obtain $\nabla_{X_0} L$.
+    \item Average $\nabla_{X_0} L$ over $M$ paths.
+\end{enumerate}
+
+\chapter{Numerical Solvers for Prediction Kernels}
+
+\section{Branch A: Hilbert Projection and Wiener Filtering}
+
+\subsection{Levinson-Durbin Recursive Algorithm}
+To solve the discrete Yule-Walker normal equations (the discrete equivalent of Wiener-Hopf) and obtain the optimal linear predictor of order $p$, $\hat{X}_{t+1} = \sum_{k=1}^p \phi_k X_{t-k+1}$:
+\begin{algorithm}
+\caption{Levinson-Durbin Recursion}
+\begin{algorithmic}[1]
+\State \textbf{Input:} Autocorrelations $R_0, R_1, \dots, R_p$.
+\State $E_0 \gets R_0$
+\For{$k \gets 1$ \textbf{to} $p$}
+    \State $\lambda_k \gets (R_k - \sum_{j=1}^{k-1} \phi_{j}^{(k-1)} R_{k-j}) / E_{k-1}$
+    \State $\phi_k^{(k)} \gets \lambda_k$
+    \For{$j \gets 1$ \textbf{to} $k-1$}
+        \State $\phi_j^{(k)} \gets \phi_j^{(k-1)} - \lambda_k \phi_{k-j}^{(k-1)}$
+    \EndFor
+    \State $E_k \gets E_{k-1} (1 - \lambda_k^2)$
+\EndFor
+\State \textbf{Output:} Filter coefficients $\phi^{(p)}$.
+\end{algorithmic}
+\end{algorithm}
+\textbf{Note:} For $O(N \log N)$ efficiency in long convolutions, use FFT (convolution theorem) instead of direct time recursion.
+
+\section{Branch B: HJB Equation and Viscosity Methods}
+
+\subsection{Monotone Finite Difference Schemes}
+The Barles-Souganidis theorem (1991) establishes necessary conditions for convergence to viscosity solutions.
+\begin{scheme}[Generalized Upwind Scheme]
+For the equation $H(u, u_x, u_{xx}) = 0$, we use:
+\begin{align*}
+    D_x^+ u_i &= \frac{u_{i+1} - u_i}{\Delta x}, \quad D_x^- u_i = \frac{u_i - u_{i-1}}{\Delta x} \\
+    D_{xx} u_i &= \frac{u_{i+1} - 2u_i + u_{i-1}}{(\Delta x)^2}
+\end{align*}
+The time step is updated explicitly:
+\[
+ u_i^{n+1} = u_i^n - \Delta t \cdot H_{\text{num}}(u_i^n, D_x^+ u_i^n, D_x^- u_i^n, D_{xx} u_i^n)
+\]
+\textbf{Monotonicity Condition:} The numerical Hamiltonian $H_{\text{num}}(u, p, q, r)$ must be non-decreasing in $u$, $p$, $q$, and $r$ (depending on characteristic flow direction).
+\end{scheme}
+
+\subsection{Deep Galerkin Method (DGM)}
+For high dimension ($d > 3$), where grids are infeasible (curse of dimensionality).
+\begin{algorithm}
+\caption{DGM Neural Network Training}
+\begin{algorithmic}[1]
+\State \textbf{Input:} Network $f_\theta(t,x)$, PDE $\mathcal{L}u=0$, domain $\Omega$, steps $M$.
+\For{$i \gets 1$ \textbf{to} $M$}
+    \State Sample random points:
+    \State $\{t_j, x_j\}_j \sim \text{Unif}([0,T] \times \Omega)$ (interior)
+    \State $\{\tau_k, \xi_k\}_k \sim \text{Unif}(\{T\} \times \Omega)$ (terminal condition)
+    \State $\{\zeta_l, \gamma_l\}_l \sim \text{Unif}([0,T] \times \partial\Omega)$ (boundary)
+
+    \State Compute loss:
+    \State $L_1 = \frac{1}{N} \sum (\partial_t f + \mathcal{L}f(t_j, x_j))^2$
+    \State $L_2 = \frac{1}{K} \sum (f(T, \xi_k) - g(\xi_k))^2$
+    \State $L_3 = \frac{1}{L} \sum (f(\zeta_l, \gamma_l) - h(\gamma_l))^2$
+    \State $L(\theta) = L_1 + L_2 + L_3$
+
+    \State Update $\theta \gets \theta - \eta \nabla_\theta L(\theta)$ (Adam/SGD)
+\EndFor
+\end{algorithmic}
+\end{algorithm}
+
+\section{Branch C: Jump Integro-Differential Equation}
+
+\subsection{Delta-Malliavin Algorithm on Poisson Spaces}
+For processes with jump component $J_t$, sensitivity is based on Malliavin integration by parts with probability weights:
+\[
+\partial_{X_0} E[f(X_T)] \approx E \left[ f(X_T) \left( \frac{W_T}{\sigma T} + \sum_{i=1}^{N_T} \frac{\partial_{X} \Delta X_{\tau_i}}{\Delta X_{\tau_i}} \right) \right]
+\]
+Implementation requires tracking jump times $\tau_i$ and amplitudes $\Delta X_{\tau_i}$ during the forward Monte Carlo step.
+
+\subsection{IMEX (Implicit-Explicit) Scheme for PIDEs}
+To solve the Fokker-Planck equation with integral term $\mathcal{I}[p](x) = \int p(y) \, \nu(dy)$:
+\[
+\frac{p_i^{n+1} - p_i^n}{\Delta t} = \underbrace{\mathcal{L}_{\text{diff}} p_i^{n+1}}_{\text{Implicit}} + \underbrace{\mathcal{I}[p^n]_i}_{\text{Explicit}}
+\]
+The diffusion part is solved by inverting a tridiagonal matrix (Thomas algorithm). The convolution integral is evaluated explicitly using FFT at each time step $O(N \log N)$.
+
+\section{Branch D: Signature Computation}
+
+\subsection{Chen Identity and Truncation}
+The signature tensor $\mathbf{S}(X)_{0,t}$ up to level $M$ lives in $T^{(M)}(\mathbb{R}^d)$.
+\textbf{Iterative Algorithm:}
+Given a discretized path with increments $\Delta X_k = X_{t_{k+1}} - X_{t_k}$:
+1. Compute the signature of the linear segment $\mathbf{S}(\Delta X_k) = \exp(\Delta X_k)$ in the tensor algebra.
+   - Level 1: $\Delta X_k$
+   - Level 2: $\frac{1}{2} \Delta X_k \otimes \Delta X_k$
+2. Concatenate using Chen multiplicativity:
+\[
+\mathbf{S}(X)_{0, t_{k+1}} = \mathbf{S}(X)_{0, t_k} \otimes \mathbf{S}(\Delta X_k)
+\]
+This tensor product is implemented efficiently by exploiting the triangular structure of tensors.
+
+\subsection{Log-Signatures}
+To reduce the feature vector dimension, we project the signature to the free Lie algebra via the Baker-Campbell-Hausdorff (BCH) formula.
+Recommended libraries: \texttt{iisignature} (Python/C++) or \texttt{signatory} (PyTorch, differentiable).
+
+\chapter{Orchestrator: Regularized Optimal Transport}
+
+\section{Robustness Circuit Breaker (Pre-Orchestrator)}
+Before Wasserstein weighting, apply strong conditional logic based on the Robustness Postulate for Singularities.
+\begin{enumerate}
+    \item \textbf{Input:} SIA vector $V_s$ and current weights $w_t$.
+    \item If $\alpha(t) < \alpha_{\text{threshold}}$ (critical roughness) or $d > 1.5$:
+    \begin{itemize}
+        \item Force $w_D \gets 1.0$ (Signature).
+        \item Switch Wasserstein cost function to Huber metric $\rho_\delta(x-y)$.
+    \end{itemize}
+    \item If \texttt{RegimeChangedEvent}:
+    \begin{itemize}
+        \item Reset entropy: $w_t \gets \text{Softmax}(\mathbf{0})$ (uniform).
+    \end{itemize}
+    \item \textbf{Output:} Adjusted weights to initialize Sinkhorn.
+\end{enumerate}
+
+\section{Sinkhorn-Knopp Algorithm (Dual Space)}
+The classic algorithm is numerically unstable for small $\varepsilon$. Implement via \texttt{LogSumExp} with dual potentials $f = \varepsilon \log u, g = \varepsilon \log v$.
+
+\begin{algorithm}
+\caption{Stabilized Sinkhorn Iterations (Log-Domain)}
+\begin{algorithmic}[1]
+\State \textbf{Input:} Cost $C$, marginals $a, b$ (in log: $\alpha=\log a, \beta=\log b$), $\varepsilon$.
+\State Initialize duals $f \gets \mathbf{0}_N, g \gets \mathbf{0}_N$
+\Function{Smin}{$M, \epsilon$}
+    \State \textbf{Return} $-\epsilon \cdot \text{LogSumExp}(-M / \epsilon)$ row-wise.
+\EndFunction
+\While{not converged}
+    \State $f \gets \text{Smin}(C - g^\top, \varepsilon) + \alpha$
+    \State $g \gets \text{Smin}(C - f, \varepsilon) + \beta$
+\EndWhile
+\State Sinkhorn distance $W_\varepsilon \approx \langle \exp(f/\varepsilon), (K \odot C) \exp(g/\varepsilon) \rangle$
+\end{algorithmic}
+\end{algorithm}
+
+\section{JKO Proximal Scheme}
+The weight update $w^{(k+1)} = \text{argmin}_w \dots$ requires differentiation through the Sinkhorn loop.
+\textbf{Differentiable Implementation:}
+Use autodiff libraries (JAX/PyTorch) with \texttt{custom\_vjp} (vector-Jacobian product) at the Sinkhorn fixed point, avoiding unrolling the loop to save memory:
+\[
+\partial L / \partial C = P^* \quad (\text{Optimal Transport Plan})
+\]
+This feeds the exact gradient $\nabla_{W_2} \mathcal{F}$ to the L-BFGS optimizer.
+The weight update $w^{(k)}$ is implemented as an implicit gradient step on the Wasserstein manifold:
+\[
+ w^{(k+1)} = \text{Prox}_{\tau \mathcal{F}}^{W_2}(w^{(k)})
+\]
+This is solved by nesting a Sinkhorn loop inside an L-BFGS optimizer or by projected gradient descent if entropic regularization is sufficient to smooth the energy landscape.
+
+\section{Dynamic Sinkhorn Regularization: Coupling to Local Volatility}
+
+\textbf{Motivation:} Static entropic annealing (doubling $\varepsilon$ on failure) is robust but discrete. In highly turbulent markets, Wasserstein topology becomes rough gradually. The solution is to dynamically couple the entropic regularization parameter $\varepsilon_t$ to local process volatility:
+
+\[
+\varepsilon_t = \max\left(\varepsilon_{\min}, \varepsilon_0 \cdot (1 + \alpha \cdot \sigma_t)\right)
+\]
+
+where:
+\begin{itemize}
+    \item $\varepsilon_0$: nominal base regularization (typically $10^{-2}$ or $10^{-1}$)
+    \item $\varepsilon_{\min}$: lower bound for numerical precision (e.g., $10^{-6}$)
+    \item $\sigma_t$: local realized volatility of contemporaneous prediction error
+    \item $\alpha > 0$: sensitivity parameter (volatility-entropy coupling)
+\end{itemize}
+
+\textbf{Theoretical Justification:}
+
+Under the Wasserstein flow model, the cost geometry $C$ in the Kantorovich problem is proportional to the first variation of free energy $\delta \mathcal{F}/\delta \rho$. In high turbulence regimes:
+\begin{enumerate}
+    \item The energy Hessian $\nabla^2 \mathcal{F}$ has Lipschitz constants scaling with $\|\sigma_t\|^2$ (amplified curvature).
+    \item The Sinkhorn operator contraction constant satisfies $\rho_{\text{contraction}} \leq 1 - c \cdot \varepsilon$ (where $c > 0$).
+    \item If $\varepsilon$ is fixed and small while $\|\sigma_t\|$ is large, convergence slows exponentially.
+    \item Increasing $\varepsilon$ proportionally to $\sigma_t$ re-accelerates convergence without losing transport precision when volatility normalizes.
+\end{enumerate}
+
+\textbf{Implementation Algorithm:}
+
+\begin{algorithm}
+\caption{Adaptive Sinkhorn with Volatility-Based Regularization}
+\begin{algorithmic}[1]
+\State \textbf{Input:} Cost $C$, marginals $a, b$, contemporaneous error $e_t$, EMA volatility $\sigma_t$
+\State Compute scaled volatility: $\sigma_t \gets \sqrt{\text{EMA}(e_t^2, \lambda)}$
+\State Dynamic regularization: $\varepsilon_t \gets \max(\varepsilon_{\min}, \varepsilon_0 \cdot (1 + \alpha \sigma_t))$
+\State Initialize duals $f, g \sim 0$
+\While{iteration $< \text{iter\_max}$ \textbf{and} not converged}
+    \State $f \gets \text{Smin}(C - g^\top, \varepsilon_t) + \log a$
+    \State $g \gets \text{Smin}(C - f, \varepsilon_t) + \log b$
+\EndWhile
+\State Sinkhorn distance: $W_{\varepsilon_t} = \langle \exp(f/\varepsilon_t), K_{\varepsilon_t} \exp(g/\varepsilon_t) \rangle$
+\State \textbf{Return} $W_{\varepsilon_t}, f, g$ (duals for plan extraction)
+\end{algorithmic}
+\end{algorithm}
+
+\textbf{Numerical Example:}
+
+Suppose $\varepsilon_0 = 0.1, \alpha = 0.5, \varepsilon_{\min} = 10^{-6}$.
+\begin{itemize}
+    \item \textbf{Normal regime:} $\sigma_t = 0.02 \Rightarrow \varepsilon_t = \max(10^{-6}, 0.1 \times (1 + 0.5 \times 0.02)) = 0.101$
+    \item \textbf{Moderate volatility:} $\sigma_t = 0.1 \Rightarrow \varepsilon_t = 0.1 \times (1 + 0.05) = 0.105$
+    \item \textbf{Stress:} $\sigma_t = 0.5 \Rightarrow \varepsilon_t = 0.1 \times (1 + 0.25) = 0.125$
+    \item \textbf{Crisis:} $\sigma_t = 2.0 \Rightarrow \varepsilon_t = 0.1 \times (1 + 1.0) = 0.2$ (full smoothing)
+\end{itemize}
+
+\textbf{Advantages:}
+\begin{enumerate}
+    \item \textbf{Continuous transition:} No discrete jumps. Sinkhorn convergence adapts smoothly to the current regime.
+    \item \textbf{Reduced failures:} Avoids uniform fallback (except in extreme cases) while preserving transport precision.
+    \item \textbf{Self-calibration:} The parameter $\alpha$ can be tuned via rolling validation (walk-forward) of cost vs precision.
+    \item \textbf{Autograd compatibility:} The dynamics $\varepsilon_t(\sigma_t)$ is differentiable, enabling end-to-end optimization of $\alpha$ if desired.
+\end{enumerate}
+
+\textbf{Suggested Parameters:}
+\begin{itemize}
+    \item $\varepsilon_0 \in [10^{-2}, 10^{-1}]$: Depends on cost scale; typically calibrated empirically.
+    \item $\alpha \in [0.3, 1.0]$: Medium sensitivity. High values ($\alpha > 1$) may over-smooth; low values ($\alpha < 0.1$) reduce adaptation.
+    \item Volatility estimator: $\sigma_t = \sqrt{\text{EMA}(e_t^2, \lambda)}$ with $\lambda \in [0.05, 0.1]$ (short memory, reactive to recent changes).
+\end{itemize}
+
+\chapter{Software Architecture and Parallelism}
+
+\section{Object-Oriented Construction Patterns}
+The system follows SOLID principles to ensure modularity and extensibility of predictive kernels.
+
+\subsection{Suggested Class Structure}
+\begin{enumerate}
+    \item \textbf{AbstractStochasticProcess:} Base class defining the interface \texttt{simulate(dt, steps)}.
+    \item \textbf{ModelIdentifier (SIA):} Singleton that consumes data streams and emits \texttt{RegimeChangedEvent}. Uses the Strategy pattern to swap estimation methods (WTMM, DFA).
+    \item \textbf{PredictionKernel:} Abstract interface for predictors (A, B, C, D).
+    \begin{itemize}
+        \item \texttt{fit(historical\_data)}: Parameter calibration.
+        \item \texttt{predict(horizon)}: Future trajectory generation.
+        \item \texttt{compute\_risk()}: VaR/ES computation.
+    \end{itemize}
+    \item \textbf{Orchestrator:} Implements the Mediator pattern. Owns a \texttt{WassersteinOptimizer} and coordinates kernel weighting.
+\end{enumerate}
+
+\section{Heterogeneous Computing and Acceleration}
+
+\subsection{GPU (CUDA/OpenCL)}
+Neural network training (DGM) and large Monte Carlo simulations are delegated to the GPU.
+\begin{itemize}
+    \item \textbf{Kernels:} Implement random number generation (coalesced memory access) and parallel reduction for expectation computation.
+    \item \textbf{Sinkhorn:} Matrix operations ($K \cdot v$) are executed via optimized BLAS libraries (cuBLAS).
+\end{itemize}
+
+\begin{remark}[Shared Memory Optimization for Branch D (Signatures)]
+Iterative signature computation involves tensor products of the form $\mathbf{S}_{0,t} \otimes \Delta X_k$ operating on high-dimensional tensors ($d^M$ components for depth $M$). On GPU architectures, efficiency depends critically on memory hierarchy.
+
+\textbf{CUDA Memory Management Strategy:}
+\begin{enumerate}
+    \item \textbf{Shared Memory (SMEM) as explicit cache:}
+    \begin{itemize}
+        \item Split the discretized path into blocks of $B$ consecutive increments
+        \item Load each block $\{\Delta X_k, \Delta X_{k+1}, \ldots, \Delta X_{k+B-1}\}$ into SMEM at kernel start
+        \item Compute the signature concatenation $\bigotimes_{i=k}^{k+B-1} \mathbf{S}(\Delta X_i)$ entirely in SMEM
+        \item Write the partial result to global memory once per block
+    \end{itemize}
+
+    \item \textbf{Minimize Global <-> Shared transfers:}
+    \begin{itemize}
+        \item Avoid redundant reads of $\Delta X$ from global memory
+        \item Reuse previously computed tensor components within the block
+        \item Typical $B \in [16, 32]$ to balance occupancy and SMEM size (48-96 KB per SM depending on architecture)
+    \end{itemize}
+
+    \item \textbf{Coalesced access pattern:}
+    \begin{itemize}
+        \item Organize tensors with stride that enables warp-coalesced access
+        \item For rank-$M$ tensors, flatten indices in a consistent row-major or column-major order
+    \end{itemize}
+\end{enumerate}
+
+\textbf{Example Gain:} For $d=3$, $M=4$, $B=32$ on a V100 GPU:
+\begin{itemize}
+    \item Without SMEM optimization: ~15 GB/s effective bandwidth (global memory latency bound)
+    \item With SMEM blocks: ~120 GB/s (leveraging > 10 TB/s internal SMEM bandwidth)
+    \item Speedup: ~8x in signature concatenation kernel
+\end{itemize}
+\end{remark}
+
+\subsection{FPGA (Field-Programmable Gate Array)}
+For ultra-low-latency applications (HFT), Branch D (Signatures) is synthesized in reconfigurable hardware.
+\begin{itemize}
+    \item \textbf{Pipeline:} Iterative signature computation $S_{0,t} \otimes \Delta X$ is implemented as a systolic pipeline.
+    \item \textbf{Fixed-Point Arithmetic:} Fixed-point arithmetic maximizes throughput after analyzing tensor dynamic ranges.
+\end{itemize}
+
+\chapter{Numerical Stability Considerations}
+
+\section{CFL Condition (Courant-Friedrichs-Lewy)}
+For explicit finite difference schemes in the HJB equation (Branch B), the time step must satisfy:
+\[
+\Delta t \leq \frac{(\Delta x)^2}{2 \max \sigma^2}
+\]
+If volatility is high, the time step becomes prohibitively small. In that case, switch to an \textbf{Implicit} or \textbf{Semi-Lagrangian} scheme.
+
+\section{Log-Signature Stability}
+Log-signature computation involves the Baker-Campbell-Hausdorff series, which converges only if increments are small.
+\begin{algorithm}
+\caption{Adaptive Step Control for Signatures}
+\begin{algorithmic}[1]
+\State \textbf{Input:} Path $X$, tolerance $\epsilon$.
+\Function{ComputeSig}{$X$}
+    \If{$\|\Delta X\| > \epsilon$}
+        \State $X_{\text{mid}} \gets \text{Interpolate}(X)$ (midpoint)
+        \State $S_1 \gets \text{ComputeSig}(X_{\text{left}})$
+        \State $S_2 \gets \text{ComputeSig}(X_{\text{right}})$
+        \State \textbf{Return} $S_1 \otimes S_2$
+    \Else
+        \State \textbf{Return} $\exp(\Delta X)$
+    \EndIf
+\EndFunction
+\end{algorithmic}
+\end{algorithm}
+
+\chapter{Governance of Heuristic Metaparameters}
+
+Stochastic systems implemented on finite hardware require regularization and truncation parameters that do not exist in continuous probability theory. This chapter defines the \textbf{Control Taxonomy} to ensure numerical instantiation remains stable, reactive, and causal.
+
+\section{Taxonomy and Analytical Bounds (Safe Harbors)}
+The following mathematical limits are mandatory to avoid numerical collapse (NaNs), gradient explosions, or causal violations.
+
+\subsection{Discretization and Truncation Parameters}
+Define the resolution of the simulated world.
+\begin{itemize}
+    \item \textbf{Time Step} ($\Delta t$): Not free. Must satisfy the generalized CFL condition for stochastic PIDEs.
+    \[
+    \Delta t \leq \frac{C_{\text{safe}} \cdot (\Delta x)^2}{2 \cdot \sup |\sigma(x)|^2 + \sup |b(x)| \cdot \Delta x}
+    \]
+    Where $C_{\text{safe}} \approx 0.9$. This is a mixed advective-diffusive CFL condition because the dynamics have both drift (advection) and volatility (diffusion) terms. Violating this limit induces spurious oscillations in the DGM/IMEX solver.
+
+    \item \textbf{Signature Depth} ($M$): Truncation of the tensor algebra $T((\mathbb{R}^d))$ defines topological memory.
+    \begin{itemize}
+        \item \textbf{Safe range:} $M \in [3, 5]$.
+        \item \textbf{Justification:} $M < 3$ loses non-commutativity (event ordering). $M > 5$ invokes the curse of dimensionality (feature growth as $d^M$), saturating RAM without marginal predictive gain.
+    \end{itemize}
+\end{itemize}
+
+\subsection{Regularization and Stability Parameters}
+Control solution smoothness in ill-posed problems.
+\begin{itemize}
+    \item \textbf{Sinkhorn Entropy} ($\varepsilon$): Turns hard Wasserstein transport into a smooth convex problem.
+    \begin{itemize}
+        \item \textbf{Initialization:} $\varepsilon \approx 10^{-2}$.
+        \item \textbf{Lower bound:} $\varepsilon \geq 10^{-4}$ (for float32). Smaller values cause numerical underflow in $K = e^{-C/\varepsilon}$.
+        \item \textbf{Impact:} $\varepsilon \to \infty$ yields uniform mixture (max uncertainty). $\varepsilon \to 0$ yields unstable winner-takes-all.
+    \end{itemize}
+
+    \item \textbf{JKO Proximal Step} ($\tau$): Controls the rate of change of weight distribution $\rho$ on the Wasserstein manifold.
+    \[
+    \rho_{k+1} = \text{Prox}_{\tau E}^{\text{W}}(\rho_k)
+    \]
+    High $\tau$ allows fast but noisy adaptation. Low $\tau$ induces excessive inertia. Recommend $\tau$ adaptive and inversely proportional to prediction error volatility.
+\end{itemize}
+
+\subsection{Decision Thresholds (Hard Boundaries)}
+Convert continuous probabilities into discrete actions (e.g., Circuit Breaker activation).
+\begin{itemize}
+    \item \textbf{CUSUM Threshold} ($h_t$): Must not be a magic constant. Define dynamically with kurtosis adjustment:
+    \[
+    h_t = k \cdot \sigma_{\text{resid}} \cdot (1 + \ln(\kappa_t/3))
+    \]
+    where:
+    \begin{itemize}
+        \item $\sigma_{\text{resid}}$ is the rolling standard deviation of prediction residuals
+        \item $k \in [3, 5]$ is the base sensitivity factor (three-sigma rule)
+        \item $\kappa_t$ is kurtosis (fourth standardized moment) computed over a rolling window
+        \item $\ln(\kappa_t/3)$ adjusts the threshold in heavy-tail regimes, reducing false positives during non-Gaussian high volatility
+    \end{itemize}
+    This adaptive threshold matches the Adaptive Threshold with Kurtosis Lemma in the theory document.
+
+    \item \textbf{Singularity Tolerance} ($H_{\text{min}}$): Holder exponent threshold to activate emergency mode (Signatures). Typically $H_{\text{min}} \in [0.4, 0.5]$ to detect violent mean-reversion or market crash regimes.
+\end{itemize}
+
+\section{Causal Cross-Validation (Walk-Forward Validation)}
+Static validation methods (traditional K-Fold) are prohibited as they violate the arrow of time and leak future information (look-ahead bias). The only acceptable validation scheme is rolling walk-forward with a sliding window to avoid dilution of recent regimes.
+
+\begin{algorithm}
+\caption{Strict Walk-Forward Validation Protocol (Rolling Window)}
+\begin{algorithmic}[1]
+\State \textbf{Input:} Data stream $\mathcal{D} = \{x_1, \dots, x_T\}$, initial window $L_{\text{train}}$, horizon $H$, maximum memory $W_{\text{max}}$.
+\State \textbf{Output:} Aggregated generalization error $\mathcal{E}$.
+\State $t \leftarrow L_{\text{train}}$
+\State $\text{errors} \leftarrow []$
+\While{$t + H \leq T$}
+    \State $start\_idx \leftarrow \max(1, t - W_{\text{max}})$
+    \State $\mathcal{D}_{\text{train}} \leftarrow \{x_{start\_idx}, \dots, x_t\}$ \Comment{Rolling window}
+    \State $\mathcal{D}_{\text{test}} \leftarrow \{x_{t+1}, \dots, x_{t+H}\}$ \Comment{Immediate unknown future}
+
+    \State \textbf{Training:} Optimize meta-predictor ($\theta$) on $\mathcal{D}_{\text{train}}$
+    \State \textbf{Inference:} $\hat{y} \leftarrow \text{Predict}(\mathcal{D}_{\text{test}}, \theta)$
+    \State \textbf{Evaluate:} $e_t \leftarrow \text{Metric}(\hat{y}, \mathcal{D}_{\text{test}})$
+    \State $\text{errors.append}(e_t)$
+
+    \State $t \leftarrow t + H$ \Comment{Advance time step by step}
+\EndWhile
+\State \Return $\text{Mean}(\text{errors})$
+\end{algorithmic}
+\end{algorithm}
+
+\section{Derivative-Free Meta-Optimization (Bayesian Optimization)}
+Many hyperparameters are discrete (tree depth $M$, decision thresholds) or the error surface is noisy and non-convex, making gradient descent inapplicable.
+
+We prescribe the use of \textbf{Gaussian Processes (GP)} for efficient search of the next optimal candidate $\theta_{\text{next}}$:
+\[
+\theta_{\text{next}} = \arg\max_{\theta \in \Theta} \text{Expected Improvement}(\theta | \mathcal{D}_{\text{obs}})
+\]
+The objective function is the negative return of Walk-Forward Validation ($-\mathcal{E}$). After $N$ iterations, the estimated global optimum $\theta^*$ is the candidate that empirically minimized the error $\mathcal{E}$.
+
+\begin{enumerate}
+    \item \textbf{Prior:} Define safe ranges (Section \thechapter.1) for each hyperparameter.
+    \item \textbf{Surrogate Model:} Train a GP on observed pairs $(\theta_i, \text{Performance}_i)$.
+    \item \textbf{Acquisition Function:} Select $\theta_{next}$ that maximizes the probability of improving the current best (balancing exploration vs exploitation).
+    \item \textbf{Costly Evaluation:} Run the full walk-forward protocol only for $\theta_{next}$.
+\end{enumerate}
+
+This approach drastically reduces computational cost compared to grid search or random search in high-dimensional spaces, converging to the predictor's optimal "personality" in a few iterations.
+
+\end{document}

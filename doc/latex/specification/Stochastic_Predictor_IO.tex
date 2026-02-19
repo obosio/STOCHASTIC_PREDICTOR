@@ -1,0 +1,288 @@
+\documentclass{article}
+\usepackage[utf8]{inputenc}
+\usepackage{amsmath}
+\usepackage{amsfonts}
+\usepackage{geometry}
+\usepackage{array}
+\usepackage[english]{babel}
+\usepackage[hidelinks]{hyperref}
+
+\geometry{a4paper, margin=1in}
+
+\title{Input/Output Interface Specification - Universal Predictor System}
+\author{Systems Architecture}
+\date{\today}
+
+\begin{document}
+
+\maketitle
+
+\tableofcontents
+\newpage
+
+\section{Executive Summary}
+This document defines the abstract input/output (I/O) interface for the Universal Predictor System, independent of the concrete implementation (Python/JAX, C++, Rust, FPGA). It describes the configuration vectors needed to instantiate the system, the runtime data flow, and the structure of the output signals and telemetry.
+
+\section{Configuration Vector (Hyper-Inputs)}
+The system is initialized with a configuration vector $\Lambda$ that defines module topology and sensitivity. These parameters are typically static during an operating session or tuned by an external meta-optimizer.
+
+\begin{table}[h]
+\centering
+\begin{tabular}{|l|c|l|}
+\hline
+\textbf{Parameter} & \textbf{Symbol} & \textbf{Functional Description} \\
+\hline
+Entropic regularization & $\epsilon$ & Mass transport smoothing in the JKO orchestrator (Sinkhorn). \\
+Learning rate & $\tau$ & Adaptation speed of weights $\rho$ under energy gradients. \\
+Signature depth & $L$ & Truncation order of the log-signature (Kernel D - topological). \\
+WTMM memory & $N_{buf}$ & Sliding window size for singularity estimation. \\
+Besov cone & $C_{besov}$ & Influence radius for wavelet maxima tracking. \\
+Holder threshold & $H_{min}$ & Critical regularity that triggers the circuit breaker. \\
+CUSUM threshold & $h$ & Accumulated deviation level that triggers weight reset. \\
+CUSUM slack & $k$ & Drift tolerance ("white noise") allowed without error accumulation. \\
+Volatility memory & $\alpha$ & EMA decay rate to estimate error variance. \\
+\hline
+\end{tabular}
+\caption{Hyperparameter vector $\Lambda$}
+\end{table}
+
+\section{Input Flow (Data Injection)}
+
+\subsection{1. Calibration Phase (Bootstrapping)}
+Initial state required before sequential operation.
+
+\textbf{Input:} History $\mathcal{H} = \{y_{-T}, \dots, y_0\}$
+\begin{itemize}
+    \item \textbf{Structure:} Time series of vectors $\mathbf{y} \in \mathbb{R}^d$ or scalars $y \in \mathbb{R}$.
+    \item \textbf{Purpose:}
+    \begin{itemize}
+        \item Initialize history-dependent kernels (e.g., Levy parameters).
+        \item Stabilize initial orchestrator weights $\rho_0$.
+        \item Fill the singularity buffer for the WTMM module.
+    \end{itemize}
+\end{itemize}
+
+\subsection{2. Operational Phase (Online Stream)}
+Step-by-step update cycle at time $t$.
+
+\textbf{Input at step $t$:} Tuple $(y_t, y_{target}, \tau_{epoch})$
+\begin{itemize}
+    \item \textbf{Timestamp ($\tau_{epoch}$):} Absolute timestamp (Unix nanoseconds). Required for synchronization and latency checks in the staleness policy.
+    \item \textbf{Current observation ($y_t$):}
+    \begin{itemize}
+        \item New data point available at $t$.
+        \item Used to feed kernels ($K_A, K_B, K_C, K_D$) and generate predictions for $t+1$.
+        \item \textbf{Domain error handling:} If $|y_t| > 20\sigma$ (relative to historical normalization), the point is classified as a catastrophic outlier. The system must discard the input, keep the inertial state, and emit a critical validation alert to protect kernels from numerical divergence.
+        \item \textbf{Frozen signal detection:} If the stream injects the exact same value for $N_{freeze} \geq 5$ consecutive steps, the system must:
+        \begin{enumerate}
+            \item Compute the variance of the last $N_{freeze}$ values: $\text{Var}([y_{t-4}, y_{t-3}, y_{t-2}, y_{t-1}, y_t]) = 0$
+            \item Identify this as sensor failure or data source corruption
+            \item Emit \texttt{FrozenSignalAlarmEvent} with the event timestamp
+            \item \textbf{Mathematical impact:} The Holder exponent in Branch D requires variability: $H_t = \lim_{s \to 0} \frac{\log |\gamma(t+s) - \gamma(t)|}{\log s}$. With a frozen signal, the numerator is zero, causing singularities or indeterminate values. This invalidates the multifractal spectrum. The system must:
+            \begin{itemize}
+                \item Freeze the topological branch (Kernel D) at the last valid value
+                \item NOT update orchestrator weights (keep inertia)
+                \item Activate degraded inference mode
+                \item Continue predictions using Branches A, B, C only
+            \end{itemize}
+            \item \textbf{Recovery:} Once variance $> 0.1 \times \text{Var}_{historical}$ is detected for 2 consecutive steps, release the Kernel D lock and resume normal operation.
+        \end{enumerate}
+    \end{itemize}
+    \item \textbf{Inference grid (anti-aliasing input):}
+    \begin{itemize}
+        \item \textbf{Sampling frequency vs scales ($N_{buf}$):} To guarantee WTMM stability (Kernel D singularities), the data injection frequency must maintain sufficient density relative to the finest wavelet scales.
+        \item \textit{Restriction:} A \textbf{minimum injection frequency} (Nyquist soft limit) is enforced based on $C_{besov}$. If event density falls below this threshold, the multifractal spectrum collapses and the system must freeze the topological branch update.
+    \end{itemize}
+
+    \item \textbf{Validation target ($y_{target}$):}
+    \begin{itemize}
+        \item The "real" value corresponding to the prediction generated at the previous step ($t-1$).
+        \item Typically $y_{target} \equiv y_t$ for causal one-step-ahead prediction.
+        \item Used to compute error $e_t = y_{target} - \hat{y}_{t|t-1}$ and the energy gradient $\nabla E$ for JKO transport.
+    \end{itemize}
+
+    \item \textbf{Staleness policy:}
+    \begin{itemize}
+        \item \textbf{Time-to-live (TTL):} Parameter $\Delta_{max}$.
+        \item \textbf{Violation behavior:} If the delay of $y_{target}$ exceeds $\Delta_{max}$, the JKO update is canceled.
+        \item \textbf{Integrity signal:} The system must emit a persistent \textit{degraded inference} flag ("stale weights"). This alerts the executor that, although the prediction $\hat{y}$ is still produced, the weights $\rho$ are stale and risk is no longer optimized geometrically.
+    \end{itemize}
+\end{itemize}
+
+\section{Security Policies in the I/O Layer (Credentials)}
+
+The Stochastic Predictor design requires high-frequency ingestion against external market infrastructure (e.g., institutional WebSockets, brokers, or REST APIs). Access to these systems introduces critical vulnerability vectors.
+
+\vspace{0.5em}
+
+\noindent \textbf{Secure environment injection}
+
+Hardcoding tokens, API keys, database secrets, or connection credentials in any future source module (e.g., \texttt{io/streams.py}) is strictly forbidden. Every implementation \textbf{must} apply an environment injection pattern, reading credentials at runtime from OS variables or local \texttt{.env} files.
+
+\vspace{0.5em}
+
+\noindent \textbf{Version control exclusion}
+
+The resulting implementation repository must include explicit exclusion rules in version control (e.g., enforce \texttt{*.env} in \texttt{.gitignore}) to ensure no secret is exposed.
+
+\section{System Outputs}
+
+\subsection{1. Control signal (Prediction signal)}
+Primary output for decision-making.
+
+\textbf{Output:} $\hat{y}_{t+1}$
+\begin{itemize}
+    \item \textbf{Description:} Estimate of the expected process value for the next instant.
+    \item \textbf{Inference grid (output quantization):}
+    \begin{itemize}
+        \item Output $\hat{y}_{t+1}$ is delivered in normalized space (Z-score) consistent with input $y_t$.
+        \item The actor/executor applies inverse normalization using rolling-window statistics if an absolute price is required.
+    \end{itemize}
+    \item \textbf{Composition:} Convex combination of base kernels: $\hat{y}_{t+1} = \sum_{i \in \{A,B,C,D\}} \rho_i^{(t)} \cdot K_i(y_t)$.
+\end{itemize}
+
+\subsection{2. State telemetry}
+Latent variables that describe system "health" and market regime.
+
+\begin{itemize}
+    \item \textbf{Risk state ($\mathbb{S}_{risk}$):}
+    \begin{itemize}
+        \item \textbf{Local Holder exponent ($H_t$):} Pointwise regularity measure. $H_t < 0.5$ indicates antipersistence/noise; $H_t < H_{min}$ indicates imminent crash/shock.
+
+        \item \textbf{Empirical kurtosis ($\kappa_t$):} Fourth standardized moment of prediction residuals over a rolling window:
+        \[
+        \kappa_t = \frac{E[(e_t - \mu_e)^4]}{(\sigma_e)^4}
+        \]
+        where $e_t = y_{target} - \hat{y}_{t|t-1}$ are prediction residuals.
+        \begin{itemize}
+            \item \textbf{Purpose:} Validate the adaptive CUSUM threshold. Values $\kappa_t > 3$ indicate leptokurtic distributions (heavy tails), activating the logarithmic adjustment $h_t = k \cdot \sigma \cdot (1 + \ln(\kappa_t/3))$.
+            \item \textbf{Interpretation:} $\kappa_t \approx 3$ (Gaussian), $\kappa_t \in [5, 10]$ (standard financial volatility regime), $\kappa_t > 15$ (crisis regime with frequent extreme events).
+            \item \textbf{Alert:} If $\kappa_t > 20$ persistently, emit a warning of potential residual model failure or undetected systematic outliers.
+        \end{itemize}
+
+        \item \textbf{DGM predictor entropy ($H_{DGM}$):} Differential entropy of the neural value function $V_\theta(t,x)$ across the spatial domain:
+        \[
+        H_{DGM} = -\int p_V(v) \log p_V(v) \, dv
+        \]
+        where $p_V(v)$ is the empirical density of $V_\theta$ values evaluated on a domain grid.
+        \begin{itemize}
+            \item \textbf{Purpose:} Monitor the health of Branch B (HJB solution via Deep Galerkin Method) and detect mode collapse when the network predicts a constant or degenerate solution.
+            \item \textbf{Collapse threshold:} Compare against the terminal condition entropy: $H_{DGM} \geq \gamma \cdot H[g]$ with $\gamma \in [0.5, 1.0]$. If the inequality is violated persistently (more than 10 consecutive steps), emit \texttt{ModeDegradationAlert}.
+            \item \textbf{Corrective action:} Reduce the weight of Branch B in the orchestrator ($\rho_B \to 0$) and prioritize alternative branches until the DGM network is retrained or reinitialized.
+            \item \textbf{Note:} This indicator is only relevant if Branch B is active ($\rho_B > 0.05$). For systems that do not use DGM, this field may be omitted or reported as \texttt{NaN}.
+        \end{itemize}
+
+        \item \textbf{CUSUM statistic ($G^+$):} Accumulated structural mismatch level.
+
+        \item \textbf{Distance to collapse ($h_t - G^+$):} Safety margin before a forced model reset. Note: $h_t$ is now dynamic and depends on $\sigma_t$ and $\kappa_t$.
+
+        \item \textbf{Residual free energy ($\mathcal{F}$):} Instant value of the JKO functional. It monitors whether the model is "stuck" in a stable local minimum or whether entropic regularization $\epsilon$ is too high, over-smoothing mass transport and diluting predictive power.
+    \end{itemize}
+
+    \item \textbf{Orchestrator state ($\rho$):}
+    \begin{itemize}
+        \item \textbf{Weight vector:} $[\rho_A, \rho_B, \rho_C, \rho_D]$ such that $\sum \rho = 1$.
+        \item Indicates which "physics" currently dominates the market (jumps vs diffusion vs memory vs topology).
+    \end{itemize}
+
+    \item \textbf{Stochastic health-check:}
+    \begin{itemize}
+        \item \textbf{Sinkhorn convergence (bool):} Indicates whether the mass transport algorithm converged within the maximum iteration count.
+        \item \textit{True:} Exact Wasserstein distance. \textit{False:} Sub-optimal approximation (numerical precision alert).
+    \end{itemize}
+
+    \item \textbf{Operational flags (mode and circuit breakers):}
+    \begin{itemize}
+        \item \textbf{Base operation mode:}
+        \begin{itemize}
+            \item \textit{Standard (MSE):} Normal operation under local Gaussian assumptions.
+            \item \textit{Robust (Huber):} Defensive operation triggered by singularities ($H_t < H_{min}$) or high volatility.
+        \end{itemize}
+
+        \item \textbf{Degraded inference mode:} Critical boolean flag for temporal quality monitoring:
+        \begin{itemize}
+            \item \textbf{Activation condition:} It activates when the time-to-live (TTL) of $y_{target}$ exceeds the maximum threshold:
+            \[
+            \text{TTL}(y_{target}) = t_{current} - t_{signal} > \Delta_{max}
+            \]
+            \item \textbf{Operational implications:}
+            \begin{enumerate}
+                \item JKO transport update is suspended immediately
+                \item Weights $\rho$ freeze at their last valid value (inertial mode)
+                \item Predictions $\hat{y}_{t+1}$ continue, but are sub-optimal because they do not reflect the true market state
+                \item Risk is no longer optimized geometrically
+            \end{enumerate}
+            \item \textbf{Executor signaling:} This flag must explicitly warn that:
+            \begin{itemize}
+                \item Current predictions have \textit{degraded confidence}
+                \item Weights are stale
+                \item Exposure should be reduced or a conservative mode should be used
+                \item The system operates in "survival mode" until fresh data flow is restored
+            \end{itemize}
+            \item \textbf{Recovery:} The flag is automatically cleared when a fresh signal arrives with $\text{TTL}(y_{target}) < 0.8 \cdot \Delta_{max}$ (hysteresis threshold to avoid oscillation). At that moment, JKO transport resumes and \texttt{NormalOperationRestoredEvent} is emitted.
+        \end{itemize}
+
+        \item \textbf{Emergency mode (singularity fallback):} Flag indicating whether emergency mode was triggered by critical singularity ($H_t < H_{min}$), forcing $w_D \to 1.0$ and switching to the Huber metric.
+
+        \item \textbf{Regime change detected:} Flag indicating whether CUSUM detected a regime change at the last step, with entropy reset to a uniform distribution.
+    \end{itemize}
+\end{itemize}
+
+\section{Abstract I/O Diagram}
+
+\[
+\boxed{\text{Environment}} \xrightarrow{(y_t, y_{target})} \boxed{\text{Universal Predictor}(\Lambda)} \xrightarrow{(\hat{y}_{t+1}, \mathbb{S}_{risk}, \rho)} \boxed{\text{Actor / Executor}}
+\]
+
+\subsection{Internal Process Cycle}
+\begin{enumerate}
+    \item \textbf{Ingestion:} Receive $y_t$. Update local history.
+    \item \textbf{Singularity analysis:} Compute $H_t$ using WTMM on the recent window.
+    \item \textbf{Quality control (CUSUM):}
+        \begin{itemize}
+            \item Compute error $e_t$ using $y_{target}$ and stored prediction $\hat{y}_{t|t-1}$.
+            \item Update drift accumulator $G^+$.
+            \item If $G^+ > h$ or $H_t < H_{min}$ $\rightarrow$ emit reset/alert signal.
+        \end{itemize}
+    \item \textbf{Transport (JKO):}
+        \begin{itemize}
+            \item Compute energy gradient $\nabla E$ based on $e_t$.
+            \item Transport probability mass $\rho_{t-1} \to \rho_t$ (Sinkhorn).
+        \end{itemize}
+    \item \textbf{Projection:}
+        \begin{itemize}
+            \item Execute kernels $K_i(y_t)$ to obtain components.
+            \item Aggregate components using new weights $\rho_t$ to obtain $\hat{y}_{t+1}$.
+        \end{itemize}
+\end{enumerate}
+
+\section{Persistence (Snapshotting)}
+To ensure operational continuity, the system must be able to serialize its full internal state $\Sigma_t$ at any time $t$.
+
+\[
+\Sigma_t = \{ \rho_t, G^+_t, \sigma^2_{ema}, \kappa_t, H_{DGM}, \text{Flags}, \text{WTMMBuffer}, \text{KernelsState} \}
+\]
+
+where:
+\begin{itemize}
+    \item $\kappa_t$: Rolling empirical kurtosis of prediction errors (window size = 252).
+    \item $H_{DGM}$: Differential entropy of the DGM predictor (for mode collapse detection).
+    \item \texttt{Flags}: Boolean flags including \texttt{DegradedInferenceMode}, \texttt{EmergencyMode}, and \texttt{RegimeChangeDetected}.
+\end{itemize}
+
+The \texttt{KernelsState} structure must be segmented into independent sub-blocks (K-blocks) to allow modular or partial updates:
+\[
+\text{KernelsState} = \{ S_A (\text{Levy}), S_B (\text{PDE}), S_C (\text{Memory}), S_D (\text{Topology}) \}
+\]
+
+The restore operation $Load(\Sigma_t)$ must allow the flow to resume at $t+1$ without recalibration over history $\mathcal{H}$. Correct restoration of $\kappa_t$ and $H_{DGM}$ is critical to preserve anomaly detection and mode collapse sensitivity after a restart.
+
+\subsection{Atomic and Verified Snapshotting Protocol}
+Binary serialization formats (e.g., Protocol Buffers, MessagePack) are required instead of text (JSON/XML) to minimize I/O latency for critical hot-start operations.
+
+\begin{itemize}
+    \item \textbf{Mandatory integrity checksum:} Because dense binary formats are used, a single-bit error in kernel matrices or the WTMM buffer could trigger system collapse or undefined behavior. Therefore, $\Sigma_t$ must include a robust validation hash (e.g., SHA-256 or CRC32c) at the end of the block.
+    \item \textbf{Pre-injection validation:} The restore routine $Load(\Sigma_t)$ must recompute and verify this hash \textit{before} injecting the state into operational memory. If validation fails, the snapshot must be discarded and the system must restart in cold-start mode (history reload).
+\end{itemize}
+
+\end{document}

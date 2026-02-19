@@ -6,9 +6,9 @@ and deterministic manner, critical for bit-exact reproducibility required in
 portability tests (CPU/GPU/FPGA).
 
 References:
-    - Predictor_Estocastico_Python.tex §1: JAX PRNG (threefry2x32)
-    - Predictor_Estocastico_API_Python.tex §5: Floating-Point Determinism
-    - Tests_Python.tex §1.2: Shared Fixtures (rng_key)
+    - Stochastic_Predictor_Python.tex §1: JAX PRNG (threefry2x32)
+    - Stochastic_Predictor_API_Python.tex §5: Floating-Point Determinism
+    - Stochastic_Predictor_Tests_Python.tex §1.2: Shared Fixtures (rng_key)
 """
 
 from typing import Sequence, Any
@@ -39,8 +39,8 @@ def initialize_jax_prng(seed: int = 42) -> PRNGKeyArray:
         PRNGKeyArray: Root key for deriving subkeys
         
     References:
-        - API_Python.tex §5.1: Deterministic XLA and PRNG Configuration
-        - Python.tex §1.3: Global Numerical Precision Management
+        - Stochastic_Predictor_API_Python.tex §5.1: Deterministic XLA and PRNG Configuration
+        - Stochastic_Predictor_Python.tex §1.3: Global Numerical Precision Management
         
     Example:
         >>> import os

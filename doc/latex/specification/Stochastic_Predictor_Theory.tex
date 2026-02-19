@@ -1,0 +1,542 @@
+\documentclass[11pt, a4paper]{report}
+
+% --- UNIVERSAL PREAMBLE ---
+\usepackage[a4paper, top=2.5cm, bottom=2.5cm, left=2cm, right=2cm]{geometry}
+\usepackage{fontspec}
+\usepackage{amsmath}
+\usepackage{amssymb}
+\usepackage{amsfonts}
+\usepackage{mathtools}
+\usepackage{booktabs}
+\usepackage{enumitem}
+\usepackage{amsthm}
+
+\usepackage[english]{babel}
+
+% Theorem-like environments
+\newtheorem{theorem}{Theorem}[chapter]
+\newtheorem{definition}{Definition}[chapter]
+\newtheorem{lemma}{Lemma}[chapter]
+\newtheorem{proposition}{Proposition}[chapter]
+\newtheorem{remark}{Remark}[chapter]
+\newtheorem{postulate}{Postulate}[chapter]
+\newtheorem{corollary}{Corollary}[chapter]
+
+% --- HYPERREF (Must be the last package) ---
+\usepackage[hidelinks]{hyperref}
+
+\title{\textbf{Treatise on Mathematical Models of Universal Stochastic Predictors (USP) \\ \large Extended and Unified Version}}
+\author{Adaptive Meta-Prediction Development Consortium}
+\date{\today}
+
+\begin{document}
+
+\maketitle
+
+\tableofcontents
+
+\chapter{Theoretical Foundations and Architecture}
+
+This treatise formalizes the construction of a stochastic prediction system capable of operating on dynamic processes whose underlying probability law is unknown \textit{a priori}.
+
+\section{Probability Spaces and Filtrations}
+We define a complete probability space $(\Omega, \mathcal{F}, P)$. The evolution of information is modeled by a filtration $\{\mathcal{F}_t\}_{t \geq 0}$ that satisfies the usual conditions (Dellacherie-Meyer):
+\begin{enumerate}
+    \item \textbf{Completeness:} $\mathcal{F}_0$ contains all $P$-null sets of $\mathcal{F}$.
+    \item \textbf{Right-continuity:} $\mathcal{F}_t = \bigcap_{s > t} \mathcal{F}_s$ for all $t \geq 0$.
+\end{enumerate}
+This ensures that stopping times (such as those defined by the CUSUM algorithm) are measurable and the process admits cadlag modifications.
+
+\section{The System Meta-State ($\Xi_t$)}
+To unify control and prediction dynamics, we define the meta-state at time $t$ as the functional triple in a Banach space:
+\[
+\Xi_t = \left( V_s(t), w_t, \mathcal{P}_h^\cup \right)
+\]
+Where $V_s$ is the identification state, $w_t$ the weight distribution on the statistical manifold, and $\mathcal{P}_h^\cup$ the active prediction operator.
+
+\section{Optimal Prediction Problem}
+\begin{definition}[Optimal Prediction Problem]
+Given a stochastic process $X = \{X_t : t \in T\}$, we seek the operator $\mathcal{P}_h$ such that $\hat{X}_{t+h} = \mathcal{P}_h(X_s, s \leq t)$ minimizes the norm in $L^2(\Omega, \mathcal{F}, P)$:
+\[
+\hat{X}_{t+h} = \underset{Z \in L^2(\mathcal{F}_t)}{\text{argmin}} \, E\left[ \| X_{t+h} - Z \|^2 \right] = E[X_{t+h} \mid \mathcal{F}_t]
+\]
+\end{definition}
+
+\section{Universal System Architecture}
+The system is structured into three operational phases:
+\begin{enumerate}
+    \item \textbf{Identification Engine (SIA):} Functional operator $\Psi(X) \to \mathcal{C}$. To ensure continuity of control operators on multifractal processes, the codomain $\mathcal{C}$ is defined as the Besov space $B_{p,q}^s(\mathbb{R})$, which characterizes local singularities via wavelet decompositions.
+    \item \textbf{Prediction Kernels ($\mathcal{P}_i$):} Branches A (Hilbert), B (Markov/Fokker-Planck), C (Ito/Levy), D (Rough Paths/Signature).
+    \item \textbf{Adaptive Orchestrator ($\mathcal{O}$):} Optimal transport dynamics in the probability measure space $\mathcal{P}_2(\Omega)$ endowed with the Wasserstein metric.
+\end{enumerate}
+
+\chapter{Phase 1: System Identification Engine (SIA)}
+
+The SIA characterizes the process topology via a functional state vector $V_s$.
+
+\section{Formalization of the Functional State Vector}
+The vector $V_s(t)$ consolidates structural metrics of the process:
+\[
+V_s(t) = \left[ d(t), \alpha(t), \sigma(\mathcal{K}), \mathcal{T}_{Y \to X}, [X]_t \right]^\top \in \mathcal{C}
+\]
+
+\section{Stationarity and Ergodicity Analysis}
+\subsection{Strong Stationarity}
+The operator $\Psi$ verifies invariance of the image measure under the time-translation group $\{\theta_\tau\}_{\tau \in \mathbb{R}}$:
+\[
+P \circ \theta_\tau^{-1} = P \quad \forall \tau
+\]
+\subsection{Fractional Integration and Differentiation}
+For long-memory processes, we define the inverse of the unilateral Riesz kernel $I^\alpha$:
+\[
+Y_t = D^\alpha X_t = \frac{1}{\Gamma(-\alpha)} \int_{-\infty}^t (t-s)^{-\alpha-1} X_s ds
+\]
+This generalizes the operator $(1-L)^d$ to the continuous setting.
+
+\section{Holder Regularity Analysis}
+\subsection{Local Singularity Spectrum}
+Local regularity is characterized by the pointwise Holder exponent $\alpha(t_0)$, defined as the supremum of $\alpha$ such that:
+\[
+\limsup_{\epsilon \to 0} \frac{|X(t_0 + \epsilon) - X(t_0)|}{|\epsilon|^\alpha} < \infty
+\]
+The function $\alpha(t)$ induces a stratification of the time domain $\bigcup_h \{t : \alpha(t) = h\}$.
+
+\section{Semimartingale Decomposition}
+\subsection{Quadratic Variation}
+The quadratic variation process is defined as the uniform-in-probability limit:
+\[
+[X]_t = P-\lim_{\|\Pi\| \to 0} \sum_{i} (X_{t_i} - X_{t_{i-1}})^2
+\]
+\subsection{Bichteler-Dellacherie Theorem}
+If $X_t$ is an $L^0$ stochastic integrator, it admits the canonical decomposition:
+\[
+X_t = X_0 + M_t + A_t
+\]
+where $M_t$ is a local martingale and $A_t$ is a predictable finite-variation process.
+
+\section{Spectral Operators and Information Flow}
+\subsection{Koopman Operator ($\mathcal{K}$)}
+We define the composition operator on the observable space $L^\infty(\Omega)$:
+\[
+\mathcal{K}^t g(\omega) = g(\theta_t \omega)
+\]
+The point spectrum $\sigma_p(\mathcal{K})$ characterizes ergodic invariants of the dynamical system.
+\subsection{Filtration Enlargement (Grossissement de Filtration)}
+Let $\mathbb{G} = \{\mathcal{G}_t\}_{t \geq 0}$ be an enlargement of the original filtration $\mathbb{F}$ such that $\mathcal{F}_t \subset \mathcal{G}_t$. By the Jeulin-Yor theorem, if hypothesis (H) fails, the $\mathbb{F}$-martingale $M_t$ decomposes in $\mathbb{G}$ as:
+\[
+M_t = \tilde{M}_t + \int_0^t \alpha_s ds
+\]
+where $\tilde{M}$ is a $\mathbb{G}$-martingale and $\alpha_s$ is the information drift process. This formalizes the assimilation of exogenous latent variables.
+
+\chapter{Phase 2: Formalization of the Prediction Kernels}
+
+\section{Branch A: Projection in Hilbert Spaces}
+The predictor is defined in the space $\mathcal{H}_t = \overline{\text{span}}\{X_s : s \leq t\}$.
+
+\subsection{Orthogonality Principle and Wiener-Hopf}
+The prediction error must be orthogonal to the past history:
+\[
+\langle X_{t+h} - \hat{X}_{t+h}, X_s \rangle = 0 \quad \forall s \leq t
+\]
+This leads to the Wiener-Hopf integral equation for the optimal impulse response kernel $h(\tau)$:
+\[
+\gamma(t+h-s) = \int_{0}^{\infty} h(\tau) \gamma(s-\tau) d\tau, \quad s \geq 0
+\]
+
+\subsection{Paley-Wiener Condition}
+To guarantee causality and the existence of spectral factorization $f(\lambda) = |\Psi(i\lambda)|^2$, we require:
+\[
+\int_{-\infty}^{\infty} \frac{|\log f(\lambda)|}{1 + \lambda^2} d\lambda < \infty
+\]
+
+\section{Malliavin Calculus and Stochastic Sensitivity}
+We consider the canonical Wiener space $(\Omega, \mathcal{F}, P)$ and the Cameron-Martin subspace $H = L^2([0,T])$.
+We define the Malliavin derivative operator $D: \mathbb{D}^{1,2} \to L^2(\Omega; H)$ on cylindrical functionals $F = f(W(h_1), \dots, W(h_n))$ as:
+\[
+D_t F = \sum_{i=1}^n \partial_i f(W(h_1), \dots, W(h_n)) h_i(t)
+\]
+\subsection{Ocone-Haussmann Representation Theorem}
+Every functional $F \in \mathbb{D}^{1,2}$ admits the integral representation:
+\[
+F = E[F] + \int_0^T E[D_t F \mid \mathcal{F}_t] dW_t
+\]
+This explicitly characterizes the integrand in the martingale decomposition of the optimal predictor as the conditional projection of the Malliavin derivative.
+
+\section{Branch B: Evolution Equations and Viscosity}
+\subsection{Infinitesimal Generator}
+The evolution of the probability density $p(x,t)$ is governed by the adjoint operator $\mathcal{L}^*$.
+We consider the value function $V(t,x)$ associated with optimal stochastic control, which satisfies the Hamilton-Jacobi-Bellman (HJB) equation:
+\[
+-\partial_t V + \inf_{u \in U} \{ -\mathcal{L}^u V - f(x,u) \} = 0
+\]
+
+\subsection{Crandall-Lions Viscosity Solutions}
+Since $V$ may be non-differentiable in $C^2$, we define the solution in the viscosity sense.
+An upper semicontinuous function $u$ is a viscosity subsolution of $F(x, u, D u, D^2 u) = 0$ if for all $\phi \in C^2$ such that $u - \phi$ attains a local maximum at $x_0$:
+\[
+F(x_0, u(x_0), D\phi(x_0), D^2\phi(x_0)) \leq 0
+\]
+This formulation guarantees existence and uniqueness for degenerate Hamiltonians typical in robust prediction.
+
+\subsection{Entropy Principle for Neural Approximation (DGM)}
+
+In the numerical implementation of Branch B via the Deep Galerkin Method (DGM), the neural network $V_\theta(t,x)$ approximates the value function. To ensure the neural solution is non-degenerate and captures the essential PDE structure, we define an entropy criterion.
+
+\begin{theorem}[Entropy Conservation Principle for Solution]
+Let $V_\theta: [0,T] \times \Omega \to \mathbb{R}$ be the neural approximation of the value function satisfying the HJB equation, and let $g: \Omega \to \mathbb{R}$ be the terminal condition. Define the differential entropy of the solution at time $t$ as:
+\[
+H_t[V_\theta] = -\int_\Omega p_t(v) \log p_t(v) \, dv
+\]
+where $p_t(v)$ is the empirical probability density of values $\{V_\theta(t, x_i)\}_{i=1}^N$ on a grid $\{x_i\}$ that discretizes the domain $\Omega$.
+
+For the neural solution to be admissible, it must satisfy the entropy conservation criterion:
+\[
+\frac{1}{T} \int_0^T H_t[V_\theta] \, dt \geq \gamma \cdot H[g]
+\]
+where:
+\begin{itemize}
+    \item $H[g] = -\int p_g(v) \log p_g(v) \, dv$ is the entropy of the terminal condition
+    \item $\gamma \in [0.5, 1.0]$ is the entropy retention factor
+\end{itemize}
+
+This criterion prevents mode collapse, where the neural network converges to a constant or minimum-variance solution that trivially satisfies the PDE.
+\end{theorem}
+
+\begin{proof}
+The value function $V(t,x)$ inherits informative structure from the terminal condition $g(x)$ through dynamic programming. Formally, for a finite-horizon optimal control problem with horizon $T$:
+\[
+V(t,x) = \inf_{u \in \mathcal{U}} E\left[ \int_t^T f(X_s^{t,x,u}, u_s) ds + g(X_T^{t,x,u}) \mid \mathcal{F}_t \right]
+\]
+
+The conditional expectation is a contraction operator in $L^2$, but it preserves information in the following sense: if $g$ has diffuse support (high entropy), then $V(t, \cdot)$ for $t < T$ must also exhibit proportional spatial variability.
+
+More precisely, consider the backward evolution of entropy. If $V(t,x)$ were constant in $x$ for some $t < T$, then:
+\[
+\nabla_x V(t,x) \equiv 0 \implies u^*(t,x) = \arg\max_u \{b(x,u) \cdot 0 + \cdots\}
+\]
+which implies the optimal policy $u^*$ does not depend on the state $x$. This contradicts the non-triviality of $g(x)$ (assumed non-constant).
+
+The entropy inequality follows by applying Jensen's inequality to the concave function $-x \log x$ combined with the comparison theorem for viscosity solutions, which guarantees that if $V_\theta$ approximates $V$ well in $L^\infty$, then their induced distributions are close in the Kullback-Leibler sense, and thus their entropies are comparable.
+
+Formally, under the Wasserstein metric between the pushforward measures:
+\[
+W_2(V_\theta(\cdot, t)_\# \mu, V(\cdot, t)_\# \mu) < \epsilon \implies |H[V_\theta(\cdot,t)] - H[V(\cdot,t)]| < C\epsilon
+\]
+where $\mu$ is the spatial measure on $\Omega$ and $C$ is a domain-dependent constant.
+\end{proof}
+
+\begin{remark}
+In practice, the entropy criterion is monitored during DGM training. If $H_t[V_\theta]$ falls persistently below the threshold $\gamma H[g]$, it is recommended to:
+\begin{enumerate}
+    \item Increase network capacity (more layers or neurons)
+    \item Adjust the learning rate to avoid premature convergence to trivial local minima
+    \item Modify the loss function to include an entropy regularization term:
+    \[
+    \mathcal{L}_{\text{total}} = \mathcal{L}_{\text{PDE}} + \mathcal{L}_{\text{BC}} - \lambda H_t[V_\theta]
+    \]
+    where $\lambda > 0$ penalizes low-entropy solutions
+\end{enumerate}
+\end{remark}
+
+\begin{corollary}[Relation to Solution Variance]
+In the case of terminal conditions with approximately Gaussian distribution, the differential entropy relates to variance by:
+\[
+H[X] = \frac{1}{2} \log(2\pi e \sigma^2)
+\]
+Therefore, the entropy conservation criterion implies variance conservation:
+\[
+\text{Var}_x[V_\theta(t,x)] \geq \gamma' \cdot \text{Var}[g(x)]
+\]
+with $\gamma' = \exp(2\gamma - 1)$. This is precisely the mode-collapse test described in the test document.
+\end{corollary}
+
+\section{Malliavin Calculus on Poisson Spaces}
+For processes with jump components (Branch C), we extend the derivative operator $D_t$ to the canonical Poisson space $(\Omega, \mathcal{F}, P, N)$. We define the difference operator $\mathcal{D}_{t,z}$ for functionals $F \in \mathbb{D}^{1,2}(\mu)$:
+\[
+\mathcal{D}_{t, z} F(\omega) = F(\omega + \delta_{(t, z)}) - F(\omega)
+\]
+The integrand in the predictable representation for the pure-jump martingale is given by the predictable projection of $\mathcal{D}_{t,z}F$.
+
+\subsection{Ito Formula for Semimartingales with Jumps}
+The process $X_t$ decomposes according to the canonical Levy-Ito structure:
+\[
+X_t = X_0 + \int_0^t b(X_{s-}) ds + \int_0^t \sigma(X_{s-}) dW_s + \int_0^t \int_{\mathbb{R}^n} z \tilde{N}(ds, dz)
+\]
+The conditional expectation $u(t,x)$ satisfies the associated partial integro-differential equation (PIDE) for the generator $\mathcal{L}^\nu$:
+\[
+\mathcal{L}^\nu \phi(x) = \frac{1}{2}\sigma^2 \Delta \phi + b \cdot \nabla \phi + \int_{\mathbb{R}^d} [\phi(x+z) - \phi(x) - z \cdot \nabla \phi \, \mathbb{1}_{|z| \leq 1}] \, \nu(dz)
+\]
+
+\subsection{Temporal Discretization Schemes and Dynamic Transition}
+
+In the numerical implementation of Ito/Levy processes, the integration scheme selection is critical. Stochastic processes may exhibit variable stiffness, where temporal decompositions require implicit schemes for stability and convergence.
+
+\subsubsection{Stiffness Problem in Stochastic SDEs}
+
+We formally define stiffness of an SDE by the eigenvalue ratio of the diffusion operator:
+\[
+\text{Stiffness Ratio} = \frac{\lambda_{\max}(J_\sigma)}{\lambda_{\min}(J_\sigma)}
+\]
+where $J_\sigma = \frac{\partial}{\partial x}[\sigma(x)]$ is the Jacobian matrix of the diffusion coefficient. Processes with high ratios ($> 10^2$) exhibit multiscale dynamics where the explicit Euler-Maruyama scheme diverges.
+
+Specifically, the explicit scheme:
+\[
+X_{n+1} = X_n + b(X_n) \Delta t + \sigma(X_n) \Delta W_n
+\]
+requires the time step $\Delta t$ to satisfy the stability condition:
+\[
+\Delta t < \frac{2}{\lambda_{\max}(J_b + J_\sigma^2)} \quad \text{(stochastic CFL condition)}
+\]
+where $J_b, J_\sigma$ are the drift and diffusion Jacobians. In high-stiffness regimes, this bound is extremely restrictive, leading to prohibitive computational complexity.
+
+\subsubsection{Dynamic Transition Algorithm Between Schemes}
+
+We propose an adaptive algorithm that monitors stiffness in real time and transitions dynamically between the explicit scheme (fast, less accurate) and the implicit scheme (slow, robust):
+
+\begin{enumerate}
+    \item \textbf{Local Jacobian Estimation:} At each step $n$, we estimate Jacobians via finite differences:
+    \[
+    \hat{J}_\sigma(X_n) \approx \frac{\sigma(X_n + \varepsilon e_i) - \sigma(X_n - \varepsilon e_i)}{2\varepsilon}
+    \]
+    where $\varepsilon \sim 10^{-6}$ and $e_i$ are basis vectors.
+    
+    \item \textbf{Stiffness Metric Computation:} We define the normalized stiffness metric:
+    \[
+    S_t = \max\left( \text{Stiffness Ratio}, \left| \frac{d \log \sigma_t}{dt} \right| \cdot \Delta t \right)
+    \]
+    The second term captures abrupt volatility changes.
+    
+    \item \textbf{Scheme Decision Rule:} We establish adaptive thresholds:
+    \[
+    \text{Scheme} = \begin{cases}
+    \text{Explicit Euler} & \text{if } S_t < \theta_L \text{ (low stiffness)} \\
+    \text{Hybrid Transition} & \text{if } \theta_L \leq S_t < \theta_H \text{ (medium)} \\
+    \text{Implicit Euler} & \text{if } S_t \geq \theta_H \text{ (high stiffness)}
+    \end{cases}
+    \]
+    Typical thresholds are: $\theta_L = 100$, $\theta_H = 1000$.
+    
+    \item \textbf{Hybrid Scheme in Transition:} In the intermediate region, we employ a convex mixture:
+    \[
+    X_{n+1}^{(\lambda)} = (1-\lambda) X_{n+1}^{(\text{exp})} + \lambda X_{n+1}^{(\text{imp})}
+    \]
+    where $\lambda = \frac{S_t - \theta_L}{\theta_H - \theta_L} \in [0,1]$ smoothly interpolates between schemes.
+    
+    \item \textbf{Implicit Scheme for High Stiffness:} We use the Moulton-trapezoidal method:
+    \[
+    X_{n+1} = X_n + \frac{\Delta t}{2} \left[ b(X_n) + b(X_{n+1}^{(p)}) \right] + \sigma \Delta W_n
+    \]
+    where $X_{n+1}^{(p)}$ is the explicit predictor. The implicit correction reduces truncation error and stabilizes diverging trajectories.
+\end{enumerate}
+
+\subsubsection{Strong Convergence Analysis}
+
+For the adaptive hybrid scheme, the global strong error is bounded by:
+\begin{theorem}[Adaptive Convergence Error]
+Let $\{X_t\}$ satisfy the Ito SDE with Lipschitz coefficients and linear growth. For the dynamic transition scheme with steps $\Delta t_n = \Delta t / (1 + S_n)$ (where $S_n$ is the stiffness metric at step $n$), the strong convergence error after $N$ steps is:
+\[
+\mathbb{E}\left[ |X_T - X_N| \right] \leq C \cdot \left( \sum_{n=0}^{N-1} (\Delta t_n)^{1.0} + \lambda_n \cdot (\Delta t_n)^{1.5} \right)
+\]
+where $\lambda_n$ is the adaptive coefficient (implicit fraction) at step $n$.
+
+In low-stiffness regimes ($S_t < \theta_L$), the term $\lambda_n \approx 0$ recovers explicit Euler strong convergence of order $0.5$ (weak order $1$ with fixed $\Delta t$). In high-stiffness regimes ($S_t \geq \theta_H$), the dominant term is the implicit correction, ensuring stability without divergence.
+\end{theorem}
+
+\subsubsection{Monitoring and Telemetry}
+
+During execution, the system records:
+\begin{itemize}
+    \item \textbf{Scheme Frequency:} Proportion of steps with explicit vs implicit scheme. Expected: $> 80\%$ explicit in normal regime, $< 50\%$ in crisis.
+    \item \textbf{Maximum Stiffness Metric:} $S_{\max}(t)$ over time. Alert threshold: $S_{\max} > 2000$ suggests processes with extreme fractal characteristics.
+    \item \textbf{Number of Internal Iterations:} For iterative implicit methods (Newton), count correction iterations. Typical: $2$--$3$ iterations; $> 10$ indicates anomalous behavior.
+    \item \textbf{Implicit Residual Norm:} $\| X_{n+1}^{(k)} - X_{n+1}^{(k-1)} \|$ between iterations. Indicates convergence and potential numerical divergence.
+\end{itemize}
+
+\begin{remark}
+In the context of the universal predictor, Branch C (Ito/Levy) alternates dynamically between schemes according to the local topology of the process $X_t$. This is especially important during regime transitions detected by CUSUM, where volatility multiplies by factors $3$--$10$ in a few steps, inducing temporal stiffness that requires scheme changes to maintain numerical precision.
+\end{remark}
+
+\section{Branch D: Signature and Rough Paths (Topological Invariance)}
+For processes whose path roughness makes standard stochastic calculus infeasible (Holder exponent $H \leq 1/2$, variation $p \geq 2$), we operate within the Lyons rough paths framework.
+
+\subsection{Geometric Rough Paths Space}
+Let $\mathbf{X}$ be a continuous process with values in the truncated tensor algebra $T^{(N)}(\mathbb{R}^d) = \bigoplus_{k=0}^N (\mathbb{R}^d)^{\otimes k}$.
+We define the space of geometric rough paths with finite $p$-variation $G\Omega_p(\mathbb{R}^d)$ as the closure of smooth paths under the $p$-variation metric:
+\[ d_p(\mathbf{X}, \mathbf{Y}) = \max_{k=1,\dots,\lfloor p \rfloor} \sup_{\mathcal{D}} \left( \sum_{i} | \mathbf{X}^k_{t_i, t_{i+1}} - \mathbf{Y}^k_{t_i, t_{i+1}} |^{p/k} \right)^{k/p} \]
+
+\subsection{Signature ($\mathcal{S}$) and Hopf Algebra}
+The signature map $\mathcal{S}: G\Omega_p([0,T], \mathbb{R}^d) \to T((\mathbb{R}^d))$ transforms the path into a formal series of non-commutative power series (Chen series):
+\[
+\mathcal{S}(\mathbf{X})_{0,t} = 1 + \sum_{k=1}^\infty \int_{0 < u_1 < \dots < u_k < t} dX_{u_1} \otimes \dots \otimes dX_{u_k}
+\]
+The image space is a Lie group under the $\otimes$ operation, and its elements satisfy the shuffle product property for dual linear functionals $f, g \in T((\mathbb{R}^d))^*$:
+\[ \langle f, \mathbf{X} \rangle \langle g, \mathbf{X} \rangle = \langle f \amalg g, \mathbf{X} \rangle \]
+This allows any continuous functional to be approximated by linear combinations of signature terms (Universal Approximation Theorem).
+
+\subsection{Reparametrization Invariance Lemma}
+\begin{lemma}
+The signature $\mathcal{S}(X)$ is invariant under any monotone time reparametrization $\psi(t)$:
+\[
+\mathcal{S}(X \circ \psi)_{0,T'} = \mathcal{S}(X)_{0,T}
+\]
+This immunizes Branch D against irregular sampling noise, enabling a purely topological characterization.
+\end{lemma}
+
+\subsection{T-Linear Predictor}
+The predictor is formalized as a linear functional in tensor space:
+\[
+\hat{X}_{t+h} = \langle W, \mathbf{X}_{0,t} \rangle
+\]
+
+\chapter{Phase 3: Adaptive Weighting Orchestrator}
+
+The Orchestrator $\mathcal{O}$ manages the convex mixture $\hat{X}_{t+h}^{USP} = \sum w_i(t) \hat{X}_{t+h}^{(i)}$.
+
+\section{Optimal Transport Dynamics and Wasserstein Geometry}
+We consider the infinite-dimensional Riemannian manifold $\mathcal{M} = (\mathcal{P}_{ac}(\Delta^n), g_W)$ endowed with the metric structure $W_2$.
+The free energy functional $\mathcal{F}$ defines a gradient vector field $\nabla_{W_2} \mathcal{F}$.
+The evolution follows the JKO (Jordan-Kinderlehrer-Otto) flow, which is the limit as $\tau \to 0$ of the discrete variational scheme:
+\[
+\rho_{k+1} \in \text{argmin}_{\rho} \left\{ \frac{1}{2\tau} W_2^2(\rho, \rho_k) + \mathcal{F}(\rho) \right\}
+\]
+This converges to the nonlinear Fokker-Planck equation:
+\[
+\partial_t \rho = \nabla \cdot (\rho \nabla (\delta \mathcal{F}/\delta \rho))
+\]
+
+\section{Large Deviations and Contraction Principle}
+The convergence rate of the empirical measure $L_n$ toward the invariant measure $\mu^*$ is governed by the action functional $I(\nu)$ (relative entropy or Kullback-Leibler divergence):
+\[
+I(\nu) = \sup_{f \in C_b} \{ \langle f, \nu \rangle - \Lambda(f) \}
+\]
+For dependent $\phi$-mixing processes, the Large Deviations Principle (LDP) holds with a convex and lower semicontinuous rate function (good rate function).
+
+\section{Geometric Coupling and Fisher-Rao Metric}
+To incorporate sensitivity to the statistical manifold structure, we generalize the metric to a Hellinger-Kantorovich or Fisher-Rao structure deformed by the curvature tensor induced by the operator $\Psi$:
+\[
+G(\rho) = e^{-\beta \|\nabla \Psi\|} G_{FR}(\rho)
+\]
+where $G_{FR}$ is the Fisher information metric. This defines an adaptive geodesic on the probability simplex.
+
+\section{Global Lyapunov Functional}
+The asymptotic stability of the orchestrator is established via the Lyapunov function based on relative entropy:
+\[
+V(w) = \sum_{i \in \text{opt}} w_i^* \log \left( \frac{w_i^*}{w_i(t)} \right), \quad \frac{dV}{dt} \leq 0
+\]
+
+\chapter{Phase 4: Convergence and Global Stability}
+
+\section{Mixing Conditions}
+We assume $\beta$-mixing (absolute regularity) conditions with exponential decay:
+\[
+\beta(\tau) = E \left[ \sup_{B \in \mathcal{F}_{t+\tau}^\infty} |P(B | \mathcal{F}_{-\infty}^t) - P(B)| \right] \sim e^{-\lambda \tau}
+\]
+
+\section{Sanov Theorem and Large Deviations}
+The probability that the empirical error measure deviates from the optimal set decays exponentially:
+\[
+P(\hat{L}_t \in \Gamma) \leq C \exp \left( -n \inf_{\nu \in \Gamma} I(\nu) \right)
+\]
+
+\section{Mean $L^p$ Stability and Lyapunov}
+The exponential stability of the stochastic flow $\{\Xi_t\}$ is proven via the Foster-Lyapunov drift criterion for weakly continuous Markov generators.
+Let $V: \mathcal{H} \to \mathbb{R}_+$ be a compact Lyapunov function. If there exists a compact set (petite set) $K \subset \mathcal{H}$ and constants $\gamma > 0, b < \infty$ such that:
+\[
+\mathcal{L} V(x) \leq -\gamma V(x) + b \, \mathbb{1}_K(x)
+\]
+then the process is geometrically ergodic and admits a unique invariant measure $\pi$.
+
+\section{Sequential Complexity and Generalization Bounds}
+To bound excess risk in non-i.i.d. processes, we use conditional Rademacher complexity $\mathcal{R}_n(\mathcal{F} | \mathbf{x})$:
+\[
+\mathcal{R}_n(\mathcal{F}|\mathbf{x}) = E_\sigma \left[ \sup_{f \in \mathcal{F}} \frac{1}{n} \sum_{i=1}^n \sigma_i f(x_i) \right]
+\]
+For $\beta$-mixing processes, the Bernstein blocking technique is applied to decompose temporal dependence and apply McDiarmid concentration inequalities.
+
+\section{Change-Point Detection and Stopping Times}
+We define the stopping time $\tau$ as the first barrier-crossing time of the generalized CUSUM process:
+\[
+\tau = \inf \{t > 0 : \max_{0 \leq k \leq t} |S_t - S_k| \geq h(\Psi_t) \}
+\]
+where $S_t$ is the partial sum of standardized innovation residuals. Under the null hypothesis of stationarity, $S_t$ converges weakly to a Brownian bridge.
+At time $\tau$, the probability measure is reset to the uniform prior over the simplex: $\rho_\tau = \text{Unif}(\Delta^n)$ (maximum entropy).
+
+\subsection{Adaptive Threshold for Heavy Tails}
+
+In high-volatility regimes with non-Gaussian distributions (fat tails), a threshold based solely on variance can generate false positives. We formalize an adaptive threshold that incorporates the fourth moment.
+
+\begin{lemma}[Adaptive Threshold with Kurtosis]
+Let $\{Z_t\}$ be the standardized residual process with finite fourth moment. We define the adaptive threshold:
+\[
+h_t = k \cdot \sigma_t \cdot \left(1 + \beta \cdot \frac{\kappa_t - 3}{\kappa_0}\right)
+\]
+where:
+\begin{itemize}
+    \item $\sigma_t$ is the rolling standard deviation of residuals
+    \item $\kappa_t = \frac{E[(Z_t - \mu_t)^4]}{\sigma_t^4}$ is the kurtosis (excess relative to the normal distribution)
+    \item $k \in [3, 5]$ is the base sensitivity factor
+    \item $\beta \in [0.1, 0.3]$ is the heavy-tail adjustment coefficient
+    \item $\kappa_0 = 3$ is the Gaussian reference kurtosis
+\end{itemize}
+
+For heavy-tailed distributions ($\kappa_t > 3$), the threshold increases proportionally, reducing false alarms while preserving detection power for genuine structural changes.
+\end{lemma}
+
+\begin{proof}
+Under the Lorden sequential detection framework, the false-alarm probability $P(FA)$ is bounded by:
+\[
+P(FA) \leq e^{-\theta h}
+\]
+where $\theta$ depends on the mean change rate. For sub-Gaussian distributions (exponentially bounded), this inequality holds with universal constants.
+
+For distributions with heavier tails than Gaussian, variance no longer controls tail mass. The fourth moment (kurtosis) captures the frequency of extreme events. Formally:
+\[
+P(|Z_t - \mu_t| > c\sigma_t) \leq \frac{\kappa_t}{c^4} \quad \text{(fourth-order Markov inequality)}
+\]
+
+By adjusting the threshold $h_t$ via the factor $(1 + \beta(\kappa_t - 3)/\kappa_0)$, we guarantee that the conditional probability of exceeding the threshold under the null hypothesis remains uniformly bounded:
+\[
+P\left(\max_{0 \leq k \leq t} |S_t - S_k| > h_t \mid H_0\right) \leq \alpha
+\]
+where $\alpha$ is the desired significance level, independent of the kurtosis regime.
+\end{proof}
+
+\begin{remark}
+This adjustment is particularly relevant for financial processes that exhibit empirical kurtosis $\kappa \in [5, 20]$ (leptokurtic distributions). Without correction, the standard CUSUM detector generates excess signals during periods of high seasonal volatility without underlying structural drift changes.
+\end{remark}
+
+\begin{corollary}[Asymptotic Consistency]
+For a sequence of kurtosis-calibrated thresholds $\{h_t\}$, the stopping time $\tau$ satisfies:
+\[
+\lim_{n \to \infty} P(\tau > n \mid H_1) = 0
+\]
+where $H_1$ denotes the alternative hypothesis of regime change. That is, the detector retains full asymptotic power regardless of tail structure.
+\end{corollary}
+
+\chapter{Unified Operational Differential Equation}
+
+\section{Meta-State Dynamics}
+The complete system is described by a nonlinear stochastic differential equation in the functional Hilbert space $H = \mathcal{C} \times L^2(\Delta^n) \times \mathcal{L}(\mathcal{H}, \mathcal{H})$ governing the meta-state $\Xi_t$:
+\[
+d\Xi_t = \mathbf{\Phi}(\Xi_t, X_t) dt + \mathbf{\Sigma}(\Xi_t, X_t) dW_t
+\]
+The drift $\mathbf{\Phi}$ encapsulates:
+\begin{enumerate}
+    \item The topological identification of the SIA operator ($\Psi$).
+    \item The Wasserstein gradient flow $\text{grad}_{W_2} \mathcal{F}$ projected onto the tangent space of measures.
+    \item The evolution of local predictors.
+\end{enumerate}
+
+\section{Global Existence and Uniqueness Theorem}
+\begin{theorem}[Weak Existence and Uniqueness]
+Assuming the coefficients $\mathbf{\Phi}$ and $\mathbf{\Sigma}$ are measurable and satisfy local Lipschitz and linear growth conditions (or that $\mathbf{\Sigma}$ is Holder continuous and $\mathbf{\Phi}$ bounded, invoking the Yamada-Watanabe criterion in finite dimension), there exists a unique weak solution $(\Omega, \mathcal{F}, P, W, \Xi)$ to the operational stochastic differential equation such that:
+\[ E \left[ \sup_{0 \leq s \leq T} \|\Xi_s\|^2 \right] < C(T, \|\Xi_0\|) \]
+\end{theorem}
+
+\appendix
+\chapter{Robustness Postulate for Singularities}
+\begin{postulate}
+If the SIA detects a Hausdorff dimension $D > 1$ or $\alpha(t) \to 0$, the system prioritizes Branch D (Signature) and activates Huber regularization. This guarantees predictor operability in extreme roughness regimes where standard stochastic differential calculus fails.
+\end{postulate}
+
+\end{document}

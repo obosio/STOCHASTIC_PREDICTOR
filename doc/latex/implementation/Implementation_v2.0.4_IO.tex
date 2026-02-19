@@ -1,0 +1,125 @@
+\documentclass[11pt, a4paper]{report}
+
+% --- PREAMBLE ---
+\usepackage[a4paper, top=2.5cm, bottom=2.5cm, left=2cm, right=2cm]{geometry}
+\usepackage{fontspec}
+\usepackage{amsmath}
+\usepackage{amssymb}
+\usepackage{listings}
+\usepackage{xcolor}
+\usepackage[hidelinks]{hyperref}
+\usepackage{graphicx}
+\usepackage{booktabs}
+\usepackage{array}
+
+\usepackage[english]{babel}
+
+% Code highlighting
+\definecolor{codegreen}{rgb}{0,0.6,0}
+\definecolor{codegray}{rgb}{0.5,0.5,0.5}
+\definecolor{codepurple}{rgb}{0.58,0,0.82}
+\definecolor{backcolour}{rgb}{0.95,0.95,0.92}
+
+\lstdefinestyle{mystyle}{
+    backgroundcolor=\color{backcolour},
+    commentstyle=\color{codegreen},
+    keywordstyle=\color{magenta},
+    numberstyle=\tiny\color{codegray},
+    stringstyle=\color{codepurple},
+    basicstyle=\ttfamily\footnotesize,
+    breakatwhitespace=false,
+    breaklines=true,
+    captionpos=b,
+    keepspaces=true,
+    numbers=left,
+    numbersep=5pt,
+    showspaces=false,
+    showstringspaces=false,
+    showtabs=false,
+    tabsize=2,
+    frame=single
+}
+
+\lstset{style=mystyle}
+
+\title{\textbf{Universal Stochastic Predictor \\ Phase 4: IO Layer Initiation}}
+\author{Implementation Team}
+\date{February 19, 2026}
+
+\begin{document}
+
+\maketitle
+
+\tableofcontents
+
+\chapter{Phase 4: IO Layer Initiation Overview}
+
+Phase 4 introduces the asynchronous I/O layer for snapshots, streaming, and telemetry export. The primary design goal is to preserve JAX/XLA throughput by decoupling compute from disk or network latency.
+
+\section{Scope}
+
+Phase 4 covers:
+\begin{itemize}
+    \item \textbf{Telemetry Buffering}: Non-blocking emission of telemetry snapshots
+    \item \textbf{Deterministic Logging}: Hash-based parity checks for CPU/GPU validation
+    \item \textbf{Snapshot Strategy}: Atomic persistence of predictor state
+\end{itemize}
+
+\section{Design Principles}
+
+\begin{itemize}
+    \item \textbf{No Compute Stalls}: JAX compute threads never block on I/O
+    \item \textbf{Determinism}: Logs capture reproducible hashes instead of raw state dumps
+    \item \textbf{Security}: No raw signals or secrets in logs
+    \item \textbf{Configurability}: Logging intervals and destinations injected via config
+\end{itemize}
+
+\chapter{Telemetry Abstraction}
+
+\section{TelemetryBuffer Emission}
+
+The JKO orchestrator should emit a \texttt{TelemetryBuffer} at the end of each step. This buffer is consumed by a dedicated process outside the JAX execution thread.
+
+\begin{itemize}
+    \item The buffer contains summary metrics (CUSUM, entropy, regime flags, OT cost).
+    \item The compute path only enqueues the buffer and continues.
+    \item The consumer is responsible for serialization and persistence.
+\end{itemize}
+
+\chapter{Deterministic Logging}
+
+\section{Hash-Based Parity Checks}
+
+For hardware parity audits, the logger records SHA-256 hashes of the weight vector $\rho$ and the OT cost at configurable intervals. This permits CPU/GPU parity validation without dumping VRAM data.
+
+\begin{itemize}
+    \item Hash interval configured per deployment.
+    \item Hashes derived from canonical float64 serialization.
+    \item Logs are append-only and immutable.
+\end{itemize}
+
+\chapter{Snapshot Strategy}
+
+\section{Atomic Persistence}
+
+Snapshots must be persisted atomically to prevent partial writes. The IO layer is responsible for:
+\begin{itemize}
+    \item Writing to temporary files and renaming atomically.
+    \item Optional compression configured by policy.
+    \item Coordinating snapshot cadence with telemetry output.
+\end{itemize}
+
+\chapter{Compliance Checklist}
+
+\begin{itemize}
+    \item \textbf{No Compute Stalls}: All logging is asynchronous
+    \item \textbf{Deterministic Hashing}: SHA-256 on $\rho$ and OT cost
+    \item \textbf{Security}: No raw signals, VRAM dumps, or secrets
+    \item \textbf{Config-Driven}: Intervals and destinations are injected
+\end{itemize}
+
+\chapter{Phase 4 Summary}
+
+Phase 4 introduces a non-blocking I/O architecture that preserves deterministic compute while enabling telemetry, logging, and atomic snapshot persistence.
+
+\end{document}
