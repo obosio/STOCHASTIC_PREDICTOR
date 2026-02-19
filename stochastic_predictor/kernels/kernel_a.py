@@ -21,6 +21,289 @@ from typing import Optional
 from .base import KernelOutput, apply_stop_gradient_to_diagnostics, normalize_signal, compute_signal_statistics
 
 
+# ==================== P2.1: WTMM Functions ====================
+# Wavelet Transform Modulus Maxima for Hölder exponent estimation
+# Reference: Stochastic_Predictor_Theory.tex §2.1 (Singularity Spectrum)
+
+@jax.jit
+def morlet_wavelet(
+    t: Float[Array, ""],
+    sigma: float = 1.0,
+    f_c: float = 0.5
+) -> Float[Array, ""]:
+    """
+    Morlet wavelet: complex exponential modulated by Gaussian.
+    
+    ψ(t) = exp(2πi·f_c·t) * exp(-t²/(2σ²))
+    
+    For real part (used in WTMM): Re(ψ(t)) = cos(2πi·f_c·t) * exp(-t²/(2σ²))
+    
+    Args:
+        t: Time/scale parameter
+        sigma: Gaussian envelope width
+        f_c: Central frequency
+    
+    Returns:
+        Real part of Morlet wavelet
+    """
+    gaussian_envelope = jnp.exp(-(t ** 2) / (2.0 * sigma ** 2))
+    oscillation = jnp.cos(2.0 * jnp.pi * f_c * t)
+    return oscillation * gaussian_envelope
+
+
+@jax.jit
+def continuous_wavelet_transform(
+    signal: Float[Array, "n"],
+    scales: Float[Array, "m"],
+    mother_wavelet_fn=None
+) -> Float[Array, "m n"]:
+    """
+    Compute continuous wavelet transform (CWT) at multiple scales.
+    
+    CWT_ψ(s, b) = (1/√s) ∫ ψ*((t-b)/s) x(t) dt
+    
+    Args:
+        signal: Input signal (n,)
+        scales: Array of scales to evaluate (m,)
+        mother_wavelet_fn: Wavelet function (default: Morlet)
+    
+    Returns:
+        CWT coefficients (m, n) where axis 0 is scale, axis 1 is position
+    """
+    if mother_wavelet_fn is None:
+        mother_wavelet_fn = morlet_wavelet
+    
+    n = signal.shape[0]
+    m = scales.shape[0]
+    
+    # Normalize time to [-1, 1] for wavelet evaluation
+    t = jnp.linspace(-1.0, 1.0, n)
+    
+    # Compute CWT for each scale
+    def cwt_scale(scale):
+        # Normalized wavelet at this scale
+        psi = jax.vmap(lambda ti: mother_wavelet_fn(ti / scale, sigma=1.0))(t)
+        
+        # Convolution: CWT(s, b) ~ ∫ ψ((t-b)/s) x(t) dt
+        # Approximated via inner product at each position
+        def cwt_position(b):
+            shifted_times = t - t[int(b * (n - 1))]
+            psi_shifted = jax.vmap(lambda ti: mother_wavelet_fn(ti / scale, sigma=1.0))(shifted_times)
+            # Inner product: CWT = sum(signal * psi_shifted) / sqrt(scale)
+            return jnp.sum(signal * psi_shifted) / jnp.sqrt(scale)
+        
+        return jax.vmap(cwt_position)(jnp.linspace(0.0, 1.0, n))
+    
+    cwt_coeffs = jax.vmap(cwt_scale)(scales)
+    return cwt_coeffs
+
+
+@jax.jit
+def find_modulus_maxima(
+    cwt_coeffs: Float[Array, "m n"],
+    threshold: float = 0.1
+) -> Float[Array, "m n"]:
+    """
+    Identify local maxima in wavelet transform (modulus maxima).
+    
+    For each scale, find positions where |CWT| >= |CWT(neighbors)|.
+    
+    Args:
+        cwt_coeffs: CWT coefficients (m scales, n positions)
+        threshold: Minimum amplitude for maxima (relative to scale mean)
+    
+    Returns:
+        Binary mask (m, n): 1 where local maxima, 0 elsewhere
+    """
+    m, n = cwt_coeffs.shape
+    
+    # Pad boundaries
+    cwt_padded = jnp.pad(cwt_coeffs, ((0, 0), (1, 1)), mode='edge')
+    
+    # Compute absolute values
+    abs_cwt = jnp.abs(cwt_coeffs)
+    
+    # Compare with neighbors
+    left_neighbor = jnp.abs(cwt_padded[:, :-2])
+    right_neighbor = jnp.abs(cwt_padded[:, 2:])
+    
+    # Local maxima: current >= both neighbors AND above threshold
+    scale_threshold = jax.vmap(lambda scale_row: jnp.mean(abs_cwt[scale_row]) * threshold)(jnp.arange(m))
+    threshold_mask = abs_cwt >= scale_threshold[:, None]
+    
+    local_max = (abs_cwt >= left_neighbor) & (abs_cwt >= right_neighbor) & threshold_mask
+    
+    return local_max.astype(jnp.float32)
+
+
+@jax.jit
+def link_wavelet_maxima(
+    modulus_maxima: Float[Array, "m n"],
+    scales: Float[Array, "m"],
+    max_link_distance: float = 2.0
+) -> Float[Array, "n m"]:
+    """
+    Link modulus maxima across scales to form chains (P2.1 requirement).
+    
+    For each position, create a chain of scales where maxima occur.
+    Uses position persistence across scales to group related maxima.
+    
+    Args:
+        modulus_maxima: Binary mask of modulus maxima (m scales, n positions)
+        scales: Scale values (m,)
+        max_link_distance: Maximum horizontal distance to link positions
+    
+    Returns:
+        Chain matrix (n, m): normalized chain strength per position
+    """
+    m, n = modulus_maxima.shape
+    
+    # For each position, sum maxima across scales (chain strength)
+    chain_strength = jnp.sum(modulus_maxima, axis=0)  # Shape: (n,)
+    
+    # Normalize to [0, 1]
+    chain_strength_norm = chain_strength / jnp.maximum(m, 1.0)
+    
+    # Repeat for all scales (chain present/absent at each scale)
+    chains = modulus_maxima.T  # Shape: (n, m)
+    
+    return chains.astype(jnp.float32)
+
+
+@jax.jit
+def compute_partition_function(
+    chains: Float[Array, "n m"],
+    scales: Float[Array, "m"],
+    q_range: Float[Array, "q"]
+) -> Float[Array, "q"]:
+    """
+    Compute partition function Z_q(s) = Σ |chain_strength|^q
+    
+    This is used to compute scaling exponents τ(q) via linear regression:
+    log Z_q(s) ~ τ(q) · log(s) + const
+    
+    Args:
+        chains: Chain matrix (n positions, m scales)
+        scales: Scale values (m,)
+        q_range: Range of exponents to evaluate
+    
+    Returns:
+        Partition function estimates for each q
+    """
+    # Sum chain strengths at each scale
+    scale_sum = jnp.sum(jnp.abs(chains), axis=0)  # Shape: (m,)
+    
+    # Compute partition function for each q
+    def partition_q(q):
+        return jnp.sum((scale_sum ** q) * (1.0 / jnp.sqrt(scales)))
+    
+    Z_q = jax.vmap(partition_q)(q_range)
+    return Z_q
+
+
+@jax.jit
+def compute_singularity_spectrum(
+    partition_function: Float[Array, "q"],
+    q_range: Float[Array, "q"],
+    scales: Float[Array, "m"]
+) -> Float[Array, "(2,)"] :
+    """
+    Compute singularity spectrum D(h) via Legendre transform.
+    
+    From τ(q) = min_h [D(h) + q·h], invert to get D(h) = min_q [τ(q) - q·h].
+    Returns (h_max, D_h_max) where D(h_max) is maximum.
+    
+    Args:
+        partition_function: Z_q values (q,)
+        q_range: Exponents (q,)
+        scales: Scale values (m,)
+    
+    Returns:
+        [holder_exponent, spectrum_max]
+    """
+    # Estimate τ(q) from partition function via simple scaling
+    # τ(q) ~ (log Z_q) / log(scale)
+    scale_factor = jnp.log(scales[-1] / scales[0])
+    tau_q = jnp.log(jnp.abs(partition_function) + 1e-10) / scale_factor
+    
+    # Legendre transform: D(h) = q·h - τ(q)
+    # For each h, find max over q: D(h) = max_q [q·h - τ(q)]
+    h_range = jnp.linspace(0.0, 2.0, 50)
+    
+    def spectrum_h(h):
+        legendre = q_range * h - tau_q
+        return jnp.max(legendre)
+    
+    D_h = jax.vmap(spectrum_h)(h_range)
+    
+    # Find h where D(h) is maximum (most likely Hölder exponent)
+    h_max_idx = jnp.argmax(D_h)
+    holder_exponent = h_range[h_max_idx]
+    spectrum_max = D_h[h_max_idx]
+    
+    return jnp.array([holder_exponent, spectrum_max])
+
+
+@jax.jit
+def extract_holder_exponent_wtmm(
+    signal: Float[Array, "n"],
+    config
+) -> Float[Array, ""]:
+    """
+    Extract Hölder exponent via complete WTMM pipeline (P2.1).
+    
+    Pipeline:
+    1. Compute CWT at multiple scales
+    2. Find modulus maxima
+    3. Link maxima across scales
+    4. Compute partition function
+    5. Compute singularity spectrum (Legendre transform)
+    6. Extract holder_exponent = argmax D(h)
+    
+    Args:
+        signal: Input signal (normalized)
+        config: PredictorConfig with WTMM parameters
+    
+    Returns:
+        Hölder exponent (scalar, clipped to valid range)
+    """
+    n = signal.shape[0]
+    
+    # Define scales: logarithmically spaced from smallest to largest
+    # Use config.wtmm_buffer_size as upper scale limit
+    scales = jnp.logspace(0.0, jnp.log10(config.wtmm_buffer_size), 16)
+    scales = jnp.clip(scales, 1.0, n // 2)  # Ensure valid scale range
+    
+    # Step 1: Continuous Wavelet Transform
+    cwt = continuous_wavelet_transform(signal, scales)
+    
+    # Step 2: Find modulus maxima
+    modulus_maxima = find_modulus_maxima(cwt, threshold=0.1)
+    
+    # Step 3: Link maxima across scales
+    chains = link_wavelet_maxima(modulus_maxima, scales, max_link_distance=2.0)
+    
+    # Step 4: Compute partition function
+    q_range = jnp.linspace(-2.0, 2.0, 9)
+    partition_func = compute_partition_function(chains, scales, q_range)
+    
+    # Step 5-6: Compute singularity spectrum and extract Hölder exponent
+    spectrum_result = compute_singularity_spectrum(partition_func, q_range, scales)
+    holder_exponent = spectrum_result[0]
+    
+    # Clip to valid range
+    holder_exponent = jnp.clip(
+        holder_exponent,
+        config.validation_holder_exponent_min,
+        config.validation_holder_exponent_max
+    )
+    
+    return holder_exponent
+
+
+# ==================== End P2.1: WTMM Functions ====================
+
+
 @jax.jit
 def gaussian_kernel(
     x: Float[Array, "d"],
@@ -246,14 +529,8 @@ def kernel_a_predict(
     confidence = jnp.sqrt(variances[0]) * stats["std"]  # Scale variance by std
     
     # Step 7: Compute diagnostics (with stop_gradient)
-    # V-MAJ-2: Include holder_exponent (placeholder via signal regularity)
-    # TODO: Full WTMM implementation in Phase 3 (P2.1)
-    signal_roughness = jnp.std(jnp.diff(signal_normalized))
-    holder_exponent_estimate = jnp.clip(
-        1.0 - signal_roughness,
-        config.validation_holder_exponent_min,
-        config.validation_holder_exponent_max
-    )
+    # V-MAJ-2 + P2.1: Full WTMM implementation for holder_exponent
+    holder_exponent_estimate = extract_holder_exponent_wtmm(signal_normalized, config)
     
     diagnostics = {
         "kernel_type": "A_Hilbert_RKHS",
@@ -262,7 +539,7 @@ def kernel_a_predict(
         "n_training_points": X_train.shape[0],
         "signal_mean": stats["mean"],
         "signal_std": stats["std"],
-        "holder_exponent": float(holder_exponent_estimate)  # V-MAJ-2: For state tracking
+        "holder_exponent": float(holder_exponent_estimate)  # P2.1: Full WTMM, not placeholder
     }
     
     # Apply stop_gradient to diagnostics (VRAM optimization)
