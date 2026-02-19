@@ -955,6 +955,476 @@ def test_fpga_numerical_stability():
         f"Cumulative error unstable: {final_cumulative:.3e}"
 \end{lstlisting}
 
+\chapter{XLA VRAM and JIT Cache Assertions}
+
+This chapter validates Level 4 Autonomy execution guarantees specific to JAX's XLA compilation backend: asynchronous device dispatch, vectorized multi-tenancy, JIT cache efficiency under load shedding, and atomic I/O during configuration mutations. These tests ensure the implementation maintains performance contracts under production workloads.
+
+\section{Asynchronous Device Dispatch (No Host-Device Synchronization)}
+
+\subsection{Telemetry Non-Blocking Guarantee}
+
+\begin{testcase}[Prevention of Host-Device Blocking in Orchestrator]
+Ensure that orchestration loop returns unbacked \texttt{DeviceArray} objects without forcing host synchronization, preserving asynchronous GPU dispatch.
+\end{testcase}
+
+\begin{implementation}
+\begin{lstlisting}
+# tests/test_xla/test_no_host_device_sync.py
+import pytest
+import jax
+import jax.numpy as jnp
+from jax.core import Tracer
+from stochastic_predictor.core.orchestrator import orchestrate_step
+from stochastic_predictor.api.types import PredictorConfig, InternalState
+
+def test_no_host_device_sync_in_orchestrator():
+    """
+    Ensure orchestration step returns unbacked DeviceArrays, 
+    not host floats.
+    
+    CRITICAL: Host-device synchronization blocks XLA dispatch,
+    causing 100-500ms latency spikes and VRAM transfer overhead.
+    """
+    # Initialize configuration and state
+    config = PredictorConfig()
+    key = jax.random.PRNGKey(42)
+    state = InternalState.initialize(config, key)
+    
+    # Mock signal input (on device)
+    mock_signal = jnp.array(0.5)
+    
+    # Execute orchestration step
+    new_state, prediction = orchestrate_step(mock_signal, state, config, key)
+    
+    # ASSERTION 1: Prediction must NOT be a Python float
+    assert not isinstance(prediction, float), \
+        "CRITICAL: Host-Device sync detected. " \
+        "Prediction materialized as Python float instead of DeviceArray."
+    
+    # ASSERTION 2: Prediction must be JAX array type
+    assert isinstance(prediction, (jnp.ndarray, jax.Array)), \
+        f"Expected jax.Array, got {type(prediction)}"
+    
+    # ASSERTION 3: Array must have device attribute (not backed on host)
+    assert hasattr(prediction, "device"), \
+        "Prediction array must reside on XLA backend (CPU/GPU/TPU)."
+    
+    # ASSERTION 4: Verify device is not None (array is backed)
+    assert prediction.device() is not None, \
+        "Prediction array device is None (unbacked array)."
+    
+    # ASSERTION 5: State updates must also remain on device
+    assert hasattr(new_state.dgm_entropy, "device"), \
+        "State fields must remain on device for next iteration."
+
+def test_telemetry_collection_lazy_evaluation():
+    """
+    Verify that telemetry fields use jax.lax.stop_gradient
+    to prevent unnecessary computation during training.
+    """
+    from stochastic_predictor.io.telemetry import collect_telemetry
+    
+    # Mock state with tracked gradients
+    state = create_mock_state_with_gradients()
+    
+    # Collect telemetry
+    telemetry = collect_telemetry(state, config)
+    
+    # ASSERTION: Telemetry values must have stop_gradient applied
+    # This prevents backprop through diagnostic metrics
+    assert not hasattr(telemetry.kurtosis, "_trace"), \
+        "Telemetry fields must use stop_gradient to prevent VRAM waste."
+\end{lstlisting}
+\end{implementation}
+
+\begin{criterion}
+\textbf{Acceptance Criteria:}
+\begin{enumerate}
+    \item All orchestration outputs must be \texttt{jax.Array} or \texttt{jnp.ndarray} types, never Python \texttt{float} or \texttt{int}
+    \item Arrays must have valid \texttt{.device()} attribute indicating XLA backend placement
+    \item No explicit or implicit conversion to host types (\texttt{float()}, \texttt{.item()}, \texttt{.tolist()}) in hot path
+    \item Telemetry collection must use \texttt{jax.lax.stop\_gradient()} on all diagnostic metrics to prevent gradient tracking overhead
+\end{enumerate}
+
+\textbf{Performance Impact}: Host-device synchronization introduces 100-500ms latency per sync on typical GPUs. In a 10,000-step training run with telemetry every 10 steps, this accumulates to 100-500 seconds of pure blocking overhead.
+\end{criterion}
+
+\section{Vectorized Multi-Tenancy (jax.vmap Parity)}
+
+\subsection{Batch Execution Bit-Exactness}
+
+\begin{testcase}[Sequential vs Vectorized Execution Parity]
+Validate that batched \texttt{jax.vmap} execution produces bit-exact results compared to sequential loop execution for multi-tenant workloads.
+\end{testcase}
+
+\begin{implementation}
+\begin{lstlisting}
+# tests/test_xla/test_vmap_multi_tenant_parity.py
+import pytest
+import jax
+import jax.numpy as jnp
+from stochastic_predictor.core.orchestrator import orchestrate_step
+from stochastic_predictor.api.types import PredictorConfig, InternalState
+
+def test_vmap_multi_tenant_parity():
+    """
+    Verify that batched vmap execution is bit-exact 
+    to sequential execution.
+    
+    Multi-tenant deployments use vmap to process N clients 
+    in parallel. Any deviation between sequential and batched 
+    execution violates determinism guarantees.
+    """
+    batch_size = 128
+    key = jax.random.PRNGKey(42)
+    config = PredictorConfig()
+    
+    # Generate batch of signals and states
+    signal_keys = jax.random.split(key, batch_size + 1)
+    signals_batch = jax.random.normal(signal_keys[0], (batch_size, 100))
+    
+    # Initialize batched states
+    state_keys = signal_keys[1:]
+    states_batch = jax.vmap(
+        lambda k: InternalState.initialize(config, k)
+    )(state_keys)
+    
+    # SCENARIO 1: Sequential execution (baseline)
+    seq_predictions = []
+    seq_states = []
+    
+    for i in range(batch_size):
+        new_state, prediction = orchestrate_step(
+            signals_batch[i], 
+            states_batch[i], 
+            config,
+            state_keys[i]
+        )
+        seq_predictions.append(prediction)
+        seq_states.append(new_state)
+    
+    seq_predictions = jnp.stack(seq_predictions)
+    
+    # SCENARIO 2: Vectorized execution (production)
+    vmap_orchestrate = jax.vmap(
+        orchestrate_step, 
+        in_axes=(0, 0, None, 0)
+    )
+    
+    batch_states, batch_predictions = vmap_orchestrate(
+        signals_batch, 
+        states_batch, 
+        config,
+        state_keys
+    )
+    
+    # ASSERTION 1: Bit-exact prediction parity
+    assert jnp.array_equal(seq_predictions, batch_predictions), \
+        "XLA vmap compilation breaks mathematical parity. " \
+        "Sequential and batched predictions must be bit-exact."
+    
+    # ASSERTION 2: State update parity
+    for i in range(batch_size):
+        assert jnp.array_equal(
+            seq_states[i].dgm_entropy, 
+            batch_states.dgm_entropy[i]
+        ), f"State divergence at index {i}: entropy mismatch"
+        
+        assert jnp.array_equal(
+            seq_states[i].rho, 
+            batch_states.rho[i]
+        ), f"State divergence at index {i}: rho weights mismatch"
+    
+    # ASSERTION 3: PRNG state advancement consistency
+    # Next iteration must produce identical results
+    next_signal = jnp.ones(batch_size)
+    next_keys = jax.random.split(key, batch_size)
+    
+    _, next_pred_seq = orchestrate_step(
+        next_signal[0], seq_states[0], config, next_keys[0]
+    )
+    _, next_pred_batch = vmap_orchestrate(
+        next_signal, batch_states, config, next_keys
+    )[1]
+    
+    assert jnp.array_equal(next_pred_seq, next_pred_batch[0]), \
+        "PRNG state divergence detected after vmap execution."
+
+def test_vmap_memory_efficiency():
+    """
+    Verify that vmap does not allocate N separate XLA buffers
+    for identical config (memory amplification bug).
+    """
+    batch_size = 256
+    config = PredictorConfig()
+    
+    # Single execution memory baseline
+    baseline_memory = measure_peak_vram_usage(
+        lambda: orchestrate_step(jnp.array(0.5), state, config, key)
+    )
+    
+    # Batched execution memory
+    batch_memory = measure_peak_vram_usage(
+        lambda: jax.vmap(orchestrate_step, in_axes=(0, 0, None, 0))(
+            signals_batch, states_batch, config, keys_batch
+        )
+    )
+    
+    # ASSERTION: Batch memory should scale sub-linearly
+    # (not 256x single execution due to config sharing)
+    expected_max_memory = baseline_memory * batch_size * 1.5
+    
+    assert batch_memory < expected_max_memory, \
+        f"VRAM amplification detected: {batch_memory / baseline_memory:.1f}x"
+\end{lstlisting}
+\end{implementation}
+
+\begin{criterion}
+\textbf{Acceptance Criteria:}
+\begin{enumerate}
+    \item Batched execution via \texttt{jax.vmap} must produce bit-exact results: \texttt{jnp.array\_equal(seq\_result, batch\_result) == True}
+    \item PRNG state advancement must be consistent between sequential and batched paths
+    \item Memory usage must scale sub-linearly with batch size (config parameter sharing prevents N-fold duplication)
+    \item Compilation time: first \texttt{vmap} call may be slow (JIT), subsequent calls must be $< 5$ms per batch
+\end{enumerate}
+\end{criterion}
+
+\section{JIT Cache Efficiency Under Load Shedding}
+
+\subsection{Zero-Recompilation Guarantee for Emergency Mode}
+
+\begin{testcase}[Load Shedding Without XLA Recompilation]
+Verify that swapping Kernel D signature depths (load shedding: $M \in \{2, 3, 5\}$) executes in $O(1)$ time without triggering JAX cache miss.
+\end{testcase}
+
+\begin{implementation}
+\begin{lstlisting}
+# tests/test_xla/test_load_shedding_jit_cache.py
+import pytest
+import time
+import jax
+from stochastic_predictor.api.warmup import warmup_kernel_d_load_shedding
+from stochastic_predictor.kernels.kernel_d import kernel_d_predict
+from stochastic_predictor.api.types import PredictorConfig
+
+def test_load_shedding_warmup_no_recompilation():
+    """
+    Verify that swapping signature depths does not trigger 
+    JAX Cache Miss.
+    
+    Load shedding is a real-time emergency response to latency 
+    spikes. Triggering XLA recompilation (200ms) defeats the 
+    purpose of shedding (5ms target).
+    """
+    config = PredictorConfig(kernel_d_depth=5)
+    key = jax.random.PRNGKey(42)
+    signal = jax.random.normal(key, (100,))
+    
+    # PHASE 1: Warmup compiles M in {2, 3, 5}
+    warmup_kernel_d_load_shedding(config, key)
+    
+    # PHASE 2: Baseline execution at M=5 (no load shedding)
+    baseline_start = time.perf_counter()
+    _ = kernel_d_predict(signal, key, config)
+    baseline_time = time.perf_counter() - baseline_start
+    
+    # PHASE 3: Trigger load shedding M=5 -> M=2 (emergency mode)
+    shedding_config = config.replace(kernel_d_depth=2)
+    
+    shedding_start = time.perf_counter()
+    _ = kernel_d_predict(signal, key, shedding_config)
+    shedding_time = time.perf_counter() - shedding_start
+    
+    # ASSERTION 1: Cached execution must be < 10ms
+    # JIT compilation takes ~200ms. Cached execution < 5ms.
+    assert shedding_time < 0.010, \
+        f"CRITICAL: JIT Cache Miss during Load Shedding. " \
+        f"Execution took {shedding_time*1000:.1f}ms (expected < 10ms). " \
+        f"System will hang under stress."
+    
+    # ASSERTION 2: Shedding must not be slower than baseline
+    # (Lower depth should be faster or equal)
+    assert shedding_time <= baseline_time * 1.5, \
+        f"Load shedding slower than baseline: " \
+        f"{shedding_time/baseline_time:.2f}x"
+    
+    # PHASE 4: Verify cache hit for all depths
+    for depth in [2, 3, 5]:
+        test_config = config.replace(kernel_d_depth=depth)
+        start = time.perf_counter()
+        _ = kernel_d_predict(signal, key, test_config)
+        exec_time = time.perf_counter() - start
+        
+        assert exec_time < 0.010, \
+            f"Cache miss for depth={depth}: {exec_time*1000:.1f}ms"
+
+def test_jit_cache_size_under_warmup():
+    """
+    Verify that warmup does not exhaust JIT cache memory limits.
+    """
+    import jax._src.xla_bridge as xb
+    
+    # Get initial cache size
+    initial_cache = len(xb.get_backend().compile_cache())
+    
+    # Warmup all kernel variants
+    warmup_kernel_d_load_shedding(config, key)
+    
+    # Get final cache size
+    final_cache = len(xb.get_backend().compile_cache())
+    
+    # ASSERTION: Warmup should add exactly 3 entries (M=2,3,5)
+    cache_growth = final_cache - initial_cache
+    assert cache_growth == 3, \
+        f"Unexpected cache growth: {cache_growth} entries " \
+        f"(expected 3 for M in {{2,3,5}})"
+\end{lstlisting}
+\end{implementation}
+
+\begin{criterion}
+\textbf{Acceptance Criteria:}
+\begin{enumerate}
+    \item Load shedding execution time: $< 10$ms (cached) vs $\sim 200$ms (recompilation)
+    \item Warmup phase must precompile all signature depths: $M \in \{2, 3, 5\}$
+    \item Cache hit rate after warmup: $\geq 99\%$ for steady-state operation
+    \item Memory overhead: JIT cache growth $\leq 3$ entries per kernel variant
+\end{enumerate}
+
+\textbf{Failure Mode}: Without warmup, first load-shedding event triggers 200ms recompilation stall, causing latency SLA violation (target: 50ms p99) and potential cascading failures in multi-tenant deployment.
+\end{criterion}
+
+\section{Atomic Configuration Mutation (POSIX Guarantees)}
+
+\subsection{Temporary File Protocol Enforcement}
+
+\begin{testcase}[Atomic TOML Mutation via os.replace()]
+Validate compliance with I/O Specification §3.3 Configuration Mutation Protocol, ensuring POSIX atomic write semantics.
+\end{testcase}
+
+\begin{implementation}
+\begin{lstlisting}
+# tests/test_io/test_atomic_toml_mutation.py
+import pytest
+import os
+import tempfile
+from pathlib import Path
+from unittest.mock import patch, MagicMock
+from stochastic_predictor.io.config_mutation import mutate_config
+from stochastic_predictor.core.meta_optimizer import OptimizationResult
+
+def test_atomic_toml_mutation():
+    """
+    Ensure config mutation uses temporary files and os.replace.
+    
+    POSIX Guarantee: os.replace() is atomic on Linux/macOS.
+    Prevents partial writes visible to concurrent readers.
+    """
+    with tempfile.TemporaryDirectory() as tmpdir:
+        config_path = Path(tmpdir) / "config.toml"
+        
+        # Create initial config
+        initial_params = {"cusum_k": 0.5, "learning_rate": 0.01}
+        write_toml(config_path, initial_params)
+        
+        # Prepare mutation
+        new_params = {"cusum_k": 0.8}
+        validation_schema = {
+            "cusum_k": {"range": [0.1, 2.0], "locked": False}
+        }
+        
+        # MOCK os calls to verify protocol compliance
+        with patch('os.replace') as mock_replace, \
+             patch('os.fsync') as mock_fsync, \
+             patch('os.open', return_value=3) as mock_open:
+            
+            # Trigger mutation
+            mutate_config(new_params, config_path, validation_schema)
+            
+            # ASSERTION 1: Verify os.fsync was called
+            # Ensures kernel buffer flush before atomic replace
+            mock_fsync.assert_called_once()
+            
+            # ASSERTION 2: Verify os.replace was called with temp file
+            assert mock_replace.call_count == 1
+            args = mock_replace.call_args[0]
+            
+            # First arg must be temp file (config.toml.tmp)
+            assert str(args[0]).endswith(".tmp"), \
+                f"Expected temp file, got {args[0]}"
+            
+            # Second arg must be target file (config.toml)
+            assert args[1] == config_path, \
+                f"Expected {config_path}, got {args[1]}"
+
+def test_concurrent_mutation_detection():
+    """
+    Verify that concurrent mutations are rejected
+    (temp file already exists).
+    """
+    from stochastic_predictor.io.config_mutation import ConfigMutationError
+    
+    with tempfile.TemporaryDirectory() as tmpdir:
+        config_path = Path(tmpdir) / "config.toml"
+        tmp_path = config_path.with_suffix(".tmp")
+        
+        # Create initial config
+        write_toml(config_path, {"param": 1.0})
+        
+        # Simulate concurrent mutation (temp file exists)
+        tmp_path.touch()
+        
+        # ASSERTION: Mutation must fail with clear error
+        with pytest.raises(ConfigMutationError, 
+                          match="Concurrent mutation detected"):
+            mutate_config({"param": 2.0}, config_path, {})
+
+def test_audit_log_persistence():
+    """
+    Verify that mutation events are logged to io/mutations.log
+    in JSON Lines format.
+    """
+    with tempfile.TemporaryDirectory() as tmpdir:
+        config_path = Path(tmpdir) / "config.toml"
+        log_path = Path(tmpdir) / "mutations.log"
+        
+        write_toml(config_path, {"learning_rate": 0.01})
+        
+        # Perform mutation
+        mutate_config(
+            {"learning_rate": 0.015}, 
+            config_path, 
+            {},
+            audit_log_path=log_path
+        )
+        
+        # ASSERTION: Audit log must exist and contain entry
+        assert log_path.exists(), "Audit log not created"
+        
+        with open(log_path, 'r') as f:
+            entries = [json.loads(line) for line in f]
+        
+        assert len(entries) == 1, "Expected 1 audit entry"
+        
+        entry = entries[0]
+        assert entry["event"] == "MUTATION_APPLIED"
+        assert "learning_rate" in entry["delta"]
+        assert entry["delta"]["learning_rate"] == [0.01, 0.015]
+\end{lstlisting}
+\end{implementation}
+
+\begin{criterion}
+\textbf{Acceptance Criteria:}
+\begin{enumerate}
+    \item All config mutations must use temporary file strategy: write to \texttt{config.toml.tmp}, then \texttt{os.replace()}
+    \item \texttt{os.fsync()} must be called before \texttt{os.replace()} to flush kernel buffers
+    \item Concurrent mutations must be detected and rejected (temp file existence check with \texttt{os.O\_EXCL})
+    \item Audit trail must log all mutations to \texttt{io/mutations.log} in JSON Lines format
+    \item Rollback capability: \texttt{config.toml.bak} backup must be created before mutation
+\end{enumerate}
+
+\textbf{POSIX Atomicity Guarantee}: \texttt{os.replace()} is atomic on POSIX systems (Linux, macOS, BSD). On Windows, requires \texttt{ReplaceFileW} API. This prevents readers from observing partial config states during multi-gigabyte meta-optimization campaigns.
+\end{criterion}
+
 \chapter{Edge Cases and Degraded Mode}
 
 \section{Degraded Mode Test (TTL Violation)}
