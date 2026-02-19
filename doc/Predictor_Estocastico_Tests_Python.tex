@@ -1553,6 +1553,47 @@ Modo Degradado & \checkmark & \checkmark & 91\% \\
 
 \section{Ejecución de la Suite Completa}
 
+\subsection{Validación de Entorno en CI/CD}
+
+Previo a la ejecución de la suite de pruebas matemáticas (\texttt{pytest}), cualquier pipeline de Integración Continua (ej. GitHub Actions, GitLab CI) debe verificar que el entorno virtual es criptográficamente idéntico al de producción mediante una validación estricta de dependencias.
+
+Si el entorno de pruebas diverge de las versiones congeladas especificadas en el diseño arquitectónico, el pipeline CI/CD debe fallar (Fail-Fast) antes de iniciar la validación de los tensores.
+
+\begin{lstlisting}[language=bash, caption={Pre-Test Environment Validation}]
+#!/bin/bash
+# Script de validación de entorno previo a pytest
+
+# 1. Leer versiones esperadas del Golden Master
+EXPECTED_JAX=$(grep "^jax==" ../requirements.txt | cut -d'=' -f3)
+EXPECTED_EQUINOX=$(grep "^equinox==" ../requirements.txt | cut -d'=' -f3)
+EXPECTED_DIFFRAX=$(grep "^diffrax==" ../requirements.txt | cut -d'=' -f3)
+
+# 2. Obtener versiones instaladas
+ACTUAL_JAX=$(python -c "import jax; print(jax.__version__)")
+ACTUAL_EQUINOX=$(python -c "import equinox; print(equinox.__version__)")
+ACTUAL_DIFFRAX=$(python -c "import diffrax; print(diffrax.__version__)")
+
+# 3. Validación estricta (Fail-Fast si diverge)
+if [ "$EXPECTED_JAX" != "$ACTUAL_JAX" ]; then
+    echo "ERROR: JAX mismatch - Expected $EXPECTED_JAX, got $ACTUAL_JAX"
+    exit 1
+fi
+
+if [ "$EXPECTED_EQUINOX" != "$ACTUAL_EQUINOX" ]; then
+    echo "ERROR: Equinox mismatch - Expected $EXPECTED_EQUINOX, got $ACTUAL_EQUINOX"
+    exit 1
+fi
+
+if [ "$EXPECTED_DIFFRAX" != "$ACTUAL_DIFFRAX" ]; then
+    echo "ERROR: Diffrax mismatch - Expected $EXPECTED_DIFFRAX, got $ACTUAL_DIFFRAX"
+    exit 1
+fi
+
+echo "✓ Validación de entorno OK - Proceder con pytest"
+\end{lstlisting}
+
+\subsection{Comandos de Ejecución}
+
 \begin{lstlisting}[language=bash]
 # Ejecutar todos los tests con reporte de cobertura
 pytest tests/ -v --cov=stochastic_predictor --cov-report=html
