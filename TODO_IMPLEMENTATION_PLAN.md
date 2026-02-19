@@ -40,7 +40,7 @@ From AUDIT_REPORT_v1.1:
 
 ---
 
-# PHASE 1: CRITICAL VIOLATIONS (P0) - 6 DAYS
+## PHASE 1: CRITICAL VIOLATIONS (P0) - 6 DAYS
 
 ## V-CRIT-1: CUSUM Kurtosis Adjustment
 
@@ -49,7 +49,7 @@ From AUDIT_REPORT_v1.1:
 **Formula:** $h_t = k \cdot \sigma_t \cdot (1 + \ln(\kappa_t / 3))$  
 **Current:** Static threshold, NO kurtosis computation
 
-### Tasks
+### V-CRIT-1 Tasks
 
 - [ ] Add `residual_window: Float[1024]` to `api/types.py::InternalState`
 - [ ] Implement `compute_rolling_kurtosis(residual_window) → float` in `api/state_buffer.py`
@@ -77,7 +77,7 @@ From AUDIT_REPORT_v1.1:
 **Formula:** $\epsilon_t = \max(\epsilon_{min}, \epsilon_0 \cdot (1 + \alpha \cdot \sigma_t))$  
 **Current:** Constant epsilon, ignores `config.sinkhorn_alpha`
 
-### Tasks
+### V-CRIT-2 Tasks
 
 - [ ] Verify `api/state_buffer.py::update_ema_variance()` exists and working
   - Formula: `EMA_t = λ * e_t^2 + (1-λ) * EMA_{t-1}` where λ=volatility_alpha
@@ -111,7 +111,7 @@ From AUDIT_REPORT_v1.1:
 **Spec:** `Implementation.tex §2.5 Logic 2.5.3`  
 **Current:** grace_counter field exists but never used
 
-### Tasks
+### V-CRIT-3 Tasks
 
 - [ ] Grace period already implemented in V-CRIT-1 (update_cusum_statistics)
 - [ ] In orchestrator, capture tuple from update_cusum_statistics:
@@ -138,7 +138,7 @@ Before proceeding to P1, validate:
 
 ---
 
-# PHASE 2: MAJOR VIOLATIONS (P1) - 8 DAYS
+## PHASE 2: MAJOR VIOLATIONS (P1) - 8 DAYS
 
 ## V-MAJ-1: Entropy Threshold Adaptive Range
 
@@ -146,7 +146,7 @@ Before proceeding to P1, validate:
 **Spec:** `Theory.tex §2.2 Theorem` - requires $\gamma \in [0.5, 1.0]$ range  
 **Current:** Fixed `entropy_threshold = 0.8`
 
-### Tasks
+### V-MAJ-1 Tasks
 
 - [ ] Add to `api/types.py::PredictorConfig`:
 
@@ -172,7 +172,7 @@ Before proceeding to P1, validate:
 **Files:** Various (orchestrator, kernel_b, state_buffer)  
 **Problem:** State fields initialized but never updated (kurtosis, dgm_entropy, holder_exponent)
 
-### Tasks
+### V-MAJ-2,3,4 Tasks
 
 - [ ] `state.kurtosis` ← updated in V-CRIT-1 (CUSUM kurtosis computation)
 - [ ] `state.dgm_entropy` ← assign from kernel_b output in orchestrator
@@ -188,7 +188,7 @@ Before proceeding to P1, validate:
 **File:** `core/orchestrator.py`  
 **Problem:** Binary per-step detection, no window accumulation
 
-### Tasks
+### V-MAJ-5 Tasks
 
 - [ ] Add `mode_collapse_consecutive_steps: int = 0` to InternalState
 - [ ] In orchestrate_step():
@@ -246,7 +246,7 @@ Before proceeding to P1, validate:
 
 ---
 
-# PHASE 3: IMPLEMENTATION GAPS (P2) - 8 DAYS
+## PHASE 3: IMPLEMENTATION GAPS (P2) - 8 DAYS
 
 ## P2.1: WTMM Complete Implementation
 
@@ -289,7 +289,7 @@ Before proceeding to P1, validate:
 **File:** `io/telemetry.py` + `core/orchestrator.py`  
 **Status:** Buffer exists but not wired into orchestration
 
-### Tasks
+### P2.3 Tasks
 
 - [ ] Create background consumer thread for telemetry buffer
 - [ ] In orchestrate_step(), enqueue TelemetryRecord with:
@@ -309,7 +309,7 @@ Before proceeding to P1, validate:
 **File:** `io/snapshots.py`  
 **Status:** Snapshots work but incomplete field coverage
 
-### Tasks
+### P2.4 Tasks
 
 - [ ] Add WTMM buffer to snapshot
 - [ ] Add mode_collapse_consecutive_steps
@@ -326,7 +326,7 @@ Before proceeding to P1, validate:
 **Files:** `tests/test_*.py`  
 **Status:** Currently empty
 
-### Tasks
+### P2.5 Tasks
 
 - [ ] Create `test_cusum_kurtosis.py` - unit tests for P0.1
 - [ ] Create `test_sinkhorn_dynamic.py` - unit tests for P0.2
@@ -339,7 +339,7 @@ Before proceeding to P1, validate:
 
 ---
 
-# PHASE 4: VALIDATION (2-3 days)
+## PHASE 4: VALIDATION (2-3 days)
 
 - [ ] Re-audit all P0 violations → all FIXED
 - [ ] Validate all P1 violations → all FIXED  
