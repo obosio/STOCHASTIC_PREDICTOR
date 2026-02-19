@@ -1,6 +1,8 @@
-# Documentación LaTeX - Predictor Estocástico Universal
+# Especificación Técnica Completa - Predictor Estocástico Universal
 
-Este directorio contiene la documentación técnica completa del Predictor Estocástico Universal en formato LaTeX.
+Este directorio contiene la **especificación matemática y algorítmica completa** del Predictor Estocástico Universal en formato LaTeX (3000+ líneas, 7 documentos, 1.73 MB PDFs).
+
+> ⚠️ **Este es un proyecto de especificación pura**: No incluye código de implementación, solo documentación técnica rigurosa lista para traducción directa a código.
 
 ## 📁 Estructura de Directorios
 
@@ -14,23 +16,36 @@ doc/
 └── README.md                       # Este archivo
 ```
 
-## 📄 Documentos Disponibles
+## 📄 Especificaciones Disponibles
 
-### Documentos Teóricos y Generales
+### Especificaciones Teóricas y Arquitectónicas
 
-- **Predictor_Estocastico_Teoria.tex** (500+ líneas) - Fundamentos matemáticos, teoremas, **esquemas SDE adaptativos** con transición dinámica Euler/implícito
-- **Predictor_Estocastico_Implementacion.tex** (800+ líneas) - Algoritmos, métodos numéricos, **dinámica de Sinkhorn acoplada a volatilidad**
-- **Predictor_Estocastico_Pruebas.tex** - Protocolo de validación y pruebas (agnóstico de lenguaje)
-- **Predictor_Estocastico_IO.tex** - Especificación de I/O y telemetría
+- **Predictor_Estocastico_Teoria.tex** (500+ líneas) - Fundamentación matemática rigurosa:
+  - Teoría de procesos estocásticos, transporte óptimo, rough paths
+  - **Esquemas SDE adaptativos** con transición dinámica Euler/implícito
+  - Teoremas de convergencia y análisis de complejidad
+- **Predictor_Estocastico_Implementacion.tex** (800+ líneas) - Algoritmos y métodos numéricos:
+  - Pseudocódigo detallado independiente de lenguaje
+  - **Dinámica de Sinkhorn acoplada a volatilidad**
+  - Estrategias de optimización y paralelización
+- **Predictor_Estocastico_Pruebas.tex** - Protocolo de validación y casos de prueba
+- **Predictor_Estocastico_IO.tex** - Especificación de interfaces de entrada/salida
 
-### Documentos Específicos de Python/JAX
+### Especificaciones Python/JAX (Listas para Implementación)
 
-- **Predictor_Estocastico_Python.tex** (3000+ líneas) - Guía de implementación en Python con JAX:
-  - **Stack tecnológico grabado en piedra**: Justificación rigurosa de Equinox/Diffrax (§1)
-  - Optimizaciones de grafo con stop_gradient
-  - Implementación completa de 4 ramas (A, B, C, D)
-- **Predictor_Estocastico_API_Python.tex** (685+ líneas) - Especificación de API Python, **período de gracia CUSUM** post-cambio de régimen
-- **Predictor_Estocastico_Tests_Python.tex** - Suite de pruebas en Python/pytest
+- **Predictor_Estocastico_Python.tex** (3000+ líneas) - **Especificación completa en Python/JAX**:
+  - **§1: Stack grabado en piedra** (~250 líneas): Justificación rigurosa de JAX/Equinox/Diffrax/Signax/OTT-JAX
+  - **§2-6: Implementación de 4 ramas**: Pseudocódigo Python completo con tipos JAX
+  - **Optimizaciones XLA**: stop_gradient, JIT, vmap, estrategias de compilación
+  - **Nivel de detalle**: Traducible directamente a código funcional
+- **Predictor_Estocastico_API_Python.tex** (685+ líneas) - Especificación de API:
+  - Interfaces públicas, contratos de función, tipos
+  - **Período de gracia CUSUM** post-cambio de régimen
+  - Telemetría y logging
+- **Predictor_Estocastico_Tests_Python.tex** - Suite de tests especificada:
+  - Casos de prueba con datos sintéticos
+  - Métricas de validación y criterios de aceptación
+  - Estrategia pytest + fixtures JAX
 
 ## ✨ Mejoras Recientes (Febrero 2026)
 
@@ -200,60 +215,68 @@ sudo tlmgr install babel fontspec amsmath amssymb amsthm listings xcolor hyperre
 ./compile.sh --all --force      # Recompila todo desde cero
 ```
 
-## 📊 Estado Actual (Febrero 2026)
+## 📊 Estado de Especificación (Febrero 2026)
 
-**Últimas mejoras documentadas:**
+**Especificación completa al 100%** - Lista para implementación futura.
 
-✅ **Rama C - Esquemas SDE Adaptativos** (Predictor_Estocastico_Teoria.tex)
+### Componentes Especificados
+
+✅ **Stack Tecnológico (Grabado en Piedra)** - Predictor_Estocastico_Python.tex §1
+
+- Justificación técnica rigurosa de cada librería (~250 líneas)
+- **JAX 0.4.20**: Motor XLA con AD, vmap, jit (capa fundamental obligatoria)
+- **Equinox 0.11.3**: Framework neuronal pythonico para Rama B (DGM) y Rama C (Neural ODEs)
+- **Diffrax 0.4.1**: Solver diferenciable de SDEs/ODEs para Rama C
+- **Signax 0.1.4**: Log-signatures GPU-nativas para Rama D
+- **OTT-JAX 0.4.5**: Transporte óptimo (Sinkhorn) para Orquestador JKO
+- **PyWavelets 1.4.1**: Transformada wavelet para SIA (WTMM)
+- Análisis de alternativas descartadas (Flax, Haiku, PyTorch, torchdiffeq)
+- Conclusión formal: _"Por lo tanto, este stack está **grabado en piedra** en el diseño del predictor"_
+
+✅ **Esquemas SDE Adaptativos** - Predictor_Estocastico_Teoria.tex §2.3.3
 
 - Detección automática de rigidez (stiffness) del proceso
-- Transición dinámica: Euler explícito → Moulton implícito
+- Transición dinámica: Euler explícito ↔ Moulton implícito
 - Métrica de rigidez normalizada con umbrales adaptativos
 - Esquema híbrido convexo para regímenes intermedios
 - Teorema de convergencia fuerte adaptativa
 
-✅ **Transición Dinámica de Sinkhorn** (Predictor_Estocastico_Implementacion.tex)
+✅ **Dinámica de Sinkhorn Acoplada a Volatilidad** - Predictor_Estocastico_Implementacion.tex §2.4
 
 - Acoplamiento volatilidad-entropía: ε_t = ε₀·(1 + α·σ_t)
 - Dinámica suave vs fallback discreto
 - Parámetros calibrados para crisis de mercado
 
-✅ **Stack Equinox/Diffrax Grabado en Piedra** (Predictor_Estocastico_Python.tex)
-
-- Justificación técnica rigurosa de cada librería (~250 líneas)
-- JAX 0.4.20: Motor XLA con AD y vmap
-- Equinox 0.11.3: Framework neuronal para Rama B (DGM) y Rama C (Neural ODEs)
-- Diffrax 0.4.1: Solver SDE/ODE diferenciable para Rama C
-- Signax 0.1.4: Log-signatures GPU-nativas para Rama D
-- OTT-JAX 0.4.5: Transporte óptimo para Orquestador JKO
-- Conclusión explícita: "Por lo tanto, este stack está **grabado en piedra** en el diseño del predictor"
-
-✅ **Período de Gracia CUSUM** (Predictor_Estocastico_API_Python.tex)
+✅ **Período de Gracia CUSUM** - Predictor_Estocastico_API_Python.tex §3.2
 
 - Ventana refractoria post-cambio de régimen (10-60 pasos)
 - Previene cascadas de falsas alarmas
 - Telemetría: monitoreo de G+ durante gracia
 
-✅ **Script de Compilación Mejora** (compile.sh)
+✅ **Optimización del Grafo XLA** - Predictor_Estocastico_Python.tex §3.1
 
-- Detección automática de cambios en .tex
+- Stop gradient en módulos diagnósticos (SIA, CUSUM)
+- Ahorro esperado: 30-50% VRAM, 20-40% tiempo JIT
+- Backpropagation solo en módulos predictivos
+
+✅ **Build System Inteligente** - compile.sh
+
+- Detección automática de cambios por timestamps
 - Compilación en dos pasadas (referencias convergentes)
-- Forzamiento opcional con --force
-- Help por defecto sin argumentos
-- Mensajes de error detallados con líneas de problema
-- Resumen final: compilados vs omitidos
+- Modo --force para recompilación total
+- Mensajes de error detallados
 
-**Documentos compilados:**
+### PDFs Compilados (Listos para Implementación)
 
-- ✅ Predictor_Estocastico_Teoria.pdf (242 KB, 500+ líneas nuevas)
-- ✅ Predictor_Estocastico_Implementacion.pdf (233 KB)
-- ✅ Predictor_Estocastico_API_Python.pdf (215 KB)
-- ✅ Predictor_Estocastico_IO.pdf (169 KB)
-- ✅ Predictor_Estocastico_Python.pdf (470 KB, **stack grabado en piedra** ~250 líneas)
-- ✅ Predictor_Estocastico_Tests_Python.pdf (295 KB)
-- ✅ Predictor_Estocastico_Pruebas.pdf (267 KB)
+- ✅ Predictor_Estocastico_Teoria.pdf (242 KB) - Fundamentación matemática
+- ✅ Predictor_Estocastico_Implementacion.pdf (233 KB) - Algoritmos detallados
+- ✅ Predictor_Estocastico_API_Python.pdf (215 KB) - Especificación de interfaces
+- ✅ Predictor_Estocastico_IO.pdf (169 KB) - Entrada/salida del sistema
+- ✅ **Predictor_Estocastico_Python.pdf (470 KB)** - Especificación Python/JAX completa
+- ✅ Predictor_Estocastico_Tests_Python.pdf (295 KB) - Suite de tests
+- ✅ Predictor_Estocastico_Pruebas.pdf (267 KB) - Casos de validación
 
-**Total:** 1.73 MB documentación sincronizada
+**Total:** 1.73 MB de especificación técnica completa
 
 ### Tabla de Características Documentadas
 
@@ -266,15 +289,17 @@ sudo tlmgr install babel fontspec amsmath amssymb amsthm listings xcolor hyperre
 | Stop Gradient JAX | ✅ | Python.tex | Eficiencia VRAM/JIT |
 | Compilación Inteligente | ✅ | compile.sh | Dev speed |
 
-## ✨ Ventajas de Esta Configuración
+## ✨ Ventajas de Esta Especificación
 
-- ✅ **Workspace limpio**: Solo archivos fuente visibles (artefactos en `.build/` oculto)
-- ✅ **Compilación inteligente**: Detecta cambios automáticamente
-- ✅ **Índices actualizados**: Dos pasadas garantizan convergencia
-- ✅ **Errores claros**: Script muestra líneas problemáticas
-- ✅ **Git amigable**: Artefactos no contaminan historial; solo PDFs versionados
-- ✅ **Reproducible**: Configuración versionada en `.latexmkrc` y `compile.sh`
-- ✅ **LuaTeX moderno**: Soporte Unicode, fuentes OpenType, características avanzadas
+- ✅ **Especificación completa y autocontenida**: 3000+ líneas, 7 documentos, todos los algoritmos detallados
+- ✅ **Lista para implementación**: Pseudocódigo Python traducible directamente a código funcional
+- ✅ **Stack justificado rigurosamente**: Análisis técnico de JAX/Equinox/Diffrax con alternativas descartadas
+- ✅ **Nivel Diamante**: Decisiones arquitectónicas documentadas ANTES de código
+- ✅ **Workspace limpio**: Solo especificaciones, sin código de implementación
+- ✅ **Compilación inteligente**: Script detecta cambios automáticamente
+- ✅ **PDFs versionados**: 1.73 MB de especificaciones compiladas en git
+- ✅ **Reproducible**: Configuración LaTeX versionada, builds deterministas
+- ✅ **LuaTeX moderno**: Soporte Unicode, ecuaciones complejas, referencias cruzadas
 
 ## 🔧 Configuración del Editor
 

@@ -1,11 +1,13 @@
 # Universal Stochastic Predictor (USP)
 
 ![License](https://img.shields.io/badge/license-MIT-blue.svg)
-![Status](https://img.shields.io/badge/status-In%20Development-yellow.svg)
+![Status](https://img.shields.io/badge/status-Specification-blue.svg)
 
 ## 📋 Descripción
 
-Sistema de predicción estocástica universal capaz de operar sobre procesos dinámicos cuya ley de probabilidad subyacente es desconocida *a priori*. El proyecto integra teoría de procesos estocásticos, análisis multifractal, ecuaciones diferenciales estocásticas y transporte óptimo en un framework unificado.
+**Especificación matemática y algorítmica completa** de un sistema de predicción estocástica universal capaz de operar sobre procesos dinámicos cuya ley de probabilidad subyacente es desconocida *a priori*. El proyecto integra teoría de procesos estocásticos, análisis multifractal, ecuaciones diferenciales estocásticas y transporte óptimo en un framework unificado.
+
+> ⚠️ **Estado del Proyecto**: Este repositorio contiene **únicamente especificaciones técnicas completas** (7 documentos LaTeX, 3000+ líneas, 1.73 MB PDFs). **No incluye código de implementación**.
 
 ## 🎯 Características Principales
 
@@ -36,9 +38,9 @@ El sistema opera sobre un espacio de probabilidad completo $(\Omega, \mathcal{F}
 
 $$\hat{X}_{t+h} = \underset{Z \in L^2(\mathcal{F}_t)}{\text{argmin}} \, \mathbb{E}\left[ \| X_{t+h} - Z \|^2 \right] = \mathbb{E}[X_{t+h} \mid \mathcal{F}_t]$$
 
-## 🛠️ Stack Tecnológico
+## 🛠️ Stack Tecnológico Especificado
 
-### Build & Documentation Tools
+### Herramientas de Documentación
 
 - **LuaLaTeX**: Motor de compilación LaTeX con soporte Unicode nativo
 - **Bash Script**: `doc/compile.sh` con detección inteligente de cambios
@@ -47,25 +49,18 @@ $$\hat{X}_{t+h} = \underset{Z \in L^2(\mathcal{F}_t)}{\text{argmin}} \, \mathbb{
   - Reporting de errores LaTeX integrado
   - Dos pasadas automáticas para actualizar índices
 
-### Implementación Python
+### Stack Python Especificado (Grabado en Piedra)
 
-- **JAX**: Computación numérica acelerada con XLA, vectorización automática y diferenciación
-- **Equinox/Diffrax**: Frameworks para redes neuronales y solvers de SDEs sobre JAX
-- **Signax**: Cálculo de signatures y log-signatures en GPU
-- **PyWavelets**: Transformada wavelet continua
-- **OTT-JAX**: Optimal Transport Tools (Sinkhorn-Knopp diferenciable)
+La especificación define y justifica rigurosamente el siguiente stack para implementación futura:
 
-### Requisitos
+- **JAX 0.4.20**: Motor XLA con diferenciación automática y vectorización (capa fundamental)
+- **Equinox 0.11.3**: Framework neuronal pythonico para Ramas B y C (DGM, Neural ODEs)
+- **Diffrax 0.4.1**: Solver diferenciable de SDEs/ODEs para Rama C
+- **Signax 0.1.4**: Cálculo de log-signatures en GPU para Rama D
+- **PyWavelets 1.4.1**: Transformada wavelet continua para SIA (WTMM)
+- **OTT-JAX 0.4.5**: Transporte óptimo diferenciable para Orquestador JKO
 
-```text
-python >= 3.10
-jax >= 0.4.0
-equinox >= 0.11.0
-diffrax >= 0.4.0
-signax >= 0.1.0
-pywavelets >= 1.4.0
-ott-jax >= 0.4.0
-```
+> 📘 **Justificación completa**: Ver [Python.tex §1](doc/Predictor_Estocastico_Python.tex) (~250 líneas) con análisis técnico y alternativas descartadas.
 
 ## 📚 Documentación
 
@@ -217,12 +212,16 @@ Integração robusta mediante cálculo de signatures para procesos con baja regu
 
 Mecanismo de protección que suspende operaciones cuando $H < H_{\min}$, fuerza Rama D (signatures) y activa pérdida de Huber robusta.
 
-## 🔬 Aplicaciones
+## 🔬 Aplicaciones Especificadas
+
+La especificación está diseñada para:
 
 - Predicción de series temporales financieras de alta frecuencia
 - Análisis de procesos físicos con componentes estocásticos
 - Sistemas con cambios de régimen no anticipados
 - Procesos con memoria larga y dependencias complejas
+
+> 📐 **Nivel de detalle**: Las especificaciones incluyen pseudocódigo Python completo, análisis de complejidad computacional, y estrategias de optimización GPU/XLA listas para traducción directa a código.
 
 ## 👥 Autores
 
@@ -234,7 +233,13 @@ Consorcio de Desarrollo de Meta-Predicción Adaptativa
 
 ## 🤝 Contribuciones
 
-Las contribuciones son bienvenidas. Por favor, consulta la guía de contribución (pendiente) antes de hacer un pull request.
+Este repositorio contiene **especificaciones técnicas completas** sin implementación. Posibles contribuciones:
+
+- 📝 **Mejoras a la especificación**: Correcciones, aclaraciones, extensiones matemáticas
+- 🔍 **Revisión técnica**: Validación de algoritmos, detección de inconsistencias
+- 🚀 **Implementación futura**: Uso de estas especificaciones como base para proyectos derivados
+
+Por favor, consulta [CONTRIBUTING.md](CONTRIBUTING.md) antes de contribuir.
 
 ## 📧 Contacto
 
@@ -242,8 +247,9 @@ Para preguntas o colaboraciones, por favor abre un issue en este repositorio.
 
 ## 🙏 Agradecimientos
 
-Este proyecto integra metodologías de múltiples áreas de las matemáticas aplicadas y la computación científica. Agradecemos a la comunidad de desarrolladores de JAX, PyWavelets y OTT-JAX por sus excelentes herramientas de código abierto.
+Esta especificación integra metodologías de múltiples áreas de las matemáticas aplicadas y la computación científica. Agradecemos a la comunidad de desarrolladores de JAX, Equinox, Diffrax, Signax, PyWavelets y OTT-JAX, cuyas herramientas fueron seleccionadas como base del stack tecnológico especificado.
 
 ---
 
-⚡ Powered by JAX & Differential Geometry
+📐 **Nivel Diamante**: Especificación matemática rigurosa lista para implementación  
+⚡ Stack especificado: JAX + Equinox + Diffrax + Signax + OTT-JAX
