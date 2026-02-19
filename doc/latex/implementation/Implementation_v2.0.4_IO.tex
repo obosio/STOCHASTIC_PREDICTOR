@@ -294,14 +294,26 @@ else:
 
 \section{PRNG Constant}
 
-To eliminate magic numbers in PRNG splitting, we introduce a module-level constant:
+To eliminate magic numbers in PRNG splitting, we introduce a module-level constant in \texttt{api/prng.py}:
 
 \begin{lstlisting}[language=Python]
-RNG_SPLIT_COUNT = 2
-rng_key = jax.random.split(state.rng_key, RNG_SPLIT_COUNT)[1]
+# api/prng.py: GLOBAL PRNG CONFIGURATION
+RNG_SPLIT_COUNT = 2  # For kernel execution subkeys
 \end{lstlisting}
 
-This ensures clarity and maintainability.
+This constant is now imported by \texttt{core/orchestrator.py} to maintain layer isolation and clarity. All PRNG-related constants reside in the API layer.
+
+\section{64-bit Precision Enforcement}
+
+To ensure Malliavin calculus and Signature computation stability, 64-bit precision must be activated at module import time, before any XLA tracing:
+
+\begin{lstlisting}[language=Python]
+# api/config.py: JAX CONFIGURATION (at module level)
+import jax
+jax.config.update("jax_enable_x64", True)
+\end{lstlisting}
+
+This enforces bit-exact reproducibility across CPU/GPU/FPGA backends and must execute before \texttt{ConfigManager} initialization.
 
 \chapter{Compliance Checklist}
 
@@ -315,8 +327,10 @@ This ensures clarity and maintainability.
     \item \textbf{Config-Driven}: Intervals and destinations are injected
     \item \textbf{Module Coverage}: IO helpers implemented for validation, telemetry, snapshots, and credentials
     \item \textbf{Orchestrator Integration}: IO ingestion gate integrated into \texttt{orchestrate\_step()}
-    \item \textbf{PRNG Constants}: Named constants replace magic numbers
+    \item \textbf{PRNG Constants}: Named constants (RNG\_SPLIT\_COUNT) reside in \texttt{api/prng.py}
     \item \textbf{Buffer Capacity Injection}: TelemetryBuffer capacity injected from config (zero-heuristics policy)
+    \item \textbf{64-bit Precision}: Enforced at module load time (\texttt{api/config.py}) before XLA tracing
+    \item \textbf{Layer Isolation}: PRNG constants in API layer, not Core layer
 \end{itemize}
 
 \chapter{Phase 4 Summary}

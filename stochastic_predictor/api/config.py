@@ -28,6 +28,14 @@ if TYPE_CHECKING:
     from .types import PredictorConfig
 
 
+# ═══════════════════════════════════════════════════════════════════════════
+# JAX CONFIGURATION (MUST execute before any XLA tracing)
+# ═══════════════════════════════════════════════════════════════════════════
+# Enable 64-bit precision for Malliavin calculus, Signature computations,
+# and deterministic reproducibility across CPU/GPU/FPGA backends.
+jax.config.update("jax_enable_x64", True)
+
+
 class ConfigManager:
     """
     Singleton configuration manager.

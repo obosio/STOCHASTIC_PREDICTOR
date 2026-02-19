@@ -14,12 +14,11 @@ from jaxtyping import Array, Float
 from stochastic_predictor.api.state_buffer import atomic_state_update, reset_cusum_statistics
 from stochastic_predictor.api.types import InternalState, KernelType, OperatingMode, PredictionResult, PredictorConfig, ProcessState
 from stochastic_predictor.api.validation import validate_simplex
+from stochastic_predictor.api.prng import RNG_SPLIT_COUNT
 from stochastic_predictor.core.fusion import FusionResult, fuse_kernel_outputs
 from stochastic_predictor.io.loaders import evaluate_ingestion
 from stochastic_predictor.kernels import kernel_a_predict, kernel_b_predict, kernel_c_predict, kernel_d_predict
 from stochastic_predictor.kernels.base import KernelOutput, validate_kernel_input
-
-RNG_SPLIT_COUNT = 2
 
 
 @dataclass(frozen=True)

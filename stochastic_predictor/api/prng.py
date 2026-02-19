@@ -23,6 +23,10 @@ import os
 # GLOBAL PRNG CONFIGURATION
 # ═══════════════════════════════════════════════════════════════════════════
 
+# Number of subkeys to split from root PRNG key for kernel ensemble
+# (Kernels A, B, C, D = 4 kernels; subsequent orchestrator state update = 1 more)
+RNG_SPLIT_COUNT = 2  # For kernel execution subkeys
+
 def initialize_jax_prng(seed: int = 42) -> PRNGKeyArray:
     """
     Initialize JAX PRNG generator with deterministic configuration.
