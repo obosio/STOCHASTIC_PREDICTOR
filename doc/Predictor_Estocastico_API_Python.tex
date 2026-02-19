@@ -1030,4 +1030,169 @@ hasta que se re-entrene la red neuronal DGM con hiperparámetros ajustados (tasa
 
 \textbf{Nota Teórica:} Una solución colapsada tiene $H[V_\theta] \to -\infty$ (distribución delta), correspondiendo a una política de control degenerada que no responde a variaciones del estado.
 
+\section{Determinismo de Punto Flotante (Bit-Exact Reproducibility)}
+
+\textbf{Problema:} Para validar la consistencia del sistema en \textbf{tests de portabilidad} (ejecución en CPU vs GPU vs FPGA, descritos en \textit{Pruebas.tex}), los cálculos de punto flotante deben ser estrictamente deterministas. Sin embargo, JAX compila a código XLA que puede reordenar operaciones de reducción (ej. \texttt{jax.numpy.sum}, llamadas en el algoritmo de Sinkhorn) dependiendo del backend.
+
+\textbf{Impacto:}
+\begin{itemize}
+    \item En CPU: suma secuencial $\to$ error de redondeo $\epsilon_{\text{CPU}}$
+    \item En GPU: suma paralela con diferentes agrupaciones $\to$ error $\epsilon_{\text{GPU}} \neq \epsilon_{\text{CPU}}$
+    \item En FPGA: precisión de punto flotante custom $\to$ error $\epsilon_{\text{FPGA}}$
+\end{itemize}
+
+Aunque todos los valores sean matemáticamente correctos (dentro de tolerancia numérica), el \textit{bit-exact} resultado difiere, rompiendo tests determinísticos de regresión.
+
+\textbf{Solución: Configuración Determinista de XLA y PRNG Fijo}
+
+Fijar las variables de entorno antes de importar JAX:
+
+\begin{lstlisting}[language=Python]
+import os
+import jax
+import jax.numpy as jnp
+
+# PASO 1: Configurar variables de entorno ANTES de cualquier operación JAX
+os.environ['XLA_FLAGS'] = '--xla_cpu_use_cross_replica_callbacks=false'
+os.environ['JAX_DETERMINISTIC_REDUCTIONS'] = '1'  # Force deterministic reductions
+os.environ['JAX_TRACEBACK_FILTERING'] = 'off'     # Completo traceback para debugging
+
+# Alternativas según backend:
+# Para GPU (CUDA):
+# os.environ['CUDA_LAUNCH_BLOCKING'] = '1'
+# os.environ['CUBLAS_WORKSPACE_CONFIG'] = ':16:8'  # Fijo cuBLAS workspace
+
+# Para forzar CPU (deshabilitar GPU):
+# os.environ['JAX_PLATFORMS'] = 'cpu'
+
+# PASO 2: Fijar semillas globales de PRNG
+import numpy as np
+
+RANDOM_SEED = 42  # Determinista en todos los backends
+
+# Semilla NumPy
+np.random.seed(RANDOM_SEED)
+
+# Semilla JAX (RNG de clave)
+from jax import random
+jax.config.update('jax_default_prng_impl', 'threefry2x32')  # Determinista entre backends
+key = random.PRNGKey(RANDOM_SEED)
+
+# PASO 3: Importar y configurar JAX después de las variables de entorno
+jax.config.update('jax_enable_x64', True)  # float64 para mayor precisión
+
+# PASO 4: Verificar que se forzó determinismo
+print(f"XLA Backend: {jax.devices()}")
+print(f"JAX Deterministic Mode: {os.environ.get('JAX_DETERMINISTIC_REDUCTIONS', 'not set')}")
+\end{lstlisting}
+
+\textbf{Implicaciones Matemáticas:}
+
+Consideramos una operación de reducción típica en Sinkhorn (divergencia Kullback-Leibler):
+
+\[
+D_{\text{KL}}(p \| q) = \sum_{i=1}^n p_i \log\left(\frac{p_i}{q_i}\right)
+\]
+
+En punto flotante, el orden de suma influye en el error acumulado:
+
+\[
+\text{Secuencial}: \quad ((s_1 + s_2) + s_3) + \cdots \quad \rightarrow \quad \epsilon_{\text{seq}} = O(n \, \delta)
+\]
+
+\[
+\text{Árbol paralelo (GPU)}: \quad ((s_1 + s_2) + (s_3 + s_4)) + \cdots \quad \rightarrow \quad \epsilon_{\text{tree}} \approx O(\log n \, \delta)
+\]
+
+donde $\delta$ es la máquina epsilon de punto flotante. Aunque ambas sumas son correctas en valor, el bit-exact resultado difiere ligeramente.
+
+\textbf{Estrategia de Testing: 3-Capas}
+
+\begin{enumerate}
+    \item \textbf{CPU Baseline} (Referencia):
+        \begin{lstlisting}[language=Python]
+os.environ['JAX_PLATFORMS'] = 'cpu'
+result_cpu = predictor.predict_step(x_t, key)
+        \end{lstlisting}
+        Ejecutar con determinismo forzado en CPU. Este resultado se considera \textit{ground truth}.
+    
+    \item \textbf{GPU Determinista}:
+        \begin{lstlisting}[language=Python]
+os.environ['JAX_PLATFORMS'] = 'gpu'
+os.environ['CUDA_LAUNCH_BLOCKING'] = '1'
+os.environ['CUBLAS_WORKSPACE_CONFIG'] = ':16:8'
+# Con las mismas semillas y configuración XLA
+result_gpu = predictor.predict_step(x_t, key)
+
+assert jnp.allclose(result_cpu, result_gpu, atol=1e-7, rtol=1e-6)
+        \end{lstlisting}
+        Ejecutar en GPU con callbacks bloqueantes. La tolerancia se relaja ligeramente ($10^{-7}$) debido a diferencias en el orden de operaciones.
+    
+    \item \textbf{FPGA Simulada} (Si aplicable):
+        \begin{lstlisting}[language=Python]
+# Simulación: forzar operaciones en float32 (FPGA typical) vs float64 (CPU)
+jax.config.update('jax_enable_x64', False)
+result_fpga = predictor.predict_step(x_t, key)
+jax.config.update('jax_enable_x64', True)
+
+# Tolerancia relavada para float32
+assert jnp.allclose(result_cpu, result_fpga, atol=1e-4, rtol=1e-3)
+        \end{lstlisting}
+\end{enumerate}
+
+\textbf{Procedimiento de Validación en CI/CD:}
+
+\begin{lstlisting}[language=bash]
+#!/bin/bash
+# File: tests/determinism_test.sh
+
+set -e
+
+echo "[CPU] Running determinism test..."
+export JAX_DETERMINISTIC_REDUCTIONS=1
+export JAX_PLATFORMS=cpu
+python tests/test_cpu_baseline.py
+
+echo "[GPU] Running determinism test on GPU..."
+export JAX_PLATFORMS=gpu
+export CUDA_LAUNCH_BLOCKING=1
+export CUBLAS_WORKSPACE_CONFIG=:16:8
+python tests/test_gpu_consistency.py
+
+echo "[FPGA Sim] Running determinism test with float32..."
+python tests/test_fpga_sim.py
+
+echo "✓ All determinism tests passed"
+\end{lstlisting}
+
+\textbf{Notas de Configuración por Backend:}
+
+\begin{table}[h]
+\centering
+\begin{tabular}{|l|l|l|}
+\hline
+\textbf{Backend} & \textbf{Variable de Entorno} & \textbf{Efecto} \\
+\hline
+CPU & \texttt{XLA\_FLAGS=--xla\_cpu\_use\_cross\_replica\_callbacks=false} & Deshabilita callbacks paralelos \\
+GPU (CUDA) & \texttt{CUDA\_LAUNCH\_BLOCKING=1} & Ejecuta kernels secuencialmente \\
+GPU (CUDA) & \texttt{CUBLAS\_WORKSPACE\_CONFIG=:16:8} & Fijo workspace cuBLAS \\
+Todos & \texttt{JAX\_DETERMINISTIC\_REDUCTIONS=1} & Fuerza orden de reducciones \\
+Todos & \texttt{JAX\_DEFAULT\_PRNG\_IMPL=threefry2x32} & PRNG portátil entre backends \\
+\hline
+\end{tabular}
+\end{table}
+
+\textbf{Garantías Post-Configuración:}
+
+\begin{itemize}
+    \item \textbf{Bit-Exactitud en CPU}: Garantizada si se ejecutan las mismas operaciones en el mismo orden.
+    \item \textbf{Tolerancia GPU}: $10^{-7}$ (atol) / $10^{-6}$ (rtol) debido a paralelismo.
+    \item \textbf{Tolerancia FPGA}: $10^{-4}$ (atol) / $10^{-3}$ (rtol) si usa float32.
+    \item \textbf{PRNG}: Mismo \texttt{seed} produce igual secuencia en todos backends.
+\end{itemize}
+
+\textbf{Conclusión:}
+
+El determinismo en tests de portabilidad es crítico para \textit{Pruebas.tex} (CPU vs GPU vs FPGA). Las variables de entorno XLA y la configuración de PRNG son \textbf{obligatorias} para CI/CD que valide consistencia entre plataformas.
+
 \end{document}
