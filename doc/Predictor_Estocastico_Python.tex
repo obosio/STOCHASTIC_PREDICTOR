@@ -57,15 +57,304 @@
 Esta guía traduce las especificaciones algorítmicas del tratado universal a un ecosistema de producción en Python de alto rendimiento.
 
 \section{Selección de Librerías}
-Para equilibrar expresividad matemática y eficiencia computacional (C++/CUDA backend), se prescribe el siguiente stack:
+
+Para equilibrar expresividad matemática y eficiencia computacional (C++/CUDA backend), se prescribe el siguiente stack con justificación técnica rigurosa para cada componente:
+
+\subsection{JAX: Motor de Computación Numérica}
+
+\textbf{JAX 0.4.20} es la \textit{capa fundamental} del predictor. Proporciona:
 
 \begin{itemize}
-    \item \textbf{JAX}: Para computación numérica acelerada (XLA), vectorización automática (\texttt{vmap}) y diferenciación automática (\texttt{grad}, \texttt{jacfwd}) requerida por Malliavin y JKO.
-    \item \textbf{Equinox / Diffrax}: Frameworks sobre JAX para redes neuronales y solvers de ecuaciones diferenciales estocásticas (SDEs), respectivamente.
-    \item \textbf{Signax}: (Nativo en JAX) para el cálculo diferencial y ultra-rápido de Signatures y Log-Signatures en GPU, manteniendo el grafo computacional intacto.
-    \item \textbf{PyWavelets}: Para la Transformada Wavelet Continua (en CPU, con callback asíncrono) en el módulo SIA.
-    \item \textbf{OTT-JAX (Optimal Transport Tools)}: Implementación robusta y diferenciable de Sinkhorn-Knopp.
+    \item \textbf{XLA (Accelerated Linear Algebra)}: Compilación JIT a kernels optimizados para CPU/GPU/TPU
+    \item \textbf{Diferenciación Automática}: \texttt{jax.grad()}, \texttt{jax.jacfwd()}, \texttt{jax.hessian()} requeridos por cálculo de Malliavin y JKO
+    \item \textbf{Vectorización Automática}: \texttt{vmap()} para paralelización sin bucles explícitos
+    \item \textbf{Composabilidad}: Transformaciones apilables (\texttt{jit(vmap(grad(...)))})
 \end{itemize}
+
+\textbf{Decisión de Diseño:} JAX es \textit{obligatorio} porque el Orquestador JKO requiere gradientes de Wasserstein (cálculo variacional) y las Ramas B/C requieren backpropagation a través de ecuaciones diferenciales.
+
+\subsection{Equinox 0.11.3: Framework Neuronal Pythonico}
+
+\textbf{Equinox} es el framework de redes neuronales para Rama B (Deep Galerkin Method) y Rama C (Neural ODEs). Seleccionado por:
+
+\begin{enumerate}
+    \item \textbf{Puramente Funcional}: Compatible con transformaciones JAX (\texttt{jit}, \texttt{vmap}, \texttt{grad})
+    
+    \item \textbf{Pytrees Nativos}: Los modelos son pytrees de JAX, no requieren conversión manual
+    
+    \item \textbf{Minimal Magic}: Sin estados ocultos, sin registros globales, sin metaclases
+    
+    \item \textbf{Diferenciabilidad Total}: Pesos de redes son arrays JAX puros → gradientes directos sin wrappers
+    
+    \item \textbf{Filtrado de Parámetros}: \texttt{eqx.filter()} permite separar parámetros entrenables de hiperparámetros estáticos
+\end{enumerate}
+
+\textbf{Ejemplo Técnico (Rama B - DGM):}
+
+\begin{lstlisting}[language=Python]
+import equinox as eqx
+
+class DGM_HJB_Solver(eqx.Module):
+    """
+    Deep Galerkin Method para resolver HJB: V_t + H(x, V_x, V_xx) = 0
+    """
+    mlp: eqx.nn.MLP  # Red neuronal como pytree JAX
+    
+    def __init__(self, in_size, key):
+        # MLP(in_size=d+1, out_size=1) donde d=dimension espacial, +1=tiempo
+        self.mlp = eqx.nn.MLP(
+            in_size=in_size, 
+            out_size=1, 
+            width_size=64,   # Capas ocultas de 64 neuronas
+            depth=4,         # 4 capas ocultas
+            key=key,
+            activation=jax.nn.tanh  # Activación suave para derivadas
+        )
+    
+    def __call__(self, t, x):
+        """V(t, x) → escalar"""
+        tx = jnp.concatenate([jnp.atleast_1d(t), x])
+        return self.mlp(tx)[0]
+
+# Uso: Diferenciación automática sin conversiones
+def compute_residual(model, t, x):
+    """Residual HJB: V_t + H(x, V_x, V_xx)"""
+    v_t = jax.grad(lambda _t: model(_t, x))(t)       # Derivada temporal
+    v_x = jax.grad(lambda _x: model(t, _x))(x)       # Gradiente espacial
+    v_xx = jax.hessian(lambda _x: model(t, _x))(x)   # Hessiano espacial
+    
+    return v_t + hamiltonian(x, v_x, v_xx)  # Directo, sin abstracciones
+\end{lstlisting}
+
+\textbf{Alternativas Descartadas:}
+
+\begin{itemize}
+    \item \textbf{Flax}: Requiere estado mutable (\texttt{variables} dict), incompatible con \texttt{jit} puro
+    \item \textbf{Haiku}: Usa \texttt{transform()} que rompe composabilidad con \texttt{vmap}
+    \item \textbf{PyTorch}: No compilable a XLA, incompatible con JAX AD
+\end{itemize}
+
+\subsection{Diffrax 0.4.1: Solver de Ecuaciones Diferenciales Estocásticas}
+
+\textbf{Diffrax} es el motor de integración para Rama C (Neural ODEs y SDEs). Seleccionado por:
+
+\begin{enumerate}
+    \item \textbf{Nativamente JAX}: Todos los solvers son \texttt{@jit}-compilables
+    
+    \item \textbf{Diferenciable End-to-End}: Backpropagation a través de la integración (adjoint method)
+    
+    \item \textbf{Soporte SDE Completo}: Integrales de Itô y Stratonovich con control adaptativo
+    
+    \item \textbf{Control de Error}: Solvers adaptativos (Heun, Dopri5, Tsit5) con tolerancia configurable
+    
+    \item \textbf{Compatibilidad Equinox}: ODEs parametrizados por \texttt{eqx.Module} sin conversión
+\end{enumerate}
+
+\textbf{Ejemplo Técnico (Rama C - Neural SDE):}
+
+\begin{lstlisting}[language=Python]
+import diffrax as dfx
+
+class NeuralSDE(eqx.Module):
+    """
+    SDE parametrizado: dX_t = f_θ(X_t)dt + g_θ(X_t)dW_t
+    """
+    drift_net: eqx.nn.MLP   # f_θ: Drift
+    diffusion_net: eqx.nn.MLP  # g_θ: Volatilidad
+    
+    def __init__(self, state_size, key):
+        key1, key2 = jax.random.split(key)
+        self.drift_net = eqx.nn.MLP(state_size, state_size, width_size=32, depth=2, key=key1)
+        self.diffusion_net = eqx.nn.MLP(state_size, state_size, width_size=32, depth=2, key=key2)
+    
+    def drift(self, t, x, args):
+        """f_θ(x)"""
+        return self.drift_net(x)
+    
+    def diffusion(self, t, x, args):
+        """g_θ(x)"""
+        return self.diffusion_net(x)
+
+def solve_neural_sde(model, x0, t0, t1, brownian_key):
+    """
+    Integra SDE con solver adaptativo Heun (orden 1.5 para SDEs).
+    Resultado es DIFERENCIABLE respecto a pesos de model.
+    """
+    # Término de drift (determinista)
+    drift_term = dfx.ODETerm(model.drift)
+    
+    # Término de difusión (estocástico)
+    brownian_motion = dfx.VirtualBrownianTree(
+        t0=t0, 
+        t1=t1, 
+        tol=1e-3,  # Tolerancia de interpolación
+        shape=(x0.shape[0],), 
+        key=brownian_key
+    )
+    diffusion_term = dfx.ControlTerm(model.diffusion, brownian_motion)
+    
+    # Solver SDE adaptativo
+    solver = dfx.Heun()  # Método de Heun para SDEs (orden 1.5 fuerte)
+    
+    # Integración con control de error
+    solution = dfx.diffeqsolve(
+        terms=dfx.MultiTerm(drift_term, diffusion_term),
+        solver=solver,
+        t0=t0,
+        t1=t1,
+        dt0=0.01,  # Paso inicial
+        y0=x0,
+        stepsize_controller=dfx.PIDController(atol=1e-5, rtol=1e-3),
+        saveat=dfx.SaveAt(ts=jnp.linspace(t0, t1, 100))  # Guardar trayectoria
+    )
+    
+    return solution.ys  # Array [100, state_size] diferenciable
+
+# CRUCIALMENTE: Podemos calcular gradientes a través de la integración
+@jax.jit
+def loss_neural_sde(model, x0, target, brownian_key):
+    """Loss = ||X_T - target||^2"""
+    trajectory = solve_neural_sde(model, x0, t0=0.0, t1=1.0, brownian_key=brownian_key)
+    x_final = trajectory[-1]
+    return jnp.sum((x_final - target)**2)
+
+# Backpropagation a través del SDE
+grad_loss = jax.grad(loss_neural_sde)(model, x0, target, key)
+\end{lstlisting}
+
+\textbf{Ventajas sobre Alternativas:}
+
+\begin{itemize}
+    \item \textbf{vs. torchdiffeq (PyTorch)}: Diffrax compila a XLA (10-50x más rápido en GPU)
+    \item \textbf{vs. scipy.integrate.solve\_ivp}: Diffrax es diferenciable (scipy no)
+    \item \textbf{vs. JAX manual (Euler-Maruyama)}: Diffrax tiene control adaptativo de paso (crítico para estabilidad)
+\end{itemize}
+
+\textbf{Caso de Uso en Rama C:}
+
+El Kernel C (Neural ODE) modela la dinámica de precio como:
+
+\[
+dX_t = f_\theta(X_t, t) dt + \sigma(X_t, t) dW_t
+\]
+
+donde $f_\theta$ es una red neuronal (Equinox) y la integración se realiza con Diffrax. El Orquestador JKO optimiza $\theta$ minimizando la divergencia de Wasserstein entre la distribución predicha y la observada.
+
+\subsection{Signax 0.1.4: Cálculo de Log-Signatures}
+
+\textbf{Signax} implementa el cálculo de signatures y log-signatures en álgebra de Lie, requerido por Rama D. Características críticas:
+
+\begin{itemize}
+    \item \textbf{GPU-Nativo}: Kernels CUDA optimizados para paths largos ($N > 1000$)
+    \item \textbf{Diferenciable}: Gradientes exactos vía backpropagation (no aproximaciones)
+    \item \textbf{Profundidad Configurable}: Soporta truncamiento a orden $M \in \{2, 3, 5\}$ (para load shedding)
+    \item \textbf{Log-Domain}: Calcula en espacio de Lie (numéricamente estable vs signature tensor)
+\end{itemize}
+
+\textbf{Ejemplo Técnico (Rama D):}
+
+\begin{lstlisting}[language=Python]
+import signax
+
+def compute_log_signature(path, depth):
+    """
+    path: Array [N, d] (N pasos temporales, d dimensiones)
+    depth: Profundidad M de la signature (típicamente 3 o 5)
+    
+    Returns: Log-signature en álgebra de Lie (vector de dim O(d^M))
+    """
+    logsig = signax.logsignature(path, depth=depth)
+    return logsig
+
+# Diferenciación automática a través de signature
+def signature_loss(path, target_logsig, depth):
+    pred_logsig = signax.logsignature(path, depth=depth)
+    return jnp.sum((pred_logsig - target_logsig)**2)
+
+grad_signature = jax.grad(signature_loss)(path, target, depth)
+\end{lstlisting}
+
+\subsection{OTT-JAX 0.4.5: Transporte Óptimo Diferenciable}
+
+\textbf{OTT-JAX} implementa el algoritmo de Sinkhorn estabilizado en log-domain para el Orquestador JKO. Seleccionado por:
+
+\begin{itemize}
+    \item \textbf{Estabilidad Numérica}: Log-Sinkhorn previene overflow/underflow en iteraciones largas
+    \item \textbf{Regularización Entrópica}: Control fino de $\epsilon$ (crucial para convergencia JKO)
+    \item \textbf{Gradientes Implícitos}: Backpropagation eficiente a través de Sinkhorn (método adjunto)
+    \item \textbf{Geometrías Flexibles}: Soporta costos custom (ej. distancia de firmas)
+\end{itemize}
+
+\subsection{Stack Completo: Interoperabilidad y Flujo de Ejecución}
+
+\begin{table}[h]
+\centering
+\begin{tabular}{|l|l|l|l|}
+\hline
+\textbf{Componente} & \textbf{Librería} & \textbf{Versión} & \textbf{Rol} \\
+\hline
+Computación base & JAX & 0.4.20 & XLA, AD, vmap, jit \\
+Redes neuronales & Equinox & 0.11.3 & DGM (Rama B), parametrización \\
+Solvers SDE/ODE & Diffrax & 0.4.1 & Neural ODEs (Rama C) \\
+Signatures & Signax & 0.1.4 & Log-signatures (Rama D) \\
+Transporte Óptimo & OTT-JAX & 0.4.5 & Orquestador JKO \\
+Wavelets & PyWavelets & 1.4.1 & WTMM (SIA, CPU callback) \\
+\hline
+\end{tabular}
+\end{table}
+
+\textbf{Flujo de Ejecución Típico:}
+
+\begin{enumerate}
+    \item \textbf{Entrada}: Serie temporal $\{y_t\}$ ingresa al sistema
+    
+    \item \textbf{SIA (PyWavelets)}: Calcula WTMM → exponente Hölder $H_t$ (CPU callback)
+    
+    \item \textbf{Rama A}: Kernels estocásticos puros (JAX puro)
+    
+    \item \textbf{Rama B (Equinox)}: DGM-HJB solver → predicción PDE
+    
+    \item \textbf{Rama C (Diffrax + Equinox)}: Neural SDE → trayectoria predicha
+    
+    \item \textbf{Rama D (Signax)}: Log-signature del path → features topológicas
+    
+    \item \textbf{Orquestador (OTT-JAX)}: JKO step → pesos óptimos $\rho^*$
+    
+    \item \textbf{Salida}: Predicción fusionada $\hat{y}_{t+1}$
+\end{enumerate}
+
+\textbf{Ventaja Crítica de este Stack:}
+
+\begin{itemize}
+    \item \textbf{Todo compilable a XLA}: Pipeline completo se convierte en un único kernel GPU
+    \item \textbf{Diferenciable end-to-end}: Gradientes fluyen desde pérdida final hasta entrada
+    \item \textbf{Sin conversiones tipo}: Todos los componentes hablan "pytrees de JAX"
+    \item \textbf{Reproducible}: Versiones ancladas garantizan comportamiento idéntico en 5 años
+\end{itemize}
+
+\textbf{Conclusión de Selección:}
+
+Este stack NO es arbitrario. Fue seleccionado porque:
+
+\begin{enumerate}
+    \item Equinox + Diffrax son los \textit{únicos} frameworks que soportan backpropagation a través de SDEs en JAX puro
+    
+    \item Signax es la \textit{única} librería de signatures nativa en JAX con soporte GPU
+    
+    \item OTT-JAX es la implementación \textit{estándar de facto} de Sinkhorn diferenciable en el ecosistema JAX
+    
+    \item Todas las librerías comparten la misma filosofía: \textit{funciones puras, pytrees, JIT-compilable}
+\end{enumerate}
+
+Introducir librerías "por la puerta trasera" (ej. PyTorch para Rama B, torchdiffeq para Rama C) rompería:
+
+\begin{itemize}
+    \item Compilabilidad XLA (no se puede \texttt{jit} código PyTorch)
+    \item Diferenciabilidad (AD de JAX no atraviesa tensores de PyTorch)
+    \item Reproducibilidad (mezclar backends introduce no-determinismo)
+\end{itemize}
+
+Por lo tanto, este stack está \textbf{grabado en piedra} en el diseño del predictor.
 
 \section{Gestión de Precisión Numérica Global}
 Las operaciones en Rama D (Signatures) y el cálculo de derivadas de Malliavin son altamente sensibles al error de redondeo. JAX usa por defecto \texttt{float32}, lo que puede inducir derivas numéricas acumulativas en series temporales largas ($N > 10000$). Se recomienda activar globalmente:

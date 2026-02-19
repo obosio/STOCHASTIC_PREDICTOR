@@ -103,19 +103,23 @@ cd doc && ./compile.sh
 El script utiliza **detección inteligente de cambios** basada en timestamps para evitar compilaciones innecesarias.
 
 ## 🚀 Estado del Proyecto
+
 ### 📂 Estructura Actual (Febrero 18, 2026)
 
 **Fase de Re-construcción**: La estructura de código Python está siendo recreada desde cero basándose en especificaciones completas.
 
 ✅ **Disponible**:
+
 - Especificaciones detalladas (7 documentos LaTeX, 1.73 MB PDFs)
 - Build system optimizado (compile.sh con inteligencia de cambios)
 - Entorno Python configurado (Python 3.10+, todas las dependencias JAX)
 - Stack tecnológico validado
 
 🔄 **En construcción**:
+
 - Módulos `stochastic_predictor/` (vacíos, listos para implementación)
 - Suite de tests `tests/` (vacía, lista para agregarse)
+
 ### � Avances Recientes (Febrero 2026)
 
 **Arquitectura mejorada con algoritmos robustos**:
@@ -163,8 +167,7 @@ El proyecto está en fase de **especificación detallada de arquitectura** con i
 | Período de Gracia CUSUM | ✅ Documentado | API_Python.tex §3.2 |
 | Esquemas SDE Dinámicos | ✅ Documentado | Teoria.tex §2.3.3 |
 | Detección Adaptativa CUSUM | ✅ Documentado | Teoria.tex §6.2 |
-
-**Roadmap detallado**: [IMPLEMENTATION_PLAN.md](IMPLEMENTATION_PLAN.md)
+| Stack Equinox/Diffrax | ✅ Grabado en piedra | Python.tex §1 |
 
 ## 📖 Conceptos Clave
 

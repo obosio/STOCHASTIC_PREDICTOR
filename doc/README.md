@@ -25,7 +25,10 @@ doc/
 
 ### Documentos Específicos de Python/JAX
 
-- **Predictor_Estocastico_Python.tex** (1700+ líneas) - Guía de implementación en Python con JAX, **optimizaciones de grafo con stop_gradient**
+- **Predictor_Estocastico_Python.tex** (3000+ líneas) - Guía de implementación en Python con JAX:
+  - **Stack tecnológico grabado en piedra**: Justificación rigurosa de Equinox/Diffrax (§1)
+  - Optimizaciones de grafo con stop_gradient
+  - Implementación completa de 4 ramas (A, B, C, D)
 - **Predictor_Estocastico_API_Python.tex** (685+ líneas) - Especificación de API Python, **período de gracia CUSUM** post-cambio de régimen
 - **Predictor_Estocastico_Tests_Python.tex** - Suite de pruebas en Python/pytest
 
@@ -33,6 +36,7 @@ doc/
 
 | Mejora | Impacto | Documento |
 | -------- | --------- | --------- |
+| **Stack Equinox/Diffrax grabado en piedra** | Justificación técnica rigurosa (~250 líneas) | Python.tex §1 |
 | Transición dinámica SDE (Euler ↔ implícito) | Robustez numérica bajo high stiffness | Teoria.tex §2.3.3 |
 | Sinkhorn acoplado a volatilidad | Paisaje suave durante crisis | Implementacion.tex §2.4 |
 | Período de gracia CUSUM | Evita cascadas de falsas alarmas | API_Python.tex §3.2 |
@@ -214,6 +218,16 @@ sudo tlmgr install babel fontspec amsmath amssymb amsthm listings xcolor hyperre
 - Dinámica suave vs fallback discreto
 - Parámetros calibrados para crisis de mercado
 
+✅ **Stack Equinox/Diffrax Grabado en Piedra** (Predictor_Estocastico_Python.tex)
+
+- Justificación técnica rigurosa de cada librería (~250 líneas)
+- JAX 0.4.20: Motor XLA con AD y vmap
+- Equinox 0.11.3: Framework neuronal para Rama B (DGM) y Rama C (Neural ODEs)
+- Diffrax 0.4.1: Solver SDE/ODE diferenciable para Rama C
+- Signax 0.1.4: Log-signatures GPU-nativas para Rama D
+- OTT-JAX 0.4.5: Transporte óptimo para Orquestador JKO
+- Conclusión explícita: "Por lo tanto, este stack está **grabado en piedra** en el diseño del predictor"
+
 ✅ **Período de Gracia CUSUM** (Predictor_Estocastico_API_Python.tex)
 
 - Ventana refractoria post-cambio de régimen (10-60 pasos)
@@ -235,7 +249,7 @@ sudo tlmgr install babel fontspec amsmath amssymb amsthm listings xcolor hyperre
 - ✅ Predictor_Estocastico_Implementacion.pdf (233 KB)
 - ✅ Predictor_Estocastico_API_Python.pdf (215 KB)
 - ✅ Predictor_Estocastico_IO.pdf (169 KB)
-- ✅ Predictor_Estocastico_Python.pdf (307 KB)
+- ✅ Predictor_Estocastico_Python.pdf (470 KB, **stack grabado en piedra** ~250 líneas)
 - ✅ Predictor_Estocastico_Tests_Python.pdf (295 KB)
 - ✅ Predictor_Estocastico_Pruebas.pdf (267 KB)
 
@@ -245,6 +259,7 @@ sudo tlmgr install babel fontspec amsmath amssymb amsthm listings xcolor hyperre
 
 | Feature | Status | Documento | Beneficio |
 | --------- | -------- | --------- | ---------- |
+| **Stack Grabado en Piedra** | ✅ | Python.tex §1 | Rigor arquitectónico |
 | Esquemas SDE Dinámicos | ✅ | Teoria.tex | Robustez numérica |
 | Sinkhorn Acoplado Volatilidad | ✅ | Implementacion.tex | Crisis-proof |
 | Período Gracia CUSUM | ✅ | API_Python.tex | Anti-cascadas |
