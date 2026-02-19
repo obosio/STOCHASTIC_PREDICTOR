@@ -135,9 +135,9 @@ def predict_from_signature(
     # Prediction: slight extrapolation based on signature trend
     prediction = last_value + config.kernel_d_alpha * direction * sig_norm
     
-    # Confidence: Scale from config (Zero-Heuristics: 0.1 hardcode removed)
+    # Confidence: Scale from config (Zero-Heuristics: all factors from config)
     # More activity (larger sig_norm) = less certainty
-    confidence = config.kernel_d_confidence_scale * (1.0 + sig_norm)
+    confidence = config.kernel_d_confidence_scale * (config.kernel_d_confidence_base + sig_norm)
     
     return prediction, confidence
 

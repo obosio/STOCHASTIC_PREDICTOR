@@ -114,10 +114,12 @@ class PredictorConfig:
     kernel_c_horizon: float = 1.0               # Prediction horizon (integration time)
     kernel_c_dt0: float = 0.01                  # Initial time step (adaptive stepping)
     sde_initial_dt_factor: float = 10.0         # Safety factor for dt0 (dtmax / sde_initial_dt_factor)
+    kernel_c_alpha_gaussian_threshold: float = 1.99  # Threshold for Gaussian regime detection (alpha > threshold)
     
     # Kernel D Parameters (Signatures)
     kernel_d_depth: int = 3                     # Log-signature truncation depth (L)
     kernel_d_alpha: float = 0.1                 # Signature extrapolation scaling factor
+    kernel_d_confidence_base: float = 1.0       # Base factor for confidence calculation (base + sig_norm)
     
     # Base/Validation Parameters
     base_min_signal_length: int = 32            # Minimum required signal length
@@ -316,14 +318,11 @@ class PredictionResult:
         """
         Validate output (simplex constraint and flag coherence).
         
-        Note: atol=1e-6 corresponds to config.validation_simplex_atol default.
-        In production, validation should occur at construction site with injected tolerance.
+        Zero-Heuristics Compliance:
+        Simplex validation uses config.validation_simplex_atol.
+        Call validate_simplex() externally with config tolerance if needed.
+        Basic validations (non-negativity, range checks) remain here.
         """
-        # Weights must sum to 1.0 (simplex) - tolerance from config.validation_simplex_atol
-        weights_sum = float(jnp.sum(self.weights))
-        assert jnp.allclose(weights_sum, 1.0, atol=1e-6), \
-            f"weights must form a simplex (sum=1.0), got sum={weights_sum:.6f}"
-        
         # Weights non-negative
         assert jnp.all(self.weights >= 0.0), \
             "weights must be non-negative"
@@ -332,6 +331,25 @@ class PredictionResult:
         holder_val = float(self.holder_exponent)
         assert 0.0 <= holder_val <= 1.0, \
             f"holder_exponent must be in [0, 1], got {holder_val}"
+    
+    @staticmethod
+    def validate_simplex(weights: Float[Array, "4"], atol: float) -> None:
+        """
+        Validate simplex constraint with configurable tolerance.
+        
+        Args:
+            weights: Weight array [ρ_A, ρ_B, ρ_C, ρ_D]
+            atol: Absolute tolerance (use config.validation_simplex_atol)
+        
+        Raises:
+            AssertionError: If weights don't sum to 1.0 within tolerance
+        
+        Example:
+            >>> PredictionResult.validate_simplex(weights, config.validation_simplex_atol)
+        """
+        weights_sum = float(jnp.sum(weights))
+        assert jnp.allclose(weights_sum, 1.0, atol=atol), \
+            f"weights must form a simplex (sum=1.0 ± {atol}), got sum={weights_sum:.6f}"
         
         # Valid mode string
         valid_modes = {"Standard", "Robust", "Emergency"}

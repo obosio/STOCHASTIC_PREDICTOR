@@ -310,7 +310,7 @@ def kernel_c_predict(
     # Confidence: Theoretical variance of Lévy stable process
     # For α-stable: Var ~ t^(2/α) (power law)
     # For Brownian (α=2): Var = σ^2 * t
-    if alpha > 1.99:  # Near-Gaussian
+    if alpha > config.kernel_c_alpha_gaussian_threshold:  # Near-Gaussian regime
         variance = (sigma ** 2) * horizon
     else:  # Heavy-tailed Lévy
         variance = (sigma ** alpha) * (horizon ** (2.0 / alpha))

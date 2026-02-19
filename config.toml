@@ -57,6 +57,7 @@ log_sig_depth = 3                       # Truncation depth for signature transfo
 kernel_d_depth = 3                      # Log-signature truncation depth (L)
 kernel_d_alpha = 0.1                    # Signature extrapolation scaling factor
 kernel_d_confidence_scale = 0.1         # Scaling factor for signature-based confidence
+kernel_d_confidence_base = 1.0          # Base factor for confidence (base + sig_norm)
 
 # Base/Validation Parameters
 base_min_signal_length = 32             # Minimum required signal length
@@ -85,6 +86,7 @@ kernel_c_alpha = 1.8                    # Stability parameter (1 < alpha <= 2)
 kernel_c_beta = 0.0                     # Skewness parameter (-1 <= beta <= 1)
 kernel_c_horizon = 1.0                  # Prediction horizon (integration time)
 kernel_c_dt0 = 0.01                     # Initial time step (adaptive stepping)
+kernel_c_alpha_gaussian_threshold = 1.99  # Gaussian regime threshold (alpha > threshold)
 
 # Phase 6: SDE Solver Hyperparameters (Zero-Heuristics - Kernel C)
 sde_brownian_tree_tol = 1e-3                # Brownian tree tolerance
