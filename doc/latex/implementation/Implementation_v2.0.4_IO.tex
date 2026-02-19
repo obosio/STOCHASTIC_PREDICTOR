@@ -116,9 +116,72 @@ If the exact same value is observed for $N_{freeze} \geq 5$ consecutive steps, e
     \item Continue monitoring until signal variation resumes.
 \end{itemize}
 
-\subsection{Recovery Criteria}
+\subsection{Recovery Criteria (V-MAJ-6: Frozen Signal Recovery Ratio)}
 
-The frozen signal lock is released after the variance exceeds a configurable ratio of historical variance for a configurable number of consecutive steps.
+The frozen signal lock is released when variance recovers above a configurable ratio of historical variance for a configurable number of consecutive steps.
+
+\subsubsection{Algorithm}
+
+\begin{equation}
+\text{recovered} = \text{detect\_frozen\_recovery}(\text{variance\_history}, \text{historical\_var}, \rho, n_c)
+\end{equation}
+
+where:
+\begin{itemize}
+    \item $\text{variance\_history}$: Recent residual variances
+    \item $\text{historical\_var}$: Baseline variance reference
+    \item $\rho = \texttt{config.frozen\_signal\_recovery\_ratio}$ (default: 0.1): Recovery threshold multiplier
+    \item $n_c = \texttt{config.frozen\_signal\_recovery\_steps}$ (default: 2): Confirmation window
+\end{itemize}
+
+Recovery is confirmed when:
+\begin{equation}
+\text{variance}_t > \rho \cdot \text{historical\_var} \quad \text{for} \quad n_c \text{ consecutive steps}
+\end{equation}
+
+\subsubsection{Implementation}
+
+\begin{lstlisting}[language=Python]
+# In evaluate_ingestion():
+if frozen:
+    residual_variance = np.var(state.residual_buffer)
+    in_recovery = detect_frozen_recovery(
+        variance_history=[residual_variance],
+        historical_variance=referenc_variance,
+        ratio_threshold=config.frozen_signal_recovery_ratio,  # V-MAJ-6: Use parameter
+        consecutive_steps=config.frozen_signal_recovery_steps
+    )
+    if in_recovery:
+        frozen = False  # Lift the frozen signal flag
+\end{lstlisting}
+
+\subsubsection{Configuration Parameters}
+
+From \texttt{PredictorConfig}:
+
+\begin{table}[h!]
+\centering
+\begin{tabular}{|l|l|p{6cm}|}
+\hline
+\textbf{Parameter} & \textbf{Default} & \textbf{Purpose} \\
+\hline
+\texttt{frozen\_signal\_min\_steps} & 5 & Consecutive equal values to trigger alarm \\
+\texttt{frozen\_signal\_recovery\_ratio} & 0.1 & Variance ratio threshold for recovery (10\% of baseline) \\
+\texttt{frozen\_signal\_recovery\_steps} & 2 & Confirmation window for recovery \\
+\hline
+\end{tabular}
+\caption{V-MAJ-6 Frozen Signal Recovery Configuration}
+\end{table}
+
+\subsubsection{Benefits}
+
+\begin{itemize}
+    \item \textbf{Automatic Recovery}: No manual intervention needed when signal variance improves
+    \item \textbf{Hysteresis}: Recovery threshold ($\rho=0.1$) is more lenient than typical alarm threshold, preventing oscillation
+    \item \textbf{Configuration-Driven}: All parameters injected from config.toml (zero-heuristics policy)
+    \item \textbf{State Preservation}: Maintains frozen flag during low-variance periods, automatically lifts when variance returns
+    \item \textbf{Signal Quality Supervision}: Enables secondary observability on signal quality degradation patterns
+\end{itemize}
 
 \section{Staleness Policy (TTL)}
 
