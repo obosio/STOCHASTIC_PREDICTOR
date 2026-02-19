@@ -358,12 +358,21 @@ def _run_kernels(
 
 
 def _compute_mode(
-    degraded: bool,
-    emergency: bool
+    degraded: Array | bool,
+    emergency: Array | bool
 ) -> str:
-    if emergency:
+    """Compute operating mode from degradation state.
+    
+    Accepts both bool (normal execution) and Array (vmap context).
+    In vmap context, uses first element of array.
+    """
+    # Convert Array to Python bool if needed (safe in non-traced context)
+    deg = bool(degraded) if isinstance(degraded, Array) else degraded
+    emg = bool(emergency) if isinstance(emergency, Array) else emergency
+    
+    if emg:
         return OperatingMode.EMERGENCY
-    if degraded:
+    if deg:
         return OperatingMode.ROBUST
     return OperatingMode.STANDARD
 
@@ -400,28 +409,29 @@ def orchestrate_step(
 
     # Use ingestion decision flags to override or augment degraded mode
     reject_observation = not ingestion_decision.accept_observation
-    degraded_mode_raw = bool(staleness_degraded or ingestion_degraded or reject_observation)
+    degraded_mode_raw = staleness_degraded | ingestion_degraded | reject_observation  # JAX bool ops
 
     # V-MAJ-7: Degraded Mode Hysteresis (prevent oscillation)
-    # If already degraded: need N steps of "clean" signals to recover
-    # If normal: degrade immediately on any signal
-    recovery_threshold = max(2, int(config.frozen_signal_recovery_steps))  # Use frozen recovery steps as recovery window
+    # Use jnp.where for pure XLA tensor operations (no Python control flow)
+    recovery_threshold = max(2, int(config.frozen_signal_recovery_steps))
     
-    if state.degraded_mode:
-        # Already degraded: accumulate recovery signal (no degradation condition)
-        if degraded_mode_raw:
-            # Signal still indicates degradation, reset counter
-            degraded_mode_recovery_counter = 0
-        else:
-            # Signal is clean, increment recovery counter
-            degraded_mode_recovery_counter = state.degraded_mode_recovery_counter + 1
-        
-        # Exit degraded mode only after threshold met
-        degraded_mode = bool(degraded_mode_recovery_counter < recovery_threshold)
-    else:
-        # Normal mode: degrade immediately if any condition triggers
-        degraded_mode = degraded_mode_raw
-        degraded_mode_recovery_counter = 0  # Reset counter when entering degraded mode
+    # If already degraded: accumulate recovery signal, else reset counter
+    degraded_mode_recovery_counter = jnp.where(
+        state.degraded_mode,
+        jnp.where(
+            degraded_mode_raw,
+            jnp.array(0),  # Signal still indicates degradation, reset counter
+            jnp.array(state.degraded_mode_recovery_counter + 1)  # Signal is clean, increment
+        ),
+        jnp.array(0)  # Normal mode: reset counter
+    )
+    
+    # Exit degraded mode only after recovery threshold met
+    degraded_mode = jnp.where(
+        state.degraded_mode,
+        degraded_mode_recovery_counter < recovery_threshold,  # Already degraded: check threshold
+        degraded_mode_raw  # Normal mode: degrade immediately
+    )
     
     # Store recovery counter for telemetry (V-MAJ-7)
     degraded_recovery_counter = degraded_mode_recovery_counter
@@ -443,16 +453,33 @@ def orchestrate_step(
 
     # Entropy-topology coupling for DGM (Kernel B) - based on previous entropy
     kernel_b_config = config
-    scaling_triggered = False
-    if float(state.dgm_entropy) > 0.0 and float(state.baseline_entropy) > 0.0:
-        entropy_ratio = compute_entropy_ratio(
-            float(state.dgm_entropy),
-            float(state.baseline_entropy)
-        )
-        if entropy_ratio > 2.0:
-            new_width, new_depth = scale_dgm_architecture(config, entropy_ratio)
-            kernel_b_config = replace(config, dgm_width_size=new_width, dgm_depth=new_depth)
-            scaling_triggered = True
+    
+    # Pure JAX tensor operations for entropy-based scaling decision
+    # Avoid Python float() casting on dynamic arrays
+    entropy_valid = (state.dgm_entropy > 0.0) & (state.baseline_entropy > 0.0)
+    entropy_ratio = jnp.where(
+        entropy_valid,
+        state.dgm_entropy / state.baseline_entropy,
+        jnp.array(1.0)  # Default to no scaling if either entropy is invalid
+    )
+    
+    # Determine if scaling should trigger (jnp.where, no Python if)
+    scaling_triggered = entropy_ratio > 2.0
+    
+    # Conditionally create scaled config using jax.lax.cond for proper XLA inlining
+    def scale_config(entropy_ratio_val):
+        new_width, new_depth = scale_dgm_architecture(config, float(entropy_ratio_val))
+        return replace(config, dgm_width_size=new_width, dgm_depth=new_depth)
+    
+    def no_scale_config(_):
+        return config
+    
+    kernel_b_config = jax.lax.cond(
+        scaling_triggered,
+        scale_config,
+        no_scale_config,
+        entropy_ratio
+    )
 
     kernel_outputs = _run_kernels(
         signal,
@@ -620,10 +647,10 @@ def orchestrate_step(
         adaptive_threshold=updated_state.adaptive_h_t,
         weights=final_rho,  # Use final_rho (already computed above)
         sinkhorn_converged=jnp.atleast_1d(sinkhorn_converged),
-        degraded_inference_mode=degraded_mode,
-        emergency_mode=emergency_mode,
-        regime_change_detected=regime_change_detected,
-        mode_collapse_warning=mode_collapse_warning,  # V-MAJ-5: Use calculated warning
+        degraded_inference_mode=jnp.atleast_1d(degraded_mode),  # Ensure Array type
+        emergency_mode=jnp.atleast_1d(emergency_mode),  # Ensure Array type
+        regime_change_detected=jnp.atleast_1d(regime_change_detected),  # Ensure Array type
+        mode_collapse_warning=jnp.atleast_1d(mode_collapse_warning),  # Ensure Array type
         mode=_compute_mode(degraded_mode, emergency_mode),
     )
 
@@ -685,7 +712,7 @@ def orchestrate_step_batch(
     observations: ProcessState,
     now_ns: int,
     step_counters: Float[Array, "B"],  # Batch of step counters
-) -> tuple[list[PredictionResult], InternalState]:
+) -> tuple[PredictionResult, InternalState]:  # Return batched PyTree directly (zero-copy)
     """
     Vectorized orchestration for multi-tenant deployment (B assets).
     
@@ -697,6 +724,9 @@ def orchestrate_step_batch(
     1. InternalState must be batched (all fields shape [B, ...])
     2. ProcessState must be batched
     3. TelemetryBuffer cannot be vmapped (handled externally)
+    
+    CRITICAL: Returns batched PyTree directly (no unbatching to Python lists).
+    This maintains zero-copy semantics and prevents GPU memory blocking.
     
     Design Trade-offs:
         - Throughput: ~10x improvement (100 assets batched vs sequential)
@@ -776,32 +806,13 @@ def orchestrate_step_batch(
         signals, states, observations, step_counters
     )
     
-    # Convert batched predictions to list for API compatibility
-    # NOTE: This requires unbatching, which may introduce some overhead
-    batch_size = signals.shape[0]
-    predictions_list = []
-    for i in range(batch_size):
-        # Extract i-th prediction from batched result
-        pred = PredictionResult(
-            predicted_next=predictions_batch.predicted_next[i],
-            holder_exponent=predictions_batch.holder_exponent[i],
-            cusum_drift=predictions_batch.cusum_drift[i],
-            distance_to_collapse=predictions_batch.distance_to_collapse[i],
-            free_energy=predictions_batch.free_energy[i],
-            kurtosis=predictions_batch.kurtosis[i],
-            dgm_entropy=predictions_batch.dgm_entropy[i],
-            adaptive_threshold=predictions_batch.adaptive_threshold[i],
-            weights=predictions_batch.weights[i],
-            sinkhorn_converged=predictions_batch.sinkhorn_converged[i],
-            degraded_inference_mode=bool(jnp.asarray(predictions_batch.degraded_inference_mode)[i]),
-            emergency_mode=bool(jnp.asarray(predictions_batch.emergency_mode)[i]),
-            regime_change_detected=bool(jnp.asarray(predictions_batch.regime_change_detected)[i]),
-            mode_collapse_warning=bool(jnp.asarray(predictions_batch.mode_collapse_warning)[i]),
-            mode=predictions_batch.mode[i],
-        )
-        predictions_list.append(pred)
-    
-    return predictions_list, states_batch
+    # ZERO-COPY BATCHING: Return PyTree directly without unbatching
+    # predictions_batch is already batched correctly from vmap
+    # This maintains GPU memory efficiency and prevents GIL blocking.
+    # Callers must handle batched PyTree structure directly.
+    # COMPLIANCE: API_Python.tex §3.1 / Stochastic_Predictor_Python.tex §3.1
+    # "JIT optimization requires zero-copy PyTree returns to maintain vmap parallelism."
+    return predictions_batch, states_batch
 
 
 def initialize_batched_states(

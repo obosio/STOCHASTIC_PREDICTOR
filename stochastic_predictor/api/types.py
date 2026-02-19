@@ -330,12 +330,12 @@ class PredictionResult:
     # Orchestrator State (Weight Simplex)
     weights: Float[Array, "4"]              # [ρ_A, ρ_B, ρ_C, ρ_D]
     
-    # Health and Control Flags (boolean)
+    # Health and Control Flags (boolean - as Arrays for JAX vmap purity)
     sinkhorn_converged: Bool[Array, "1"]    # JKO convergence
-    degraded_inference_mode: bool           # TTL violation (freezing)
-    emergency_mode: bool                    # H_t < H_min (singularity)
-    regime_change_detected: bool            # CUSUM alarm (G+ > h_t)
-    mode_collapse_warning: bool             # H_DGM < γ·H[g] (DGM collapse)
+    degraded_inference_mode: Bool[Array, "1"] # TTL violation (freezing)
+    emergency_mode: Bool[Array, "1"]        # H_t < H_min (singularity)
+    regime_change_detected: Bool[Array, "1"] # CUSUM alarm (G+ > h_t)
+    mode_collapse_warning: Bool[Array, "1"]  # H_DGM < γ·H[g] (DGM collapse)
     
     # Consolidated Operating Mode
     mode: str  # "Standard" | "Robust" | "Emergency"
