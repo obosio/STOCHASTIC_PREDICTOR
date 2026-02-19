@@ -198,6 +198,7 @@ def fuse_kernel_outputs(kernel_outputs, current_weights, ema_variance, config):
         sinkhorn_converged=sinkhorn_result.converged,
         sinkhorn_epsilon=sinkhorn_result.epsilon,
         sinkhorn_transport=sinkhorn_result.transport_matrix,
+        sinkhorn_max_err=sinkhorn_result.max_err,
     )
 \end{lstlisting}
 
@@ -213,7 +214,7 @@ PredictionResult.validate_simplex(updated_weights, config.validation_simplex_ato
 
 \begin{lstlisting}[language=Python]
 from .fusion import FusionResult, fuse_kernel_outputs
-from .sinkhorn import SinkhornResult, compute_sinkhorn_epsilon, volatility_coupled_sinkhorn
+from .sinkhorn import SinkhornResult, compute_sinkhorn_epsilon
 \end{lstlisting}
 
 \section{Compliance Checklist}
@@ -294,9 +295,10 @@ def compute_sinkhorn_epsilon(
     References:
         - Implementation.tex §2.4.2: Algorithm 2.4
     """
-    sigma_t = jnp.sqrt(jnp.maximum(ema_variance, config.numerical_epsilon))
+    ema_variance_sg = jax.lax.stop_gradient(ema_variance)
+    sigma_t = jnp.sqrt(jnp.maximum(ema_variance_sg, config.numerical_epsilon))
     epsilon_t = config.sinkhorn_epsilon_0 * (1.0 + config.sinkhorn_alpha * sigma_t)
-    return jnp.maximum(config.sinkhorn_epsilon_min, epsilon_t)
+    return jax.lax.stop_gradient(jnp.maximum(config.sinkhorn_epsilon_min, epsilon_t))
 \end{lstlisting}
 
 \subsection{Volatility-Coupled Sinkhorn Loop}
@@ -325,7 +327,7 @@ else:
         kernel_outputs=kernel_outputs,
         current_weights=state.rho,
         ema_variance=state.ema_variance,  # ← V-CRIT-2: Dynamic coupling!
-        config=config,
+        config=fusion_config,
     )
     updated_weights = fusion.updated_weights
     fused_prediction = fusion.fused_prediction
@@ -407,8 +409,7 @@ Crisis & 1.00 & 0.150 & Maximum entropy damping \\
 
 \begin{itemize}
     \item \texttt{compute\_sinkhorn\_epsilon()} is new but does not break existing APIs
-    \item \texttt{fuse\_kernel\_outputs()} adds optional parameter \texttt{ema\_variance} (already present in current code)
-    \item Old code passing static epsilon still works (falls back to internal EWMA computation)
+    \item \texttt{fuse\_kernel\_outputs()} requires \texttt{ema\_variance} for volatility coupling (call sites updated)
 \end{itemize}
 
 \chapter{V-CRIT-3: Grace Period Logic Implementation}
@@ -473,7 +474,7 @@ The grace counter is decremented on each normal step:
 grace_counter = updated_state.grace_counter
 if grace_counter > 0:
     grace_counter -= 1
-    updated_state = replace(updated_state, grace_counter=grace_counter, rho=state.rho)
+    updated_state = replace(updated_state, grace_counter=grace_counter)
     # V-CRIT-3: rho is frozen during grace period to prevent weight thrashing
 \end{lstlisting}
 
@@ -639,21 +640,31 @@ degraded_mode_recovery_counter: int = 0
 
 \textbf{Tag}: \texttt{impl/v2.1.0-autotuning}  
 \textbf{Date}: February 19, 2026  
-\textbf{Status}: Complete - 100\% Auto-Configurable System
+\textbf{Status}: Complete for adaptive orchestration; meta-optimization config wiring pending
 
-This chapter documents the completion of the 3-layer auto-tuning architecture per MIGRATION\_AUTOTUNING\_v1.0.md specification. The system now achieves full auto-parametrization with zero manual tuning required.
+This chapter documents the completion of the 3-layer auto-tuning architecture per MIGRATION\_AUTOTUNING\_v1.0.md specification. Adaptive orchestration is fully automated; meta-optimization range wiring to config remains pending.
 
 \section{Three-Layer Architecture}
 
-\subsection{Capa 1: JKO Entropy Reset (Automatic)}
+\subsection{Layer 1: JKO Entropy Reset (Automatic)}
 
-\textbf{Trigger}: CUSUM regime change alarm  
+\textbf{Trigger}: CUSUM regime change alarm (only when not already in grace period)  
 \textbf{Action}: Reset kernel weights to uniform simplex
 
 \begin{lstlisting}[language=Python]
-# orchestrator.py L204-206
+# orchestrator.py
 uniform_simplex = jnp.full((KernelType.N_KERNELS,), 1.0 / KernelType.N_KERNELS)
-new_rho = jnp.where(alarm_triggered, uniform_simplex, updated_rho)
+entropy_reset_triggered = regime_change_detected and (state.grace_counter == 0)
+in_grace_period = updated_state.grace_counter > 0
+
+if reject_observation:
+    final_rho = state.rho
+elif entropy_reset_triggered:
+    final_rho = uniform_simplex
+elif in_grace_period:
+    final_rho = state.rho
+else:
+    final_rho = updated_weights
 \end{lstlisting}
 
 \textbf{Mathematical Basis}: 
@@ -663,7 +674,7 @@ new_rho = jnp.where(alarm_triggered, uniform_simplex, updated_rho)
 
 Eliminates mode collapse risk by forcing equal kernel participation after structural break detection.
 
-\subsection{Capa 2: Adaptive Thresholds (Dynamic)}
+\subsection{Layer 2: Adaptive Thresholds (Dynamic)}
 
 \textbf{V-CRIT-AUTOTUNING-1}: \texttt{epsilon\_t} - Sinkhorn regularization coupled to volatility $\sigma_t$ (documented in §2.1)
 
@@ -671,7 +682,38 @@ Eliminates mode collapse risk by forcing equal kernel participation after struct
 
 Both apply \texttt{jax.lax.stop\_gradient()} to prevent gradient contamination per §4 VRAM constraint.
 
-\subsection{Capa 3: Meta-Optimization (Bayesian)}
+\paragraph{Orchestrator Integration (Adaptive Updates)}
+The adaptive parameters are computed inside \texttt{orchestrate\_step()} and injected into the fusion and kernel calls:
+
+\begin{lstlisting}[language=Python]
+# Volatility-coupled JKO parameters
+adaptive_entropy_window, adaptive_learning_rate = compute_adaptive_jko_params(
+    float(state.ema_variance),
+    sinkhorn_epsilon=float(config.sinkhorn_epsilon_0),
+)
+fusion_config = replace(
+    config,
+    learning_rate=adaptive_learning_rate,
+    entropy_window=adaptive_entropy_window,
+)
+
+# Holder-informed stiffness thresholds (Kernel C)
+theta_low, theta_high = compute_adaptive_stiffness_thresholds(
+    float(state.holder_exponent)
+)
+kernel_c_config = replace(config, stiffness_low=theta_low, stiffness_high=theta_high)
+
+# Entropy-topology coupling (Kernel B)
+entropy_ratio = compute_entropy_ratio(
+    float(state.dgm_entropy),
+    float(state.baseline_entropy)
+)
+if entropy_ratio > 2.0:
+    new_width, new_depth = scale_dgm_architecture(config, entropy_ratio)
+    kernel_b_config = replace(config, dgm_width_size=new_width, dgm_depth=new_depth)
+\end{lstlisting}
+
+\subsection{Layer 3: Meta-Optimization (Bayesian)}
 
 \textbf{V-CRIT-AUTOTUNING-3}: Meta-optimizer exported in \texttt{core/\_\_init\_\_.py}
 
@@ -687,16 +729,25 @@ from stochastic_predictor.core.meta_optimizer import (
 )
 
 __all__ = [
-    # Existing exports
-    "orchestrate_step",
-    "initialize_state",
-    "fuse_kernel_outputs",
-    "volatility_coupled_sinkhorn",
-    # V-CRIT-AUTOTUNING-3: Meta-optimization exports (NEW)
+    "AsyncMetaOptimizer",
     "BayesianMetaOptimizer",
+    "FusionResult",
+    "IntegrityError",
     "MetaOptimizationConfig",
     "OptimizationResult",
-    "IntegrityError",  # V-CRIT-1: Checkpoint integrity exception
+    "OrchestrationResult",
+    "SinkhornResult",
+    "compute_adaptive_jko_params",
+    "compute_adaptive_stiffness_thresholds",
+    "compute_entropy_ratio",
+    "compute_sinkhorn_epsilon",
+    "fuse_kernel_outputs",
+    "initialize_batched_states",
+    "initialize_state",
+    "orchestrate_step",
+    "orchestrate_step_batch",
+    "scale_dgm_architecture",
+    "walk_forward_split",
 ]
 \end{lstlisting}
 
@@ -1057,9 +1108,9 @@ def _objective(self, trial: optuna.Trial) -> float:
 \hline
 \textbf{Component} & \textbf{Before v2.1.0} & \textbf{After v2.1.0} \\
 \hline
-Capa 1 (JKO Reset) & 100\% & 100\% (unchanged) \\
-Capa 2 (Adaptive Thresholds) & 85\% & 100\% (+ stop\_gradient) \\
-Capa 3 (Meta-Optimization) & 95\% & 100\% (exported) \\
+Layer 1 (JKO Reset) & 100\% & 100\% (unchanged) \\
+Layer 2 (Adaptive Thresholds) & 85\% & 100\% (+ stop\_gradient) \\
+Layer 3 (Meta-Optimization) & 95\% & 100\% (exported) \\
 Level 4 Autonomy (V-CRIT violations) & 0\% (7/7 missing) & \textbf{100\%} (7/7 resolved) \\
 \textbf{Overall System} & \textbf{42\%} & \textbf{100\%} ✅ \\
 \hline
@@ -1279,9 +1330,9 @@ with open("io/snapshots/deep_tuning_summary.txt", "w") as f:
 
 \textbf{Tag}: \texttt{impl/v2.2.0-autotuning-complete}  
 \textbf{Date}: February 19, 2026  
-\textbf{Status}: 100\% Zero-Heuristics Compliance
+\textbf{Status}: GAP-6.3 pending (meta-optimization defaults not yet config-driven)
 
-This chapter documents the elimination of the final two hardcoded constants identified after v2.1.0 audit:
+This chapter documents the remediation plan for the final two hardcoded constants identified after v2.1.0 audit:
 
 \begin{itemize}
     \item \textbf{GAP-6.1}: Mode collapse warning threshold minimum (10) and ratio (1/10)
@@ -1320,7 +1371,7 @@ Updated calculation in \texttt{orchestrator.py}:
 # AFTER v2.2.0 (config-driven)
 mode_collapse_warning_threshold = max(
     config.mode_collapse_min_threshold,
-    int(config.entropy_window * config.mode_collapse_window_ratio)
+    int(fusion_config.entropy_window * config.mode_collapse_window_ratio)
 )
 \end{lstlisting}
 
@@ -1349,9 +1400,13 @@ class MetaOptimizationConfig:
 
 This violated the zero-heuristics principle (all metaparameters must be config-driven).
 
-\subsection{Solution}
+\subsection{Current Status}
 
-Created new \texttt{[meta\_optimization]} section in \texttt{config.toml}:
+\texttt{MetaOptimizationConfig} still defines default ranges in code. A \texttt{[meta\_optimization]} section exists in \texttt{config.toml}, but values are not yet wired into \texttt{MetaOptimizationConfig}. This remains a pending refactor to fully eliminate hardcoded defaults.
+
+\subsection{Planned Solution}
+
+Create a dedicated config loader that maps \texttt{[meta\_optimization]} into \texttt{MetaOptimizationConfig} and removes hardcoded defaults.
 
 \begin{verbatim}
 [meta_optimization]
@@ -1384,11 +1439,11 @@ n_folds = 5
 
 \textbf{Field Registration}:
 
-Added 17 new mappings to \texttt{FIELD\_TO\_SECTION\_MAP} in \texttt{api/config.py} for seamless injection.
+No \texttt{FIELD\_TO\_SECTION\_MAP} mappings exist yet for \texttt{[meta\_optimization]}; this is part of the pending refactor.
 
-\subsection{Dataclass Fallback Strategy}
+\subsection{Dataclass Defaults}
 
-The dataclass defaults remain in \texttt{meta\_optimizer.py} as fallback values for unit tests and programmatic initialization. When instantiating via \texttt{PredictorConfigInjector}, config.toml values override defaults.
+The dataclass defaults in \texttt{meta\_optimizer.py} are currently authoritative. The planned config loader will override these defaults when implemented.
 
 \section{Compliance Status}
 
@@ -1399,14 +1454,14 @@ The dataclass defaults remain in \texttt{meta\_optimizer.py} as fallback values 
 \textbf{Gap ID} & \textbf{Before v2.2.0} & \textbf{After v2.2.0} \\
 \hline
 GAP-6.1 (mode\_collapse) & Hardcoded & Config-driven ✅ \\
-GAP-6.3 (meta\_optimization) & Hardcoded & Config-driven ✅ \\
-\textbf{Overall System} & \textbf{98\%} & \textbf{100\%} ✅ \\
+GAP-6.3 (meta\_optimization) & Hardcoded & Pending (config not wired) \\
+\textbf{Overall System} & \textbf{98\%} & \textbf{98\%} (GAP-6.3 pending) \\
 \hline
 \end{tabular}
 \caption{Final Gap Closure Progress}
 \end{table}
 
-\textbf{Zero-Heuristics Certification}: The system now contains ZERO hardcoded metaparameters. All algorithmic constants are config-driven and externalized to \texttt{config.toml}.
+\textbf{Zero-Heuristics Certification}: GAP-6.3 remains open because meta-optimization defaults still live in \texttt{meta\_optimizer.py}. All other audited constants are config-driven.
 
 \chapter{Level 4 Autonomy: Adaptive Architecture \& Solver Selection}
 
@@ -1529,20 +1584,16 @@ def scale_dgm_architecture(
 
 \subsection{Integration Pattern}
 
-The architecture scaling is triggered during regime transitions detected by CUSUM:
+The architecture scaling is triggered when entropy increases relative to the current baseline:
 
 \begin{lstlisting}[language=Python]
-# In orchestrator.py (future integration)
-if state.regime_changed:
-    κ = compute_entropy_ratio(state.dgm_entropy, baseline_entropy)
-    
+# In orchestrator.py
+if float(state.dgm_entropy) > 0.0 and float(state.baseline_entropy) > 0.0:
+    κ = compute_entropy_ratio(state.dgm_entropy, state.baseline_entropy)
     if κ > 2.0:
         # Significant entropy increase → scale DGM
         new_width, new_depth = scale_dgm_architecture(config, κ)
-        
-        # Trigger JIT recompilation with scaled architecture
-        # (requires dynamic config update mechanism)
-        updated_config = replace(
+        kernel_b_config = replace(
             config,
             dgm_width_size=new_width,
             dgm_depth=new_depth
@@ -1638,19 +1689,16 @@ def compute_adaptive_stiffness_thresholds(
 
 \subsection{Integration Pattern}
 
-Thresholds are updated after each WTMM analysis in Kernel A:
+Thresholds are updated per step using the latest holder exponent stored in state:
 
 \begin{lstlisting}[language=Python]
-# In orchestrator.py (future integration)
-# After kernel_a_predict() execution
-wtmm_result = kernel_outputs[0]  # Kernel A output
-α_wtmm = wtmm_result.holder_exponent
+# In orchestrator.py
+new_theta_low, new_theta_high = compute_adaptive_stiffness_thresholds(
+    float(state.holder_exponent)
+)
 
-# Update stiffness thresholds for Kernel C
-new_theta_low, new_theta_high = compute_adaptive_stiffness_thresholds(α_wtmm)
-
-# Apply to Kernel C configuration (requires dynamic update mechanism)
-updated_config = replace(
+# Apply to Kernel C configuration
+kernel_c_config = replace(
     config,
     stiffness_low=new_theta_low,
     stiffness_high=new_theta_high

@@ -292,7 +292,7 @@ def collect_adaptive_telemetry(
         entropy_ratio = float(state.dgm_entropy) / baseline_entropy_val
     
     # Extract DGM architecture from config
-    dgm_width = 2 ** config.dgm_width_pow2
+    dgm_width = config.dgm_width_size
     dgm_depth = config.dgm_depth
     
     # Extract JKO flow parameters from config

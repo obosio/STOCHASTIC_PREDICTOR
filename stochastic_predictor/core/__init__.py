@@ -19,10 +19,9 @@ Key algorithms:
 
 Expected module structure:
   - orchestrator.py: Main orchestration logic
-  - sia.py: System identification module
   - fusion.py: Wasserstein transport fusion (JKO + Sinkhorn)
-  - cusum.py: Change point detection
-  - entropy.py: Entropy monitoring and state vector
+  - sinkhorn.py: Volatility-coupled entropic regularization
+  - meta_optimizer.py: Bayesian meta-optimization utilities
 """
 
 from .fusion import FusionResult, fuse_kernel_outputs

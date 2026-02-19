@@ -71,20 +71,20 @@ def evaluate_ingestion(
     # If frozen, but variance has recovered above threshold, lift the frozen flag
     in_recovery = False
     if frozen:
-        # Use EMA variance from state as variance history proxy
-        ema_variance_scalar = float(state.ema_variance)
-        # Build variance history from residual buffer std
-        residual_buffer = np.asarray(state.residual_buffer, dtype=np.float64)
-        residual_variance = float(np.var(residual_buffer)) if residual_buffer.size > 0 else 1e-10
-        
+        residual_window = np.asarray(state.residual_window, dtype=np.float64)
+        historical_variance = float(np.var(residual_window)) if residual_window.size > 1 else 0.0
+        recent_window = residual_window[-config.frozen_signal_recovery_steps:]
+        recent_variance = float(np.var(recent_window)) if recent_window.size > 1 else 0.0
+        variance_history = [recent_variance] * config.frozen_signal_recovery_steps
+
         # Check if variance has recovered: recent_var > ratio_threshold * baseline_var
         in_recovery = detect_frozen_recovery(
-            variance_history=[residual_variance],  # Single recent measurement
-            historical_variance=float(np.maximum(residual_variance, 1e-10)),
+            variance_history=variance_history,
+            historical_variance=historical_variance,
             ratio_threshold=config.frozen_signal_recovery_ratio,
             consecutive_steps=config.frozen_signal_recovery_steps,
         )
-        
+
         # If in recovery, lift the frozen flag
         if in_recovery:
             frozen = False

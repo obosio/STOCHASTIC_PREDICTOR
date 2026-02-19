@@ -90,11 +90,15 @@ stochastic_predictor/
 │   ├── validation.py      
 │   ├── schemas.py         
 │   ├── config.py          
+│   ├── state_buffer.py    
+│   ├── warmup.py          
 │   └── __init__.py        
 │
 ├── core/                   Layer 2: Orchestration Logic
-│   ├── jko.py             
-│   ├── wasserstein.py     
+│   ├── orchestrator.py    
+│   ├── fusion.py          
+│   ├── sinkhorn.py        
+│   ├── meta_optimizer.py  
 │   └── __init__.py
 │
 ├── kernels/                Layer 3: Stateless Kernels (A, B, C, D)
@@ -106,7 +110,12 @@ stochastic_predictor/
 │   └── __init__.py
 │
 ├── io/                     Layer 4: Snapshots & Streaming
+│   ├── config_mutation.py 
+│   ├── credentials.py     
+│   ├── loaders.py         
 │   ├── snapshots.py       
+│   ├── telemetry.py       
+│   ├── validators.py      
 │   └── __init__.py
 │
 └── tests/                  Layer 5: Test Infrastructure (scaffold)

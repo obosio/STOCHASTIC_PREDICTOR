@@ -10,7 +10,7 @@ References:
 """
 
 from dataclasses import dataclass
-from typing import Optional
+from typing import Optional, Union
 import jax.numpy as jnp
 from jaxtyping import Float, Array, Bool, PRNGKeyArray
 
@@ -431,7 +431,7 @@ class InternalState:
     # CUSUM Statistics
     cusum_g_plus: Float[Array, "1"]         # G^+: Positive drift accumulated
     cusum_g_minus: Float[Array, "1"]        # G^-: Negative drift accumulated
-    grace_counter: int                      # Refractory period counter
+    grace_counter: Union[int, Array]        # Refractory period counter
     adaptive_h_t: Float[Array, "1"]         # h_t: Kurtosis-adaptive CUSUM threshold
     
     # EWMA Volatility
@@ -441,22 +441,22 @@ class InternalState:
     kurtosis: Float[Array, "1"]             # κ_t: Empirical kurtosis
     holder_exponent: Float[Array, "1"]      # H_t: WTMM Holder
     dgm_entropy: Float[Array, "1"]          # H_DGM: Kernel B entropy
-    mode_collapse_consecutive_steps: int    # V-MAJ-5: Counter for consecutive low-entropy steps
-    degraded_mode_recovery_counter: int     # V-MAJ-7: Steps needed to recover from degraded mode
+    mode_collapse_consecutive_steps: Union[int, Array]    # V-MAJ-5: Counter for consecutive low-entropy steps
+    degraded_mode_recovery_counter: Union[int, Array]     # V-MAJ-7: Steps needed to recover from degraded mode
     
     # V-MAJ-7: Level 4 Autonomy Adaptive Telemetry
     baseline_entropy: Float[Array, "1"]     # H_baseline: Reference entropy for κ = H_current / H_baseline
-    solver_explicit_count: int              # N_explicit: Explicit SDE solver steps in window
-    solver_implicit_count: int              # N_implicit: Implicit SDE solver steps in window
-    architecture_scaling_events: int        # N_scale: DGM architecture scaling events
+    solver_explicit_count: Union[int, Array]              # N_explicit: Explicit SDE solver steps in window
+    solver_implicit_count: Union[int, Array]              # N_implicit: Implicit SDE solver steps in window
+    architecture_scaling_events: Union[int, Array]        # N_scale: DGM architecture scaling events
     
     # State Flags
-    degraded_mode: bool                     # Degraded mode active
-    emergency_mode: bool                    # Emergency mode active
-    regime_changed: bool                    # Regime change detected
+    degraded_mode: Union[bool, Array]       # Degraded mode active
+    emergency_mode: Union[bool, Array]      # Emergency mode active
+    regime_changed: Union[bool, Array]      # Regime change detected
     
     # Timestamp Control
-    last_update_ns: int                     # Last processed timestamp
+    last_update_ns: Union[int, Array]       # Last processed timestamp
     
     # PRNG State (threefry2x32)
     rng_key: PRNGKeyArray                   # JAX key for reproducibility

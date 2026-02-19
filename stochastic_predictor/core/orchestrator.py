@@ -5,7 +5,7 @@ and emits PredictionResult with configuration-driven validation.
 """
 
 from dataclasses import dataclass, replace
-from typing import Optional
+from typing import Optional, TYPE_CHECKING
 
 import jax
 import jax.numpy as jnp
@@ -20,6 +20,9 @@ from stochastic_predictor.io.loaders import evaluate_ingestion
 from stochastic_predictor.io.telemetry import TelemetryBuffer, TelemetryRecord, should_emit_hash, parity_hashes  # P2.3: Telemetry integration
 from stochastic_predictor.kernels import kernel_a_predict, kernel_b_predict, kernel_c_predict, kernel_d_predict
 from stochastic_predictor.kernels.base import KernelOutput, validate_kernel_input
+
+if TYPE_CHECKING:
+    from stochastic_predictor.io.config_mutation import MutationRateLimiter, DegradationMonitor
 
 
 @dataclass(frozen=True)
@@ -63,6 +66,10 @@ def initialize_state(
         dgm_entropy=jnp.array(0.0),
         mode_collapse_consecutive_steps=0,  # V-MAJ-5: Initialize counter
         degraded_mode_recovery_counter=0,  # V-MAJ-7: Initialize hysteresis counter
+        baseline_entropy=jnp.array(0.0),
+        solver_explicit_count=0,
+        solver_implicit_count=0,
+        architecture_scaling_events=0,
         degraded_mode=False,
         emergency_mode=False,
         regime_changed=False,
@@ -312,6 +319,8 @@ def _run_kernels(
     config: PredictorConfig,
     freeze_kernel_d: bool = False,
     ema_variance: Optional[Float[Array, ""]] = None,  # V-MAJ-1: Optional parameter for adaptive entropy threshold
+    config_b: Optional[PredictorConfig] = None,
+    config_c: Optional[PredictorConfig] = None,
 ) -> tuple[KernelOutput, KernelOutput, KernelOutput, KernelOutput]:
     """Execute kernels A-D with independent PRNG keys.
     
@@ -329,9 +338,12 @@ def _run_kernels(
           so downstream fusion logic can handle it appropriately.
     """
     key_a, key_b, key_c, key_d = jax.random.split(rng_key, KernelType.N_KERNELS)
+    config_b = config_b or config
+    config_c = config_c or config
+
     output_a = kernel_a_predict(signal, key_a, config)
-    output_b = kernel_b_predict(signal, key_b, config, ema_variance=ema_variance)  # V-MAJ-1: Pass ema_variance
-    output_c = kernel_c_predict(signal, key_c, config)
+    output_b = kernel_b_predict(signal, key_b, config_b, ema_variance=ema_variance)  # V-MAJ-1: Pass ema_variance
+    output_c = kernel_c_predict(signal, key_c, config_c)
     output_d = kernel_d_predict(signal, key_d, config)
     
     # Mark kernel D if frozen (no state update to its weight)
@@ -365,6 +377,8 @@ def orchestrate_step(
     now_ns: int,
     telemetry_buffer: Optional[TelemetryBuffer] = None,  # P2.3: Telemetry buffer for audit trail
     step_counter: int = 0,  # P2.3: Step number for telemetry records
+    mutation_rate_limiter: Optional["MutationRateLimiter"] = None,
+    degradation_monitor: Optional["DegradationMonitor"] = None,
 ) -> OrchestrationResult:
     """Run a single orchestration step with IO ingestion validation."""
     min_length = config.base_min_signal_length
@@ -412,12 +426,42 @@ def orchestrate_step(
     # Store recovery counter for telemetry (V-MAJ-7)
     degraded_recovery_counter = degraded_mode_recovery_counter
 
+    # Adaptive JKO parameters (volatility-coupled learning rate + entropy window)
+    adaptive_entropy_window, adaptive_learning_rate = compute_adaptive_jko_params(
+        float(state.ema_variance),
+        sinkhorn_epsilon=float(config.sinkhorn_epsilon_0),
+    )
+    fusion_config = replace(
+        config,
+        learning_rate=adaptive_learning_rate,
+        entropy_window=adaptive_entropy_window,
+    )
+
+    # Hölder-informed stiffness thresholds (Kernel C)
+    theta_low, theta_high = compute_adaptive_stiffness_thresholds(float(state.holder_exponent))
+    kernel_c_config = replace(config, stiffness_low=theta_low, stiffness_high=theta_high)
+
+    # Entropy-topology coupling for DGM (Kernel B) - based on previous entropy
+    kernel_b_config = config
+    scaling_triggered = False
+    if float(state.dgm_entropy) > 0.0 and float(state.baseline_entropy) > 0.0:
+        entropy_ratio = compute_entropy_ratio(
+            float(state.dgm_entropy),
+            float(state.baseline_entropy)
+        )
+        if entropy_ratio > 2.0:
+            new_width, new_depth = scale_dgm_architecture(config, entropy_ratio)
+            kernel_b_config = replace(config, dgm_width_size=new_width, dgm_depth=new_depth)
+            scaling_triggered = True
+
     kernel_outputs = _run_kernels(
-        signal, 
-        state.rng_key, 
-        config, 
+        signal,
+        state.rng_key,
+        config,
         freeze_kernel_d=ingestion_decision.freeze_kernel_d,
-        ema_variance=state.ema_variance  # V-MAJ-1: Pass for adaptive entropy threshold
+        ema_variance=state.ema_variance,  # V-MAJ-1: Pass for adaptive entropy threshold
+        config_b=kernel_b_config,
+        config_c=kernel_c_config,
     )
 
     if degraded_mode or ingestion_decision.suspend_jko_update:
@@ -433,7 +477,7 @@ def orchestrate_step(
             kernel_outputs=kernel_outputs,
             current_weights=state.rho,
             ema_variance=state.ema_variance,
-            config=config,
+            config=fusion_config,
         )
         updated_weights = fusion.updated_weights
         fused_prediction = fusion.fused_prediction
@@ -460,6 +504,16 @@ def orchestrate_step(
             new_residual=residual,
             config=config,
         )
+
+    force_emergency = False
+    # Degradation monitor (post-mutation rollback guardrail)
+    if degradation_monitor is not None and not reject_observation:
+        degradation_monitor.record_prediction_error(float(residual))
+        degraded, _ = degradation_monitor.check_degradation()
+        if degraded:
+            degradation_monitor.trigger_rollback()
+            degraded_mode = True
+            force_emergency = True
 
     # CAPA 1: Entropy reset on regime change (CUSUM alarm)
     # Mandato: ρ → Softmax(0) = uniform simplex [0.25, 0.25, 0.25, 0.25]
@@ -514,16 +568,41 @@ def orchestrate_step(
     # Warning threshold: config-driven (eliminates hardcoded constants)
     mode_collapse_warning_threshold = max(
         config.mode_collapse_min_threshold,
-        int(config.entropy_window * config.mode_collapse_window_ratio)
+        int(fusion_config.entropy_window * config.mode_collapse_window_ratio)
     )
     mode_collapse_warning = bool(mode_collapse_counter >= mode_collapse_warning_threshold)
     
+    # Update baseline entropy and architecture scaling counters
+    current_entropy = float(updated_state.dgm_entropy)
+    baseline_entropy = float(state.baseline_entropy)
+    if baseline_entropy <= 0.0 and current_entropy > 0.0:
+        baseline_entropy = current_entropy
+    if regime_change_detected and current_entropy > 0.0:
+        baseline_entropy = current_entropy
+
+    # Track solver usage for adaptive telemetry
+    solver_type = kernel_outputs[KernelType.KERNEL_C].metadata.get("solver_type", "")
+    solver_explicit_count = state.solver_explicit_count
+    solver_implicit_count = state.solver_implicit_count
+    if solver_type in {"euler", "heun"}:
+        solver_explicit_count += 1
+    elif solver_type == "implicit_euler":
+        solver_implicit_count += 1
+
     updated_state = replace(
         updated_state,
+        baseline_entropy=jnp.asarray(baseline_entropy),
+        solver_explicit_count=solver_explicit_count,
+        solver_implicit_count=solver_implicit_count,
+        architecture_scaling_events=(
+            state.architecture_scaling_events + 1 if scaling_triggered else state.architecture_scaling_events
+        ),
         mode_collapse_consecutive_steps=mode_collapse_counter
     )
 
     emergency_mode = bool(updated_state.holder_exponent < config.holder_threshold)
+    if force_emergency:
+        emergency_mode = True
     
     # Override emergency mode if observation was rejected
     if reject_observation:
@@ -582,6 +661,9 @@ def orchestrate_step(
         if should_emit_hash(step_counter, config.telemetry_hash_interval_steps):
             telemetry_record = TelemetryRecord(step=step_counter, payload=telemetry_payload)
             telemetry_buffer.enqueue(telemetry_record)
+
+    if mutation_rate_limiter is not None:
+        mutation_rate_limiter.increment_stability_counter()
 
     return OrchestrationResult(
         prediction=prediction,
@@ -711,10 +793,10 @@ def orchestrate_step_batch(
             adaptive_threshold=predictions_batch.adaptive_threshold[i],
             weights=predictions_batch.weights[i],
             sinkhorn_converged=predictions_batch.sinkhorn_converged[i],
-            degraded_inference_mode=bool(predictions_batch.degraded_inference_mode[i]),
-            emergency_mode=bool(predictions_batch.emergency_mode[i]),
-            regime_change_detected=bool(predictions_batch.regime_change_detected[i]),
-            mode_collapse_warning=bool(predictions_batch.mode_collapse_warning[i]),
+            degraded_inference_mode=bool(jnp.asarray(predictions_batch.degraded_inference_mode)[i]),
+            emergency_mode=bool(jnp.asarray(predictions_batch.emergency_mode)[i]),
+            regime_change_detected=bool(jnp.asarray(predictions_batch.regime_change_detected)[i]),
+            mode_collapse_warning=bool(jnp.asarray(predictions_batch.mode_collapse_warning)[i]),
             mode=predictions_batch.mode[i],
         )
         predictions_list.append(pred)
@@ -775,6 +857,10 @@ def initialize_batched_states(
         dgm_entropy=jnp.stack([single_state.dgm_entropy] * batch_size),
         mode_collapse_consecutive_steps=jnp.array([single_state.mode_collapse_consecutive_steps] * batch_size, dtype=jnp.int32),
         degraded_mode_recovery_counter=jnp.array([single_state.degraded_mode_recovery_counter] * batch_size, dtype=jnp.int32),
+        baseline_entropy=jnp.stack([single_state.baseline_entropy] * batch_size),
+        solver_explicit_count=jnp.array([single_state.solver_explicit_count] * batch_size, dtype=jnp.int32),
+        solver_implicit_count=jnp.array([single_state.solver_implicit_count] * batch_size, dtype=jnp.int32),
+        architecture_scaling_events=jnp.array([single_state.architecture_scaling_events] * batch_size, dtype=jnp.int32),
         degraded_mode=jnp.array([single_state.degraded_mode] * batch_size, dtype=bool),
         emergency_mode=jnp.array([single_state.emergency_mode] * batch_size, dtype=bool),
         regime_changed=jnp.array([single_state.regime_changed] * batch_size, dtype=bool),

@@ -170,7 +170,7 @@ def solve_sde(
     key: Array,
     config,
     args: tuple = ()
-) -> Float[Array, "d"]:
+) -> tuple[Float[Array, "d"], str, float]:
     """
     Solve SDE using Diffrax.
     
@@ -213,6 +213,12 @@ def solve_sde(
     # Estimate current stiffness from drift/diffusion at initial state
     current_stiffness = estimate_stiffness(drift_fn, diffusion_fn, y0, t0, args, config)
     solver_obj = select_stiffness_solver(current_stiffness, config)
+    if isinstance(solver_obj, diffrax.ImplicitEuler):
+        solver_type = "implicit_euler"
+    elif isinstance(solver_obj, diffrax.Heun):
+        solver_type = "heun"
+    else:
+        solver_type = "euler"
     
     # Adaptive step size controller (Zero-Heuristics: tolerances from config)
     stepsize_controller = diffrax.PIDController(
@@ -236,7 +242,7 @@ def solve_sde(
     )
     
     # Return final state
-    return solution.ys[-1] if solution.ys is not None else y0
+    return (solution.ys[-1] if solution.ys is not None else y0), solver_type, float(current_stiffness)
 
 
 @jax.jit
@@ -294,7 +300,7 @@ def kernel_c_predict(
     args = (mu, alpha, beta, sigma)
     
     # Integrate SDE (config injection pattern)
-    y_final = solve_sde(
+    y_final, solver_type, stiffness_metric = solve_sde(
         drift_fn=drift_levy_stable,
         diffusion_fn=diffusion_levy,
         y0=y0,
@@ -325,7 +331,8 @@ def kernel_c_predict(
         "alpha": alpha,
         "beta": beta,
         "horizon": horizon,
-        "solver": config.sde_solver_type,
+        "solver_type": solver_type,
+        "stiffness_metric": stiffness_metric,
         "final_state": y_final[0]
     }
     

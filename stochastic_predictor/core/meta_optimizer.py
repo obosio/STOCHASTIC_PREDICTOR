@@ -16,6 +16,7 @@ import numpy as np
 import pickle
 import hashlib
 from pathlib import Path
+import toml
 
 try:
     import optuna
@@ -27,6 +28,12 @@ except ImportError:
     TPESampler = None  # type: ignore
 
 from stochastic_predictor.api.types import PredictorConfig
+from stochastic_predictor.api.config import FIELD_TO_SECTION_MAP
+from stochastic_predictor.io.config_mutation import (
+    atomic_write_config,
+    ConfigMutationError,
+    MutationRateLimiter,
+)
 
 
 class IntegrityError(Exception):
@@ -410,6 +417,63 @@ class BayesianMetaOptimizer:
         generalization_error = self.evaluator(candidate_params)
         
         return generalization_error
+
+    def export_best_params_to_config(
+        self,
+        config_path: str,
+        trigger: str = "MetaOptimization",
+        rate_limiter: Optional[MutationRateLimiter] = None,
+    ) -> None:
+        """
+        Export best parameters to config.toml using atomic mutation protocol.
+
+        Args:
+            config_path: Path to config.toml
+            trigger: Audit log trigger label
+            rate_limiter: Optional MutationRateLimiter for guardrails
+
+        Raises:
+            ValueError: If optimization has not run or mapping missing
+            ConfigMutationError: If rate limiting blocks mutation
+        """
+        if self.study is None:
+            raise ValueError("No optimization results available. Run optimize() first.")
+
+        best_params = dict(self.study.best_params)
+        dotted_params: Dict[str, Any] = {}
+        for key, value in best_params.items():
+            if key not in FIELD_TO_SECTION_MAP:
+                raise ValueError(f"Missing FIELD_TO_SECTION_MAP entry for '{key}'")
+            section = FIELD_TO_SECTION_MAP[key]
+            dotted_params[f"{section}.{key}"] = value
+
+        delta: Dict[str, tuple[float, float]] = {}
+        if rate_limiter is not None:
+            can_mutate, reason = rate_limiter.can_mutate()
+            if not can_mutate:
+                raise ConfigMutationError(f"Mutation blocked: {reason}")
+
+            current_config = toml.load(config_path)
+            for dotted_key, new_value in dotted_params.items():
+                parts = dotted_key.split(".")
+                current = current_config
+                for part in parts:
+                    current = current[part]
+                delta[dotted_key] = (float(current), float(new_value))
+
+            valid, reason = rate_limiter.validate_delta(delta)
+            if not valid:
+                raise ConfigMutationError(f"Delta rejected: {reason}")
+
+        atomic_write_config(
+            Path(config_path),
+            dotted_params,
+            trigger=trigger,
+            best_objective=float(self.study.best_value),
+        )
+
+        if rate_limiter is not None:
+            rate_limiter.record_mutation(delta)
     
     def optimize(
         self,

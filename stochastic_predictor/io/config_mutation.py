@@ -44,43 +44,46 @@ class ConfigMutationError(Exception):
 # Locked subsections (immutable to prevent self-corruption)
 # COMPLIANCE: IO.tex §3.3.4 - Invariant Protection
 LOCKED_SUBSECTIONS = {
-    "io": ["snapshot_path", "telemetry_buffer_maxlen", "credentials_vault_path"],
-    "security": [
+    "meta": ["schema_version"],
+    "core": ["jax_platforms", "jax_default_dtype", "float_precision", "staleness_ttl_ns"],
+    "io": [
+        "snapshot_format",
+        "snapshot_hash_algorithm",
+        "snapshot_compression",
         "telemetry_hash_interval_steps",
-        "snapshot_integrity_hash_algorithm",
-        "allowed_mutation_rate_per_hour",
     ],
-    "core": ["float_precision", "jax_platform"],
-    "meta_optimization": [
-        "max_deep_tuning_iterations",
-        "checkpoint_path",
-        "mutation_protocol_version",
-    ],
+    "meta_optimization": ["n_trials", "n_startup_trials", "multivariate", "train_ratio", "n_folds"],
 }
 
 # Validation schema for mutable parameters
 # COMPLIANCE: IO.tex §3.3.5 - Validation Schema
 VALIDATION_SCHEMA = {
-    # Sensitivity Parameters
-    "sensitivity.cusum_k": {"type": float, "range": (0.3, 1.5)},
-    "sensitivity.cusum_grace_period_steps": {"type": int, "range": (5, 100)},
-    "sensitivity.ema_smoothing_alpha": {"type": float, "range": (0.01, 0.3)},
-    "sensitivity.entropy_window_seconds": {"type": float, "range": (1.0, 300.0)},
-    "sensitivity.learning_rate": {"type": float, "range": (1e-5, 1e-2)},
+    # Orchestration Parameters
+    "orchestration.cusum_k": {"type": float, "range": (0.1, 1.0)},
+    "orchestration.cusum_h": {"type": float, "range": (2.0, 10.0)},
+    "orchestration.grace_period_steps": {"type": int, "range": (5, 100)},
+    "orchestration.volatility_alpha": {"type": float, "range": (0.05, 0.3)},
+    "orchestration.learning_rate": {"type": float, "range": (1e-5, 1e-1)},
+    "orchestration.entropy_window": {"type": int, "range": (10, 500)},
+    "orchestration.entropy_threshold": {"type": float, "range": (0.5, 0.95)},
+    "orchestration.holder_threshold": {"type": float, "range": (0.2, 0.65)},
+    "orchestration.sinkhorn_alpha": {"type": float, "range": (0.1, 1.0)},
+    "orchestration.sinkhorn_epsilon_min": {"type": float, "range": (0.001, 0.1)},
+    "orchestration.sinkhorn_epsilon_0": {"type": float, "range": (0.05, 0.5)},
+    "orchestration.sinkhorn_max_iter": {"type": int, "range": (50, 500)},
     # Kernel Parameters
+    "kernels.log_sig_depth": {"type": int, "range": (2, 5)},
+    "kernels.wtmm_buffer_size": {"type": int, "range": (64, 512), "constraint": "power_of_2"},
+    "kernels.besov_cone_c": {"type": float, "range": (1.0, 3.0)},
     "kernels.dgm_width_size": {"type": int, "range": (32, 256), "constraint": "power_of_2"},
     "kernels.dgm_depth": {"type": int, "range": (2, 6)},
+    "kernels.dgm_entropy_num_bins": {"type": int, "range": (20, 100)},
     "kernels.stiffness_low": {"type": float, "range": (50.0, 500.0)},
     "kernels.stiffness_high": {"type": float, "range": (500.0, 5000.0)},
-    "kernels.wtmm_num_scales": {"type": int, "range": (4, 16)},
-    "kernels.wtmm_sigma": {"type": float, "range": (0.5, 2.0)},
-    # Orchestrator Parameters
-    "orchestrator.weight_decay_rate": {"type": float, "range": (0.001, 0.1)},
-    "orchestrator.mode_collapse_threshold": {"type": float, "range": (0.1, 0.9)},
-    # Numerical Parameters
-    "numerical.sinkhorn_epsilon": {"type": float, "range": (0.001, 0.5)},
-    "numerical.sinkhorn_max_iterations": {"type": int, "range": (10, 500)},
-    "numerical.log_sig_depth": {"type": int, "range": (3, 5)},
+    "kernels.sde_dt": {"type": float, "range": (0.001, 0.1)},
+    "kernels.sde_numel_integrations": {"type": int, "range": (50, 200)},
+    "kernels.sde_diffusion_sigma": {"type": float, "range": (0.05, 0.5)},
+    "kernels.kernel_ridge_lambda": {"type": float, "range": (1e-8, 1e-3)},
 }
 
 
@@ -157,7 +160,7 @@ def validate_config_mutation(
         if param_key not in VALIDATION_SCHEMA:
             raise ConfigMutationError(
                 f"Parameter '{param_key}' not in validation schema. "
-                f"Only mutable subsections allowed: sensitivity, kernels, orchestrator, numerical"
+                f"Only mutable subsections allowed: orchestration, kernels"
             )
         
         rules = VALIDATION_SCHEMA[param_key]
