@@ -1,51 +1,51 @@
 # Golden Master - Dependency Pinning (FROZEN)
 # Universal Stochastic Predictor Implementation
 # Version: v1.0.0-Diamond-Spec
-# Date: 18 de febrero de 2026
+# Date: February 18, 2026
 
 # CRITICAL: Use == for all packages
 # Prohibition: >= and pip install -U are forbidden
 # Rationale: See doc/Predictor_Estocastico_Python.tex §2.1
 
 # ==================== Core XLA ==================== #
-# Motor fundamental de computación diferenciable con soporte GPU/TPU
+# Fundamental engine for differentiable computing with GPU/TPU support
 jax==0.4.20
 jaxlib==0.4.20
 
 # ==================== Neural Networks ==================== #
-# Framework pythónico para Ramas B (Fokker-Planck, DGM) y C (Neural ODEs)
+# Pythonic framework for Branch B (Fokker-Planck, DGM) and C (Neural ODEs)
 equinox==0.11.2
 
 # ==================== SDE/ODE Solvers ==================== #
-# Solvers diferenciables para ecuaciones diferenciales estocásticas (Rama C)
-# Soporta Euler-Maruyama, esquemas implícitos, transición dinámica según rigidez
+# Differentiable solvers for stochastic differential equations (Branch C)
+# Supports Euler-Maruyama, implicit schemes, and dynamic stiffness transition
 diffrax==0.4.1
 
 # ==================== Type Annotations ==================== #
-# Type hints para JAX: tipado estático con jax arrays y operaciones
-jaxtyping==0.3.9
+# Type hints for JAX: static typing for jax arrays and operations
+jaxtyping==0.2.25
 
 # ==================== Optimal Transport ==================== #
-# Transporte óptimo diferenciable: algoritmo JKO, Sinkhorn con regularización acoplada a volatilidad
+# Differentiable optimal transport: JKO algorithm, Sinkhorn with volatility-coupled regularization
 ott-jax==0.4.5
 
-# ==================== Log-Signatures (Rama D) ==================== #
-# Cálculo robusto de signatures para rough paths analysis
-# Procesos con baja regularidad de Hölder (H ≤ 1/2)
+# ==================== Log-Signatures (Branch D) ==================== #
+# Robust signature calculation for rough paths analysis
+# Processes with low Holder regularity (H <= 1/2)
 signax==0.1.4
 
 # ==================== Wavelet Analysis (SIA) ==================== #
-# Transformada wavelet continua para multifractal analysis (WTMM)
-# Detección de singularidades locales y espectro de singularidades
+# Continuous wavelet transform for multifractal analysis (WTMM)
+# Detection of local singularities and singularity spectrum
 PyWavelets==1.4.1
 
 # ==================== Scientific Computing ==================== #
-# Fundaciones matemáticas: operaciones numéricas, funciones especiales
+# Mathematical foundations: numerical operations, special functions
 numpy==1.24.0
 scipy==1.10.0
 
 # ==================== Data Manipulation ==================== #
-# Manejo de series temporales y datos estructurados
+# Time series management and structured data
 pandas==2.0.0
 
 # ==================== Visualization (Development Only) ==================== #
@@ -53,7 +53,7 @@ matplotlib==3.7.0
 seaborn==0.12.0
 
 # ==================== Development & Testing ==================== #
-# Testing framework con cobertura
+# Testing framework with coverage
 pytest==7.3.0
 pytest-cov==4.1.0
 
@@ -64,7 +64,7 @@ mypy==1.0.0
 isort==5.12.0
 
 # ==================== Documentation ==================== #
-# Sphinx para documentación automática (opcional, futuro)
+# Sphinx for automatic documentation (optional, future)
 # sphinx==7.0.0
 
 # ==================== CONSTRAINTS ==================== #

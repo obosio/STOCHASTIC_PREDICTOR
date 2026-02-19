@@ -1,0 +1,346 @@
+"""
+Data Structures and Type Hints for the Universal Stochastic Predictor.
+
+This module defines all immutable data structures used in the system,
+ensuring strict dimensional typing via jaxtyping.
+
+References:
+    - Predictor_Estocastico_API_Python.tex §1: Data Structures (Typing)
+    - Predictor_Estocastico_IO.tex §1: Configuration Vector
+"""
+
+from dataclasses import dataclass
+from typing import Optional
+import jax.numpy as jnp
+from jaxtyping import Float, Array, Bool, PRNGKeyArray
+
+
+# ═══════════════════════════════════════════════════════════════════════════
+# HYPERPARAMETER CONFIGURATION (Lambda)
+# ═══════════════════════════════════════════════════════════════════════════
+
+@dataclass(frozen=True)
+class PredictorConfig:
+    """
+    System Hyperparameter Vector Lambda.
+    
+    Design: Immutable (frozen=True) to guarantee thread-safety and 
+    enable hashing (used in JAX JIT compilation cache).
+    
+    References:
+        - API_Python.tex §1.1: Configuration (Lambda)
+        - IO.tex Table 1: Functional Parameters
+        - config.toml: Project default values
+    """
+    # Snapshot Versioning (backward compatibility)
+    schema_version: str = "1.0"
+    
+    # JKO Orchestrator (Optimal Transport)
+    epsilon: float = 1e-3           # Entropic Regularization (Sinkhorn)
+    learning_rate: float = 0.01     # Learning Rate (tau in JKO)
+    
+    # Kernel D (Log-Signatures)
+    log_sig_depth: int = 3          # Truncation Depth (L)
+    
+    # Kernel A (WTMM + Fokker-Planck)
+    wtmm_buffer_size: int = 128     # N_buf: Sliding memory
+    besov_cone_c: float = 1.5       # Besov Cone of Influence
+    
+    # Circuit Breaker (Holder Singularity)
+    holder_threshold: float = 0.4   # H_min: Critical threshold
+    
+    # CUSUM (Regime Change Detection)
+    cusum_h: float = 5.0            # h: Drift threshold
+    cusum_k: float = 0.5            # k: Slack (tolerance)
+    grace_period_steps: int = 20    # Refractory period post-alarm
+    
+    # Volatility Monitoring (EWMA)
+    volatility_alpha: float = 0.1   # α: Exponential decay
+    
+    # Latency and Anti-Aliasing Policies
+    staleness_ttl_ns: int = 500_000_000         # TTL: 500ms (degraded mode)
+    besov_nyquist_interval_ns: int = 100_000_000 # Nyquist: 100ms (WTMM)
+    inference_recovery_hysteresis: float = 0.8  # Recovery hysteresis factor
+    
+    def __post_init__(self):
+        """Validate mathematical invariants."""
+        # Simplex constraint implicit: learning_rate <= 1.0
+        assert 0.0 < self.learning_rate <= 1.0, \
+            f"learning_rate must be in (0, 1], got {self.learning_rate}"
+        
+        # Entropic regularization must be positive
+        assert self.epsilon > 0, \
+            f"epsilon must be > 0 (Sinkhorn), got {self.epsilon}"
+        
+        # Log-signature depth reasonable (exponential complexity)
+        assert 1 <= self.log_sig_depth <= 5, \
+            f"log_sig_depth must be in [1, 5], got {self.log_sig_depth}"
+        
+        # Holder exponent bounds (stochastic processes)
+        assert 0.0 < self.holder_threshold < 1.0, \
+            f"holder_threshold must be in (0, 1), got {self.holder_threshold}"
+        
+        # CUSUM thresholds
+        assert self.cusum_h > 0 and self.cusum_k >= 0, \
+            "CUSUM thresholds must be non-negative"
+        
+        # TTL/Nyquist coherence
+        assert self.staleness_ttl_ns > 0 and self.besov_nyquist_interval_ns > 0, \
+            "Latency timeouts must be positive"
+
+
+# ═══════════════════════════════════════════════════════════════════════════
+# INPUT/OUTPUT STRUCTURES
+# ═══════════════════════════════════════════════════════════════════════════
+
+@dataclass(frozen=True)
+class MarketObservation:
+    """
+    Predictor operational input (y_t, y_target, tau).
+    
+    Design: Scalar fields (shape [1]) for compatibility with vmap
+    in multi-asset architecture (vectorized batching).
+    
+    References:
+        - API_Python.tex §1.2: Operational Input
+        - IO.tex §2: Observation Protocol
+    """
+    price: Float[Array, "1"]        # y_t: Normalized or absolute price
+    target: Float[Array, "1"]       # y_target: Typically current price
+    timestamp_ns: int               # Unix Epoch (nanoseconds)
+    
+    def validate_domain(
+        self, 
+        sigma_bound: float = 20.0, 
+        sigma_val: float = 1.0
+    ) -> bool:
+        """
+        Catastrophic Outlier Detection (> N sigma).
+        
+        Args:
+            sigma_bound: Maximum number of standard deviations
+            sigma_val: Reference standard deviation
+            
+        Returns:
+            bool: True if observation is within valid domain
+            
+        References:
+            - API_Python.tex §1.2: validate_domain()
+        """
+        return bool(jnp.abs(self.price) <= (sigma_bound * sigma_val))
+
+
+@dataclass(frozen=True)
+class PredictionResult:
+    """
+    System output (prediction + telemetry + control flags).
+    
+    Design: Scalar and vector fields following S_risk (risk vector)
+    specification defined in IO.tex.
+    
+    References:
+        - API_Python.tex §1.3: System Output
+        - IO.tex §3: Risk State Vector (S_risk)
+    """
+    # Main Prediction
+    predicted_next: Float[Array, "1"]       # y_{t+1} (Z-Score space)
+    
+    # State Telemetry (Basic S_risk)
+    holder_exponent: Float[Array, "1"]      # H_t: Holder exponent
+    cusum_drift: Float[Array, "1"]          # G^+: CUSUM statistic
+    distance_to_collapse: Float[Array, "1"] # h - G^+: Safety margin
+    free_energy: Float[Array, "1"]          # F: JKO energy
+    
+    # Advanced Telemetry (Extensions)
+    kurtosis: Float[Array, "1"]             # κ_t: Empirical kurtosis
+    dgm_entropy: Float[Array, "1"]          # H_DGM: Kernel B entropy
+    adaptive_threshold: Float[Array, "1"]   # h_t: Adaptive CUSUM threshold
+    
+    # Orchestrator State (Weight Simplex)
+    weights: Float[Array, "4"]              # [ρ_A, ρ_B, ρ_C, ρ_D]
+    
+    # Health and Control Flags (boolean)
+    sinkhorn_converged: Bool[Array, "1"]    # JKO convergence
+    degraded_inference_mode: bool           # TTL violation (freezing)
+    emergency_mode: bool                    # H_t < H_min (singularity)
+    regime_change_detected: bool            # CUSUM alarm (G+ > h_t)
+    mode_collapse_warning: bool             # H_DGM < γ·H[g] (DGM collapse)
+    
+    # Consolidated Operating Mode
+    mode: str  # "Standard" | "Robust" | "Emergency"
+    
+    def __post_init__(self):
+        """Validate output (simplex constraint and flag coherence)."""
+        # Weights must sum to 1.0 (simplex)
+        weights_sum = float(jnp.sum(self.weights))
+        assert jnp.allclose(weights_sum, 1.0, atol=1e-6), \
+            f"weights must form a simplex (sum=1.0), got sum={weights_sum:.6f}"
+        
+        # Weights non-negative
+        assert jnp.all(self.weights >= 0.0), \
+            "weights must be non-negative"
+        
+        # Holder exponent in valid range
+        holder_val = float(self.holder_exponent)
+        assert 0.0 <= holder_val <= 1.0, \
+            f"holder_exponent must be in [0, 1], got {holder_val}"
+        
+        # Valid mode string
+        valid_modes = {"Standard", "Robust", "Emergency"}
+        assert self.mode in valid_modes, \
+            f"mode must be one of {valid_modes}, got '{self.mode}'"
+
+
+# ═══════════════════════════════════════════════════════════════════════════
+# AUXILIARY TYPES (Internal State Structures)
+# ═══════════════════════════════════════════════════════════════════════════
+
+@dataclass(frozen=True)
+class KernelOutput:
+    """
+    Standardized output from a prediction kernel.
+    
+    Design: Common interface for all 4 kernels (A, B, C, D), allowing
+    the JKO orchestrator to fuse them uniformly.
+    
+    References:
+        - Python.tex §2: Module 2: Prediction Kernels
+        - Implementacion.tex §2.1: Kernel Interface
+    """
+    prediction: Float[Array, "1"]       # Prediction y_{t+1}
+    confidence: Float[Array, "1"]       # Confidence score [0, 1]
+    entropy: Float[Array, "1"]          # Predictor entropy
+    metadata: Optional[dict] = None     # Additional kernel-specific data
+
+
+@dataclass
+class InternalState:
+    """
+    Internal predictor state (JAX buffers resident in GPU/memory).
+    
+    Design: NOT frozen (mutable) because jnp.array fields are updated
+    functionally via lax.dynamic_update_slice (Zero-Copy).
+    
+    Note: This structure is internal and NOT exposed in public API.
+    
+    References:
+        - API_Python.tex §2: Predictor Architecture
+        - Python.tex §6: State Management
+    """
+    # History Buffers (rolling windows)
+    price_buffer: Float[Array, "N"]         # Last N prices
+    residual_buffer: Float[Array, "N"]      # Last N prediction errors
+    
+    # Orchestrator Weights (simplex)
+    rho: Float[Array, "4"]                  # [ρ_A, ρ_B, ρ_C, ρ_D]
+    
+    # CUSUM Statistics
+    cusum_g_plus: Float[Array, "1"]         # G^+: Positive drift accumulated
+    cusum_g_minus: Float[Array, "1"]        # G^-: Negative drift accumulated
+    grace_counter: int                      # Refractory period counter
+    
+    # EWMA Volatility
+    ema_variance: Float[Array, "1"]         # σ²_t: Exponential variance
+    
+    # Accumulated Telemetry
+    kurtosis: Float[Array, "1"]             # κ_t: Empirical kurtosis
+    holder_exponent: Float[Array, "1"]      # H_t: WTMM Holder
+    dgm_entropy: Float[Array, "1"]          # H_DGM: Kernel B entropy
+    
+    # State Flags
+    degraded_mode: bool                     # Degraded mode active
+    emergency_mode: bool                    # Emergency mode active
+    regime_changed: bool                    # Regime change detected
+    
+    # Timestamp Control
+    last_update_ns: int                     # Last processed timestamp
+    
+    # PRNG State (threefry2x32)
+    rng_key: PRNGKeyArray                   # JAX key for reproducibility
+
+
+# ═══════════════════════════════════════════════════════════════════════════
+# CONSTANTS AND ENUMERATIONS
+# ═══════════════════════════════════════════════════════════════════════════
+
+class OperatingMode:
+    """
+    Predictor operating modes.
+    
+    References:
+        - API_Python.tex §3: Operating Modes
+    """
+    STANDARD = "Standard"       # Normal operation (all kernels active)
+    ROBUST = "Robust"           # Degraded mode (weight freezing)
+    EMERGENCY = "Emergency"     # Circuit breaker (H < H_min)
+
+
+class KernelType:
+    """
+    Kernel identifiers.
+    
+    References:
+        - Teoria.tex §2: Four Prediction Branches
+        - Python.tex §2: Prediction Kernels
+    """
+    KERNEL_A = 0    # WTMM + Fokker-Planck (Lévy with drift)
+    KERNEL_B = 1    # Deep Galerkin Method (HJB + DGM)
+    KERNEL_C = 2    # Pure Monte Carlo (Stable Lévy CMS)
+    KERNEL_D = 3    # Log-Signatures (Rough Paths)
+    
+    N_KERNELS = 4   # Total kernels in system
+
+
+# ═══════════════════════════════════════════════════════════════════════════
+# IMPORT VALIDATION
+# ═══════════════════════════════════════════════════════════════════════════
+
+def check_jax_config() -> dict[str, bool]:
+    """
+    Verify that JAX is configured correctly per Golden Master.
+    
+    Returns:
+        dict: Critical configuration states
+        
+    References:
+        - Python.tex §1: JAX/XLA Stack
+        - API_Python.tex §5: Floating-Point Determinism
+    """
+    import jax
+    import os
+    
+    try:
+        x64_enabled = bool(jax.config.read("jax_enable_x64"))
+    except:
+        x64_enabled = False
+    
+    try:
+        cache_dir = jax.config.read("jax_compilation_cache_dir")
+        has_cache = cache_dir is not None and cache_dir != ""
+    except:
+        has_cache = False
+    
+    return {
+        "x64_enabled": x64_enabled,
+        "deterministic_reductions": os.getenv("JAX_DETERMINISTIC_REDUCTIONS") == "1",
+        "prng_threefry": os.getenv("JAX_DEFAULT_PRNG_IMPL") == "threefry2x32",
+        "compilation_cache": has_cache,
+    }
+
+
+# Public exports
+__all__ = [
+    # Configuration
+    "PredictorConfig",
+    # Input/Output
+    "MarketObservation",
+    "PredictionResult",
+    # Internal Structures
+    "KernelOutput",
+    "InternalState",
+    # Enumerations
+    "OperatingMode",
+    "KernelType",
+    # Utilities
+    "check_jax_config",
+]

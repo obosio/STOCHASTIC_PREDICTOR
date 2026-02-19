@@ -1,20 +1,23 @@
-"""Universal Stochastic Predictor - Root Package
+"""Universal Stochastic Predictor - Root Package.
 
 This package implements the complete specification for the Universal Stochastic Predictor,
 a system for prediction of dynamic processes with unknown underlying probability law.
 
-See: doc/Predictor_Estocastico_Python.tex §2 - Arquitectura Física de Directorios
+References:
+  - doc/Predictor_Estocastico_Python.tex §2: Physical Directory Architecture
+  - doc/Predictor_Estocastico_Teoria.tex: Mathematical Foundations
 
-Architecture (5-Tier Clean):
-  - api/: Exposure layer (facade, config, load shedding)
+Architecture (5-Layer Clean Architecture):
+  - api/: Exposure layer (facade, configuration, load shedding)
   - core/: Orchestration layer (JKO, Sinkhorn, entropy monitoring)
-  - kernels/: XLA Motors (A,B,C,D kernels for prediction)
+  - kernels/: XLA Motors (kernels A, B, C, D for prediction)
   - io/: Physical I/O layer (atomic snapshots, channel management)
   - tests/: External validation (outside main package)
 
 Version: v1.0.0-Diamond-Spec
-Date: 18 de febrero de 2026
+Date: February 18, 2026
 """
 
 __version__ = "1.0.0-diamond-implementation"
-__author__ = "Consorcio de Desarrollo de Meta-Predicción Adaptativa"
+__author__ = "Stochastic Predictor Development Consortium"
+

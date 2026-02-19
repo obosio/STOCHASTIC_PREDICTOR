@@ -9,7 +9,7 @@ Responsibilities:
   - Credential injection via environment variables
   - Data validation and preprocessing
 
-See: doc/Predictor_Estocastico_Python.tex §2 - Capa de I/O Física
+See: doc/Predictor_Estocastico_Python.tex §2 - Physical I/O Layer
 See: doc/Predictor_Estocastico_IO.tex - Complete I/O interface specification
 
 CRITICAL SECURITY POLICIES (doc/Predictor_Estocastico_IO.tex §2.2):

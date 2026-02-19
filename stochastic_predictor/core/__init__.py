@@ -9,7 +9,7 @@ Responsibilities:
   - CUSUM regime change detection with grace period
   - Entropy monitoring and diagnostics
 
-See: doc/Predictor_Estocastico_Python.tex §2 - Capa de Orquestación
+See: doc/Predictor_Estocastico_Python.tex §2 - Orchestration Layer
 
 Key algorithms:
   - Dynamic SDE scheme transition: doc/Predictor_Estocastico_Teoria.tex §2.3.3
