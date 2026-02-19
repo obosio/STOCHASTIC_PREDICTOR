@@ -632,7 +632,6 @@ timings = warmup_all_kernels(config, verbose=True)
     \item \textbf{Determinism}: Uses fixed PRNG seed (42) for reproducible compilation
     \item \texttt{jax.block\_until\_ready()}: Ensures asynchronous dispatch completes
     \item \textbf{Timing}: Returns per-kernel compilation times for monitoring
-    \item \textbf{Auditor\'ia}: Si \texttt{USP\_AUDIT\_LOG\_PATH} est\'a definido, se emite un registro JSONL con tiempos por kernel y total
 \end{itemize}
 
 \subsection{Integration Example}
@@ -838,9 +837,6 @@ print(f"Recommended timeout: {profile['recommended_timeout']} seconds")
 # [io]
 # data_feed_timeout = 45  # Adjusted from default 30s
 \end{lstlisting}
-
-\paragraph{Auditor\'ia opcional}
-Si \texttt{USP\_AUDIT\_LOG\_PATH} est\'a definido, el perfil de warm-up se registra en formato JSONL con el evento \texttt{warmup\_profile}, el contexto de ejecuci\'on y las m\'etricas en milisegundos.
 
 \subsection{Recommendation Logic}
 

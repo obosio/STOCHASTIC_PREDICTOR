@@ -21,8 +21,6 @@ Usage:
     >>> # Now first real inference will have no JIT overhead
 """
 
-import json
-import os
 import time
 from typing import Optional
 
@@ -32,29 +30,6 @@ from jaxtyping import PRNGKeyArray
 
 from stochastic_predictor.api.types import PredictorConfig
 from stochastic_predictor.api.prng import initialize_jax_prng, split_key
-
-
-def _emit_warmup_audit_log(
-    config: PredictorConfig,
-    timings: dict[str, float],
-    context: str
-) -> None:
-    path = os.getenv("USP_AUDIT_LOG_PATH")
-    if not path:
-        return
-    payload = {
-        "event": "warmup_profile",
-        "context": context,
-        "timestamp_s": time.time(),
-        "warmup_signal_length": config.warmup_signal_length,
-        "timings_ms": timings,
-        "total_ms": float(sum(timings.values())),
-    }
-    try:
-        with open(path, "a", encoding="utf-8") as handle:
-            handle.write(json.dumps(payload, sort_keys=True) + "\n")
-    except OSError:
-        return
 
 
 def warmup_kernel_a(config: PredictorConfig, key: PRNGKeyArray) -> float:
@@ -260,8 +235,6 @@ def warmup_all_kernels(
     total_time = sum(timings.values())
     if verbose:
         print(f"✅ Warm-up complete: {total_time:.1f} ms total")
-
-    _emit_warmup_audit_log(config, timings, context="warmup_all_kernels")
     
     return timings
 
@@ -394,11 +367,9 @@ def profile_warmup_and_recommend_timeout(
             print("     Consider enabling XLA_FLAGS for persistent cache or upgrading GPU")
     
     # Return full profiling data
-    profile = {
+    return {
         **timings,
         "total": total_time,
         "max_kernel": max_kernel_time,
         "recommended_timeout": recommended_timeout,
     }
-    _emit_warmup_audit_log(config, timings, context="profile_warmup_and_recommend_timeout")
-    return profile
