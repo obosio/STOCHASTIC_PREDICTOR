@@ -246,13 +246,23 @@ def kernel_a_predict(
     confidence = jnp.sqrt(variances[0]) * stats["std"]  # Scale variance by std
     
     # Step 7: Compute diagnostics (with stop_gradient)
+    # V-MAJ-2: Include holder_exponent (placeholder via signal regularity)
+    # TODO: Full WTMM implementation in Phase 3 (P2.1)
+    signal_roughness = jnp.std(jnp.diff(signal_normalized))
+    holder_exponent_estimate = jnp.clip(
+        1.0 - signal_roughness,
+        config.validation_holder_exponent_min,
+        config.validation_holder_exponent_max
+    )
+    
     diagnostics = {
         "kernel_type": "A_Hilbert_RKHS",
         "bandwidth": config.kernel_a_bandwidth,
         "embedding_dim": config.kernel_a_embedding_dim,
         "n_training_points": X_train.shape[0],
         "signal_mean": stats["mean"],
-        "signal_std": stats["std"]
+        "signal_std": stats["std"],
+        "holder_exponent": float(holder_exponent_estimate)  # V-MAJ-2: For state tracking
     }
     
     # Apply stop_gradient to diagnostics (VRAM optimization)

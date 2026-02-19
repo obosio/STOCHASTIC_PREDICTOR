@@ -222,6 +222,7 @@ def orchestrate_step(
     updated_state = replace(
         updated_state,
         rho=final_rho,
+        holder_exponent=jnp.asarray(kernel_outputs[KernelType.KERNEL_A].metadata.get("holder_exponent", 0.0)),  # V-MAJ-2: State update
         dgm_entropy=jnp.asarray(kernel_outputs[KernelType.KERNEL_B].metadata.get("entropy_dgm", 0.0)),
         last_update_ns=timestamp_ns if not reject_observation else state.last_update_ns,
         rng_key=jax.random.split(state.rng_key, RNG_SPLIT_COUNT)[1],
