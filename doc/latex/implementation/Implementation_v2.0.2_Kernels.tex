@@ -208,6 +208,140 @@ From \texttt{PredictorConfig}:
     \item \texttt{wtmm\_buffer\_size}: Historical observation buffer (default: 128)
 \end{itemize}
 
+\section{State Field Updates (V-MAJ-2)}
+
+\subsection{Purpose}
+
+The orchestrator accumulates diagnostic information from all four kernels into the \texttt{InternalState}. V-MAJ-2 ensures three critical state fields are properly captured and maintained for telemetry, visualization, and circuit breaker logic:
+
+\begin{enumerate}
+    \item \textbf{Kurtosis} ($\kappa_t$): Empirical kurtosis of residuals, updated by CUSUM statistics (V-CRIT-1)
+    \item \textbf{DGM Entropy} ($H_{\text{DGM}}$): Entropy of Kernel B predictions, indicates mode collapse risk
+    \item \textbf{Holder Exponent} ($H_t$): Signal regularity estimate (placeholder in V-MAJ-2, full WTMM in Phase 3)
+\end{enumerate}
+
+\subsection{Implementation}
+
+\subsubsection{Kurtosis Tracking}
+
+Kurtosis is computed in \texttt{update\_cusum\_statistics()} (Kernel A behavior):
+
+\begin{equation}
+\kappa_t = \frac{\mu_4}{\sigma^4}
+\end{equation}
+
+where $\mu_4$ is the fourth central moment and $\sigma$ is the residual standard deviation. Value is bounded $[1.0, 100.0]$ and updated atomically.
+
+\subsubsection{DGM Entropy Tracking}
+
+Kernel B computes entropy of its spatial prediction grid and emits it in \texttt{metadata["entropy\_dgm"]}. The orchestrator captures this:
+
+\begin{lstlisting}[language=Python]
+# In orchestrate_step():
+dgm_entropy=jnp.asarray(
+    kernel_outputs[KernelType.KERNEL_B].metadata.get("entropy_dgm", 0.0)
+)
+\end{lstlisting}
+
+This entropy signal enables mode collapse detection (V-MAJ-5).
+
+\subsubsection{Holder Exponent Tracking (Placeholder)}
+
+Kernel A now emits an initial holder exponent estimate based on signal roughness:
+
+\begin{lstlisting}[language=Python]
+# In kernel_a_predict():
+signal_roughness = jnp.std(jnp.diff(signal_normalized))
+holder_exponent_estimate = jnp.clip(
+    1.0 - signal_roughness,  # Higher roughness → lower H_t
+    config.validation_holder_exponent_min,
+    config.validation_holder_exponent_max
+)
+
+diagnostics = {
+    "holder_exponent": float(holder_exponent_estimate),  # V-MAJ-2
+    ...
+}
+\end{lstlisting}
+
+This is a placeholder implementation. Full Hölder/WTMM calculation comes in Phase 3 (P2.1), which computes:
+
+\begin{enumerate}
+    \item Continuous Wavelet Transform (CWT) of signal
+    \item Detect local maxima across scales (modulus maxima line)
+    \item Compute singularity exponent via Legendre transform
+    \item Return spectrum peak (maximum Hölder exponent)
+\end{enumerate}
+
+\subsection{Integration into Orchestrator}
+
+The orchestrator updates the \texttt{InternalState} with all three fields atomically:
+
+\begin{lstlisting}[language=Python]
+updated_state = replace(
+    updated_state,
+    rho=final_rho,
+    holder_exponent=jnp.asarray(
+        kernel_outputs[KernelType.KERNEL_A].metadata.get("holder_exponent", 0.0)
+    ),  # V-MAJ-2: From kernel_a
+    dgm_entropy=jnp.asarray(
+        kernel_outputs[KernelType.KERNEL_B].metadata.get("entropy_dgm", 0.0)
+    ),  
+    # kurtosis is updated in atomic_state_update() via update_cusum_statistics()
+    last_update_ns=timestamp_ns if not reject_observation else state.last_update_ns,
+    rng_key=jax.random.split(state.rng_key, RNG_SPLIT_COUNT)[1],
+)
+\end{lstlisting}
+
+Note: \texttt{kurtosis} is updated during \texttt{atomic\_state\_update()} (called before this replace operation), so it does not need explicit assignment here.
+
+\subsection{State Flow Diagram}
+
+\begin{verbatim}
+┌─────────────────────────────────────────────────────────┐
+│                   orchestrate_step()                     │
+├─────────────────────────────────────────────────────────┤
+│  1. Call atomic_state_update()                           │
+│     └─> updates: kurtosis (via CUSUM)                   │
+│                                                          │
+│  2. Call _run_kernels()                                  │
+│     ├─> Kernel A emits: holder_exponent_estimate        │
+│     ├─> Kernel B emits: entropy_dgm                      │
+│     └─> Kernel C, D: other diagnostics                   │
+│                                                          │
+│  3. Call fuse_kernel_outputs()                           │
+│     └─> updated_weights (ρ)                             │
+│                                                          │
+│  4. Update InternalState (this step)                     │
+│     ├─> rho ← final_rho (from fusion or frozen)          │
+│     ├─> holder_exponent ← kernel_a.metadata             │
+│     ├─> dgm_entropy ← kernel_b.metadata                 │
+│     ├─> kurtosis ← already updated (no re-assign)        │
+│     └─> rng_key ← fresh split                           │
+│                                                          │
+│  5. Return PredictionResult with all three fields       │
+│     └─> telemetry records kurtosis, holder_exponent,    │
+│         dgm_entropy for audit trail                      │
+└─────────────────────────────────────────────────────────┘
+\end{verbatim}
+
+\subsection{Benefits}
+
+\begin{itemize}
+    \item \textbf{Diagnostic Visibility}: All three key signals (kurtosis, entropy, regularity) now visible in telemetry
+    \item \textbf{Circuit Breaker}: Emergency mode triggered when $H_t < H_{\text{threshold}}$ (Holder exponent falls)
+    \item \textbf{Mode Collapse Detection}: DGM entropy tracks signal degeneracy, enables V-MAJ-5
+    \item \textbf{Audit Trail}: All three metrics included in telemetry buffer for post-mortem analysis
+    \item \textbf{Gradual Enhancement}: Placeholder holder\_exponent allows system to function; Phase 3 upgrades to full WTMM
+\end{itemize}
+
+\subsection{Roadmap for Phase 3}
+
+- **P2.1 (V-MAJ-3,4,5 subtasks)**: Implement full WTMM singularity spectrum in kernel\_a.py
+  - Replace signal-roughness placeholder with actual Hölder exponent computation
+  - Compute Lipschitz regularity via CWT multiresolution analysis
+  - Extract maximum singularity strength (peak of spectrum)
+
 \chapter{Kernel B: PDE/DGM (Deep Galerkin Method)}
 
 \section{Purpose}
