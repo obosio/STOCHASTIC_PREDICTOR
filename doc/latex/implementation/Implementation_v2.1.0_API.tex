@@ -86,7 +86,7 @@ The \texttt{types.py} module defines all immutable data structures using frozen 
 
 \subsection{Purpose}
 
-\texttt{PredictorConfig} is the system hyperparameter vector (denoted $\Lambda$ in the specification). It contains all configurable parameters for orchestration, kernels, validation, and I/O. Total: \textbf{93 fields}.
+\texttt{PredictorConfig} is the system hyperparameter vector (denoted $\Lambda$ in the specification). It contains all configurable parameters for orchestration, kernels, validation, and I/O. The complete field set is defined in \texttt{stochastic\_predictor/api/types.py}.
 
 \subsection{Core Configuration Fields}
 
@@ -107,7 +107,12 @@ sinkhorn_alpha: float = 0.5        # Volatility coupling coefficient
 \subsubsection{Entropy Monitoring}
 \begin{lstlisting}[language=Python]
 entropy_window: int = 100          # Sliding window size
-entropy_threshold: float = 0.8     # Mode collapse detection
+entropy_threshold: float = 0.8     # Deprecated (use entropy_gamma_*)
+entropy_gamma_min: float = 0.5     # Crisis mode (lenient)
+entropy_gamma_max: float = 1.0     # Low-vol mode (strict)
+entropy_gamma_default: float = 0.8 # Normal regime
+mode_collapse_min_threshold: int = 10
+mode_collapse_window_ratio: float = 0.1
 \end{lstlisting}
 
 \subsubsection{Kernel Parameters}
@@ -132,9 +137,12 @@ kernel_a_embedding_dim: int = 5     # Takens embedding
 dgm_width_size: int = 64            # Network width
 dgm_depth: int = 4                  # Network depth
 dgm_entropy_num_bins: int = 50      # Histogram bins
+dgm_activation: str = "tanh"         # Activation function
 kernel_b_r: float = 0.05            # HJB interest rate
 kernel_b_sigma: float = 0.2         # HJB volatility
 kernel_b_horizon: float = 1.0       # Prediction horizon
+kernel_b_spatial_samples: int = 100
+kernel_b_spatial_range_factor: float = 0.5
 \end{lstlisting}
 
 \paragraph{Kernel C (SDE Integration)}
@@ -174,6 +182,13 @@ data_feed_timeout: int = 30         # Timeout seconds
 data_feed_max_retries: int = 3      # Retry attempts
 snapshot_atomic_fsync: bool = True  # Force fsync
 snapshot_compression: str = "none"  # Compression method
+snapshot_format: str = "msgpack"     # Serialization format
+snapshot_hash_algorithm: str = "sha256"
+telemetry_hash_interval_steps: int = 1
+telemetry_buffer_capacity: int = 1024
+frozen_signal_min_steps: int = 5
+frozen_signal_recovery_ratio: float = 0.1
+frozen_signal_recovery_steps: int = 2
 staleness_ttl_ns: int = 500_000_000 # TTL degraded mode
 besov_nyquist_interval_ns: int = 100_000_000  # Nyquist sample rate
 inference_recovery_hysteresis: float = 0.8    # Recovery factor
@@ -204,14 +219,22 @@ class ProcessState:
 \begin{lstlisting}[language=Python]
 @dataclass(frozen=True)
 class PredictionResult:
-    """Output prediction with uncertainty quantification."""
-    predicted_price: float                  # Point estimate
-    confidence_interval_lower: float        # Lower CI bound
-    confidence_interval_upper: float        # Upper CI bound
-    predicted_volatility: float             # Volatility forecast
-    kernel_consensus: float                 # Ensemble weight
-    entropy_diagnostic: float               # Mode collapse indicator
-    cusum_alert: bool                       # Structural break
+    """System output (prediction + telemetry + control flags)."""
+    predicted_next: Float[Array, "1"]       # y_{t+1}
+    holder_exponent: Float[Array, "1"]      # H_t
+    cusum_drift: Float[Array, "1"]          # G^+
+    distance_to_collapse: Float[Array, "1"] # h - G^+
+    free_energy: Float[Array, "1"]          # JKO energy
+    kurtosis: Float[Array, "1"]             # Empirical kurtosis
+    dgm_entropy: Float[Array, "1"]          # Kernel B entropy
+    adaptive_threshold: Float[Array, "1"]   # h_t
+    weights: Float[Array, "4"]              # [rho_A, rho_B, rho_C, rho_D]
+    sinkhorn_converged: Bool[Array, "1"]    # JKO convergence
+    degraded_inference_mode: bool           # TTL violation
+    emergency_mode: bool                    # Holder singularity
+    regime_change_detected: bool            # CUSUM alarm
+    mode_collapse_warning: bool             # DGM entropy warning
+    mode: str                               # Standard | Robust | Emergency
 \end{lstlisting}
 
 \section{Immutability Guarantees}
@@ -229,7 +252,7 @@ All dataclasses use \texttt{frozen=True} to enable:
 
 \texttt{config.py} implements:
 \begin{itemize}
-    \item Lazy singleton with \texttt{ConfigManager.get\_instance()}
+    \item Lazy singleton accessed via \texttt{get\_config()}
     \item TOML parsing with automatic field mapping
     \item Environment variable override support
     \item Runtime validation of completeness
@@ -241,11 +264,17 @@ All dataclasses use \texttt{frozen=True} to enable:
 class ConfigManager:
     """Singleton configuration loader."""
     
-    def load_config(self, path: str = "config.toml") -> PredictorConfig:
-        """Parse TOML and inject into PredictorConfig."""
+    def get(self, section: str, key: str, default: Any = None) -> Any:
+        """Get a config value with fallback."""
     
-    def get_config(self) -> PredictorConfig:
-        """Retrieve cached configuration."""
+    def get_section(self, section: str) -> Dict[str, Any]:
+        """Get an entire config section."""
+    
+    def raw_config(self) -> Dict[str, Any]:
+        """Return raw config dict."""
+    
+    def check_and_reload(self) -> bool:
+        """Reload config.toml if mtime changed."""
     
     @staticmethod
     def _apply_env_overrides() -> None:
@@ -254,71 +283,45 @@ class ConfigManager:
 
 \section{FIELD\_TO\_SECTION\_MAP (Single Source of Truth)}
 
-Automated field-to-section mapping ensures all 93 config parameters have defined placement:
+Automated field-to-section mapping ensures all \texttt{PredictorConfig} fields have defined placement:
 
 \begin{lstlisting}[language=Python]
 FIELD_TO_SECTION_MAP = {
     # Metadata
     "schema_version": "meta",
-    
     # Orchestration
     "epsilon": "orchestration",
     "learning_rate": "orchestration",
     "sinkhorn_epsilon_min": "orchestration",
     "sinkhorn_epsilon_0": "orchestration",
     "sinkhorn_alpha": "orchestration",
+    "sinkhorn_max_iter": "orchestration",
     "entropy_window": "orchestration",
     "entropy_threshold": "orchestration",
-    "sigma_bound": "orchestration",
-    "sigma_val": "orchestration",
-    "max_future_drift_ns": "orchestration",
-    "max_past_drift_ns": "orchestration",
-    "holder_threshold": "orchestration",
-    "cusum_h": "orchestration",
-    "cusum_k": "orchestration",
-    "grace_period_steps": "orchestration",
-    "volatility_alpha": "orchestration",
-    "inference_recovery_hysteresis": "orchestration",
-    
-    # Kernels
+    "entropy_gamma_min": "orchestration",
+    "entropy_gamma_max": "orchestration",
+    "entropy_gamma_default": "orchestration",
+    "mode_collapse_min_threshold": "orchestration",
+    "mode_collapse_window_ratio": "orchestration",
+    # Kernels (excerpt)
     "log_sig_depth": "kernels",
     "wtmm_buffer_size": "kernels",
     "besov_cone_c": "kernels",
-    "besov_nyquist_interval_ns": "kernels",
-    "stiffness_low": "kernels",
-    "stiffness_high": "kernels",
-    "sde_dt": "kernels",
-    "sde_numel_integrations": "kernels",
-    "sde_diffusion_sigma": "kernels",
-    "kernel_ridge_lambda": "kernels",
     "kernel_a_bandwidth": "kernels",
-    "kernel_a_embedding_dim": "kernels",
     "dgm_width_size": "kernels",
     "dgm_depth": "kernels",
-    "dgm_entropy_num_bins": "kernels",
-    "kernel_b_r": "kernels",
-    "kernel_b_sigma": "kernels",
-    "kernel_b_horizon": "kernels",
     "kernel_c_mu": "kernels",
-    "kernel_c_alpha": "kernels",
-    "kernel_c_beta": "kernels",
-    "kernel_c_horizon": "kernels",
-    "kernel_c_dt0": "kernels",
     "kernel_d_depth": "kernels",
-    "kernel_d_alpha": "kernels",
-    
-    # I/O
-    "data_feed_timeout": "io",
-    "data_feed_max_retries": "io",
-    "snapshot_atomic_fsync": "io",
-    "snapshot_compression": "io",
-    
+    # Validation (excerpt)
+    "validation_simplex_atol": "validation",
+    "validation_holder_exponent_min": "validation",
+    # I/O (excerpt)
+    "snapshot_format": "io",
+    "snapshot_hash_algorithm": "io",
+    "telemetry_hash_interval_steps": "io",
     # Core
     "staleness_ttl_ns": "core",
-    
-    # Base
-    "base_min_signal_length": "base",
-    "signal_normalization_method": "base",
+    # ... additional fields omitted for brevity
 }
 \end{lstlisting}
 
@@ -328,64 +331,130 @@ FIELD_TO_SECTION_MAP = {
 [meta]
 schema_version = "1.0"
 
+[core]
+jax_platforms = "cpu"
+jax_default_dtype = "float64"
+float_precision = 64
+staleness_ttl_ns = 500_000_000
+
 [orchestration]
-epsilon = 1e-3
+epsilon = 0.001
 learning_rate = 0.01
 sinkhorn_epsilon_min = 0.01
 sinkhorn_epsilon_0 = 0.1
 sinkhorn_alpha = 0.5
+sinkhorn_max_iter = 200
 entropy_window = 100
 entropy_threshold = 0.8
+entropy_gamma_min = 0.5
+entropy_gamma_max = 1.0
+entropy_gamma_default = 0.8
+mode_collapse_min_threshold = 10
+mode_collapse_window_ratio = 0.1
+cusum_h = 5.0
+cusum_k = 0.5
+grace_period_steps = 20
+residual_window_size = 252
+volatility_alpha = 0.1
 sigma_bound = 20.0
 sigma_val = 1.0
 max_future_drift_ns = 1_000_000_000
 max_past_drift_ns = 86_400_000_000_000
 holder_threshold = 0.4
-cusum_h = 5.0
-cusum_k = 0.5
-grace_period_steps = 20
-volatility_alpha = 0.1
 inference_recovery_hysteresis = 0.8
 
 [kernels]
 log_sig_depth = 3
+kernel_d_depth = 3
+kernel_d_alpha = 0.1
+kernel_d_confidence_scale = 0.1
+kernel_d_confidence_base = 1.0
+base_min_signal_length = 32
+signal_normalization_method = "zscore"
+numerical_epsilon = 1e-10
+warmup_signal_length = 100
 wtmm_buffer_size = 128
 besov_cone_c = 1.5
 besov_nyquist_interval_ns = 100_000_000
+kernel_a_bandwidth = 0.1
+kernel_a_embedding_dim = 5
+kernel_a_min_variance = 1e-10
+kernel_ridge_lambda = 1e-6
 stiffness_low = 100
 stiffness_high = 1000
 sde_dt = 0.01
 sde_numel_integrations = 100
 sde_diffusion_sigma = 0.2
-kernel_ridge_lambda = 1e-6
-kernel_a_bandwidth = 0.1
-kernel_a_embedding_dim = 5
-dgm_width_size = 64
-dgm_depth = 4
-dgm_entropy_num_bins = 50
-kernel_b_r = 0.05
-kernel_b_sigma = 0.2
-kernel_b_horizon = 1.0
 kernel_c_mu = 0.0
 kernel_c_alpha = 1.8
 kernel_c_beta = 0.0
 kernel_c_horizon = 1.0
 kernel_c_dt0 = 0.01
-kernel_d_depth = 3
-kernel_d_alpha = 0.1
+kernel_c_alpha_gaussian_threshold = 1.99
+sde_brownian_tree_tol = 1e-3
+sde_pid_rtol = 1e-3
+sde_pid_atol = 1e-6
+sde_pid_dtmin = 1e-5
+sde_pid_dtmax = 0.1
+sde_solver_type = "heun"
+sde_initial_dt_factor = 10.0
+dgm_width_size = 64
+dgm_depth = 4
+dgm_entropy_num_bins = 50
+dgm_activation = "tanh"
+kernel_b_r = 0.05
+kernel_b_sigma = 0.2
+kernel_b_horizon = 1.0
+kernel_b_spatial_samples = 100
+kernel_b_spatial_range_factor = 0.5
 
 [io]
 data_feed_timeout = 30
 data_feed_max_retries = 3
+frozen_signal_min_steps = 5
+frozen_signal_recovery_ratio = 0.1
+frozen_signal_recovery_steps = 2
 snapshot_atomic_fsync = true
 snapshot_compression = "none"
+snapshot_format = "msgpack"
+snapshot_hash_algorithm = "sha256"
+telemetry_hash_interval_steps = 1
+telemetry_buffer_capacity = 1024
 
-[core]
-staleness_ttl_ns = 500_000_000
+[meta_optimization]
+log_sig_depth_min = 2
+log_sig_depth_max = 5
+wtmm_buffer_size_min = 64
+wtmm_buffer_size_max = 512
+wtmm_buffer_size_step = 64
+besov_cone_c_min = 1.0
+besov_cone_c_max = 3.0
+cusum_k_min = 0.1
+cusum_k_max = 1.0
+sinkhorn_alpha_min = 0.1
+sinkhorn_alpha_max = 1.0
+volatility_alpha_min = 0.05
+volatility_alpha_max = 0.3
+n_trials = 50
+n_startup_trials = 10
+multivariate = true
+train_ratio = 0.7
+n_folds = 5
 
-[base]
-base_min_signal_length = 32
-signal_normalization_method = "zscore"
+[validation]
+validation_finite_allow_nan = false
+validation_finite_allow_inf = false
+validation_simplex_atol = 1e-6
+validation_holder_exponent_min = 0.0
+validation_holder_exponent_max = 1.0
+validation_alpha_stable_min = 0.0
+validation_alpha_stable_max = 2.0
+validation_alpha_stable_exclusive_bounds = true
+validation_beta_stable_min = -1.0
+validation_beta_stable_max = 1.0
+sanitize_replace_nan_value = 0.0
+# sanitize_replace_inf_value = null
+# sanitize_clip_range = null
 \end{lstlisting}
 
 \section{V-CRIT-4: Hot-Reload Configuration Mechanism}
@@ -487,7 +556,7 @@ from stochastic_predictor.api.config import get_config
 
 # 1. Deep Tuning completes
 best_params = {
-    "sensitivity.cusum_k": 0.72,
+    "orchestration.cusum_k": 0.72,
     "kernels.dgm_width_size": 256,
 }
 
@@ -819,7 +888,7 @@ schemas.py & 330 \\
     \item ✓ 100\% English code (no Spanish identifiers)
     \item ✓ Full type hints with dimensional consistency
     \item ✓ No hardcoded hyperparameters (zero-heuristics policy)
-    \item ✓ All 93 config fields mapped via \texttt{FIELD\_TO\_SECTION\_MAP}
+    \item ✓ All config fields mapped via \texttt{FIELD\_TO\_SECTION\_MAP}
     \item ✓ Immutable frozen dataclasses for thread-safety
     \item ✓ Environment variable overrides (\texttt{USP\_SECTION\_\_KEY})
     \item ✓ Pydantic v2 strict validation

@@ -67,6 +67,12 @@ from stochastic_predictor.io.telemetry import (
   should_emit_hash,
 )
 
+from stochastic_predictor.io.dashboard import (
+  DashboardSeries,
+  build_dashboard_html,
+  export_dashboard_snapshot,
+)
+
 from stochastic_predictor.io.credentials import (
   MissingCredentialError,
   load_env_file,
@@ -103,6 +109,9 @@ __all__ = [
   "TelemetryBuffer",
   "parity_hashes",
   "should_emit_hash",
+  "DashboardSeries",
+  "build_dashboard_html",
+  "export_dashboard_snapshot",
   "MissingCredentialError",
   "load_env_file",
   "get_required_env",

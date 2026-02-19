@@ -574,6 +574,35 @@ for step in range(num_steps):
     \item \textbf{Backward Compatible}: Fully optional, no impact on existing code paths
 \end{itemize}
 
+\section{Visualization Dashboard (GAP-6)}
+
+The IO layer includes a static HTML dashboard generator for telemetry snapshots.
+It requires no external dependencies and produces a standalone report suitable
+for offline reviews and audits.
+
+\subsection{Usage}
+
+\begin{lstlisting}[language=Python]
+from stochastic_predictor.io.telemetry import TelemetryBuffer
+from stochastic_predictor.io.dashboard import export_dashboard_snapshot
+
+telemetry_buffer = TelemetryBuffer(capacity=1024)
+# ... enqueue telemetry records during inference ...
+
+exported = export_dashboard_snapshot(
+    telemetry_buffer,
+    "io/reports/telemetry_dashboard.html",
+)
+print(f"Exported {exported} records")
+\end{lstlisting}
+
+\subsection{Notes}
+\begin{itemize}
+    \item The dashboard drains the buffer, materializes device arrays, and writes HTML.
+    \item Charts are rendered as inline SVG with no external assets.
+    \item Output is deterministic and suitable for audit trails.
+\end{itemize}
+
 \chapter{Level 4 Autonomy: Configuration Mutation Safety}
 
 \section{Overview}

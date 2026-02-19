@@ -10,17 +10,20 @@ References:
 """
 
 from typing import Callable, Dict, Any, Optional
-from dataclasses import dataclass
+from dataclasses import dataclass, fields
 from concurrent.futures import ThreadPoolExecutor, Future
 import numpy as np
 import pickle
 import hashlib
 from pathlib import Path
-import toml
+try:
+    import tomllib  # Python 3.11+
+except ImportError:
+    import tomli as tomllib  # Fallback for Python < 3.11
 
 try:
-    import optuna
-    from optuna.samplers import TPESampler
+    import optuna  # type: ignore[import-not-found]
+    from optuna.samplers import TPESampler  # type: ignore[import-not-found]
     OPTUNA_AVAILABLE = True
 except ImportError:
     OPTUNA_AVAILABLE = False
@@ -28,7 +31,7 @@ except ImportError:
     TPESampler = None  # type: ignore
 
 from stochastic_predictor.api.types import PredictorConfig
-from stochastic_predictor.api.config import FIELD_TO_SECTION_MAP
+from stochastic_predictor.api.config import FIELD_TO_SECTION_MAP, get_config
 from stochastic_predictor.io.config_mutation import (
     atomic_write_config,
     ConfigMutationError,
@@ -160,6 +163,34 @@ class MetaOptimizationConfig:
     n_folds: int = 5
 
 
+def load_meta_optimization_config() -> MetaOptimizationConfig:
+    """
+    Load meta-optimization defaults from config.toml.
+    
+    Zero-Heuristics: All metaparameter defaults are config-driven.
+    """
+    config_manager = get_config()
+    section = config_manager.get_section("meta_optimization")
+    meta_fields = [field.name for field in fields(MetaOptimizationConfig)]
+    missing = [name for name in meta_fields if name not in section]
+    if missing:
+        raise ValueError(
+            "Missing required [meta_optimization] entries in config.toml: "
+            f"{sorted(missing)}"
+        )
+    values = {name: section[name] for name in meta_fields}
+    return MetaOptimizationConfig(**values)
+
+
+def _coerce_float(value: Any, label: str) -> float:
+    """Coerce config values to float for delta validation."""
+    if isinstance(value, (int, float, np.floating)):
+        return float(value)
+    raise ConfigMutationError(
+        f"Non-numeric value for '{label}' in config mutation: {value}"
+    )
+
+
 @dataclass
 class OptimizationResult:
     """Results of meta-optimization run."""
@@ -216,11 +247,11 @@ class BayesianMetaOptimizer:
             )
         
         self.evaluator = walk_forward_evaluator
-        self.meta_config = meta_config or MetaOptimizationConfig()
+        self.meta_config = meta_config or load_meta_optimization_config()
         self.base_config = base_config
-        self.study: Optional[optuna.Study] = None
+        self.study: Optional[Any] = None
     
-    def _objective(self, trial: optuna.Trial) -> float:
+    def _objective(self, trial: Any) -> float:
         """
         Objective function for Optuna optimization.
         
@@ -453,13 +484,16 @@ class BayesianMetaOptimizer:
             if not can_mutate:
                 raise ConfigMutationError(f"Mutation blocked: {reason}")
 
-            current_config = toml.load(config_path)
+            with open(config_path, "rb") as config_file:
+                current_config = tomllib.load(config_file)
             for dotted_key, new_value in dotted_params.items():
                 parts = dotted_key.split(".")
                 current = current_config
                 for part in parts:
                     current = current[part]
-                delta[dotted_key] = (float(current), float(new_value))
+                current_val = _coerce_float(current, dotted_key)
+                new_val = _coerce_float(new_value, dotted_key)
+                delta[dotted_key] = (current_val, new_val)
 
             valid, reason = rate_limiter.validate_delta(delta)
             if not valid:
@@ -495,6 +529,12 @@ class BayesianMetaOptimizer:
             >>> print(f"Best MSE: {result.best_value:.6f}")
             >>> print(f"Best params: {result.best_params}")
         """
+        if optuna is None or TPESampler is None:
+            raise ImportError(
+                "Optuna is required for meta-optimization. "
+                "Install with: pip install optuna>=3.0"
+            )
+
         n_trials = n_trials or self.meta_config.n_trials
         
         # Create Optuna study with TPE sampler (multivariate Gaussian Process)
@@ -509,6 +549,7 @@ class BayesianMetaOptimizer:
             sampler=sampler,
             study_name="USP_MetaOptimization",
         )
+        assert self.study is not None
         
         # Run optimization
         self.study.optimize(
@@ -734,7 +775,8 @@ class BayesianMetaOptimizer:
         
         # Parameter importance (requires optuna.importance module)
         try:
-            import optuna.importance
+            if optuna is None:
+                raise ImportError("optuna is not available")
             importance = optuna.importance.get_param_importances(self.study)
             
             report.append("")
