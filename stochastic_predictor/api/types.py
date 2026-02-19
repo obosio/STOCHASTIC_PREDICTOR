@@ -440,6 +440,7 @@ class InternalState:
     holder_exponent: Float[Array, "1"]      # H_t: WTMM Holder
     dgm_entropy: Float[Array, "1"]          # H_DGM: Kernel B entropy
     mode_collapse_consecutive_steps: int    # V-MAJ-5: Counter for consecutive low-entropy steps
+    degraded_mode_recovery_counter: int     # V-MAJ-7: Steps needed to recover from degraded mode
     
     # State Flags
     degraded_mode: bool                     # Degraded mode active

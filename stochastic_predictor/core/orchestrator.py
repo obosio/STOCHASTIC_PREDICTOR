@@ -61,6 +61,7 @@ def initialize_state(
         holder_exponent=jnp.array(0.0),
         dgm_entropy=jnp.array(0.0),
         mode_collapse_consecutive_steps=0,  # V-MAJ-5: Initialize counter
+        degraded_mode_recovery_counter=0,  # V-MAJ-7: Initialize hysteresis counter
         degraded_mode=False,
         emergency_mode=False,
         regime_changed=False,
@@ -147,7 +148,31 @@ def orchestrate_step(
 
     # Use ingestion decision flags to override or augment degraded mode
     reject_observation = not ingestion_decision.accept_observation
-    degraded_mode = bool(staleness_degraded or ingestion_degraded or reject_observation)
+    degraded_mode_raw = bool(staleness_degraded or ingestion_degraded or reject_observation)
+
+    # V-MAJ-7: Degraded Mode Hysteresis (prevent oscillation)
+    # If already degraded: need N steps of "clean" signals to recover
+    # If normal: degrade immediately on any signal
+    recovery_threshold = max(2, int(config.frozen_signal_recovery_steps))  # Use frozen recovery steps as recovery window
+    
+    if state.degraded_mode:
+        # Already degraded: accumulate recovery signal (no degradation condition)
+        if degraded_mode_raw:
+            # Signal still indicates degradation, reset counter
+            degraded_mode_recovery_counter = 0
+        else:
+            # Signal is clean, increment recovery counter
+            degraded_mode_recovery_counter = state.degraded_mode_recovery_counter + 1
+        
+        # Exit degraded mode only after threshold met
+        degraded_mode = bool(degraded_mode_recovery_counter < recovery_threshold)
+    else:
+        # Normal mode: degrade immediately if any condition triggers
+        degraded_mode = degraded_mode_raw
+        degraded_mode_recovery_counter = 0  # Reset counter when entering degraded mode
+    
+    # Store recovery counter for telemetry (V-MAJ-7)
+    degraded_recovery_counter = degraded_mode_recovery_counter
 
     kernel_outputs = _run_kernels(
         signal, 
@@ -285,6 +310,7 @@ def orchestrate_step(
     updated_state = replace(
         updated_state,
         degraded_mode=degraded_mode,
+        degraded_mode_recovery_counter=degraded_recovery_counter,  # V-MAJ-7: Persist hysteresis counter
         emergency_mode=emergency_mode,
         regime_changed=regime_change_detected,
     )
