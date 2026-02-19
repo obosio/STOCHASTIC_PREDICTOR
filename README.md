@@ -9,6 +9,7 @@
 **Sistema de predicción estocástica universal** capaz de operar sobre procesos dinámicos cuya ley de probabilidad subyacente es desconocida *a priori*.
 
 Este repositorio contiene:
+
 - ✅ **Especificación técnica completa**: 7 documentos LaTeX (3000+ líneas, 1.73 MB PDFs)
 - ✅ **Scaffold de implementación**: Estructura de 5 capas validada (Nivel Diamante)
 - ✅ **Golden Master**: Dependency pinning estricto (`==`)
