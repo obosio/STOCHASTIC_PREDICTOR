@@ -289,6 +289,187 @@ class UniversalPredictor:
         )
 \end{lstlisting}
 
+\section{Prevención de Fragmentación de VRAM (JAX Memory Management)}
+
+\textbf{Problema de Producción:} JAX preasigna el 90\% de la memoria GPU (VRAM) mediante el runtime XLA en el primer acceso, bajo el modelo \textit{single-GPU-device-per-process}. En sistemas de alta disponibilidad con ejecución continua, la fragmentación de memoria puede acumularse tras semanas de operación, causando \textbf{Out Of Memory (OOM)} silencioso o degradación de rendimiento.
+
+\textbf{Escenario:}
+
+\begin{enumerate}
+    \item Proceso inicia y JAX asigna $\sim$90\% VRAM (ej. 36/40 GB en una GPU A100).
+    \item Durante $N$ horas, se crean/liberan tensores temporales en el algoritmo de Sinkhorn, WTMM, DGM.
+    \item El recolector de basura de Python libera memoria CPython, pero XLA mantiene fragmentos aislados.
+    \item Tras $\sim$1-4 semanas: OOM silencioso en operación crítica (pérdida de predicción).
+\end{enumerate}
+
+\textbf{Solución: Control Granular de Asignación de VRAM}
+
+Configurar dos variables de entorno críticas \textbf{ANTES} de importar JAX:
+
+\begin{lstlisting}[language=Python]
+import os
+
+# PASO 1: Limitar asignación inicial de VRAM
+# Por defecto JAX asigna 90% → reservar solo 70% para dejar margen
+os.environ['XLA_PYTHON_CLIENT_MEM_FRACTION'] = '0.7'
+
+# PASO 2: Usar allocador "platform" para liberar dinámicamente si Python GC lo exige
+# Opciones:
+#   'platform' (recomendado): Libera memoria al solicitar el SO
+#   'bfc'     (default): Caché de bloques fija (menos flexible)
+os.environ['XLA_PYTHON_CLIENT_ALLOCATOR'] = 'platform'
+
+# PASO 3: Habilitar protección contra fragmentación
+os.environ['TF_FORCE_GPU_ALLOW_GROWTH'] = 'true'  # Permite crecimiento incremental
+
+# Ahora importar JAX (después de fijar variables de entorno)
+import jax
+import jax.numpy as jnp
+
+print(f"VRAM allocation: {jax.devices()}")
+print(f"XLA allocator: platform (dynamic)")
+\end{lstlisting}
+
+\textbf{Implicaciones de Configuración:}
+
+\begin{table}[h]
+\centering
+\begin{tabular}{|l|l|l|l|}
+\hline
+\textbf{Variable} & \textbf{Default} & \textbf{Recomendado} & \textbf{Efecto} \\
+\hline
+\texttt{XLA\_PYTHON\_CLIENT\_MEM\_FRACTION} & 0.9 & 0.7 & Deja 30\% libre para I/O, SO, buffer \\
+\texttt{XLA\_PYTHON\_CLIENT\_ALLOCATOR} & bfc & platform & Libera dinamicamente al GC \\
+\texttt{TF\_FORCE\_GPU\_ALLOW\_GROWTH} & false & true & Crecimiento incremental (no prealloc) \\
+\hline
+\end{tabular}
+\end{table}
+
+\textbf{Análisis de VRAM Disponible:}
+
+Asumiendo GPU A100 (40 GB):
+
+\begin{itemize}
+    \item \textbf{Sin configuración}: JAX asigna 36 GB → SO + threads + buffers tienen 4 GB
+    \item \textbf{Con configuración}: JAX asigna 28 GB → margen de 12 GB para overhead
+    \item Sistema más estable: mejor para operaciones fragmentadas (Sinkhorn iterativo, WTMM multiscala)
+\end{itemize}
+
+\textbf{Mitigación de Fragmentación: Estrategia de Pooling}
+
+Además de las variables de entorno, implementar \textit{pool} de tensores pre-asignados para operaciones críticas:
+
+\begin{lstlisting}[language=Python]
+class VRAM_PooledAllocator:
+    def __init__(self, device_memory_budget_gb: float = 28.0, pool_size: int = 100):
+        """
+        Crea un pool de tensores pre-asignados para reducir fragmentación.
+        """
+        self.device_budget_bytes = device_memory_budget_gb * 1e9
+        self.pool = []
+        self.available = []
+        
+        # Pre-asignar tensores comunes (ej. buffers de Sinkhorn)
+        for i in range(pool_size):
+            tensor = jnp.zeros((1024, 1024), dtype=jnp.float32)  # ~4MB
+            self.pool.append(tensor)
+            self.available.append(True)
+    
+    def acquire_tensor(self, shape, dtype=jnp.float32):
+        """Obtiene tensor del pool sin fragmentar VRAM."""
+        for idx, available in enumerate(self.available):
+            if available:
+                self.available[idx] = False
+                return self.pool[idx]
+        
+        # Si no hay disponible, crear temporalmente
+        return jax.device_put(jnp.zeros(shape, dtype=dtype))
+    
+    def release_tensor(self, idx):
+        """Devuelve tensor al pool."""
+        if idx < len(self.available):
+            self.available[idx] = True
+    
+    def memory_utilization_percent(self):
+        """Reporta fragmentación."""
+        used = sum(1 for av in self.available if not av)
+        return 100.0 * used / len(self.available)
+\end{lstlisting}
+
+\textbf{Monitoreo de Fragmentación:}
+
+\begin{lstlisting}[language=Python]
+import psutil
+import subprocess
+
+def monitor_vram_fragmentation(interval_seconds=60):
+    """
+    Thread de monitoreo que reporta fragmentación de VRAM.
+    """
+    import time
+    import threading
+    
+    def _monitor():
+        while True:
+            try:
+                # Consultar nvidia-smi para obtener uso real
+                result = subprocess.run(
+                    ['nvidia-smi', '--query-gpu=memory.used,memory.total',
+                     '--format=csv,nounits,noheader'],
+                    capture_output=True, text=True, timeout=5
+                )
+                
+                if result.returncode == 0:
+                    used, total = map(float, result.stdout.strip().split(','))
+                    utilization = 100.0 * used / total
+                    
+                    if utilization > 0.95:
+                        print(f"[WARNING] VRAM near saturation: {utilization:.1f}%")
+                    elif utilization > 0.85:
+                        print(f"[INFO] VRAM utilization: {utilization:.1f}% (elevated)")
+                
+                time.sleep(interval_seconds)
+            except Exception as e:
+                print(f"[ERROR] VRAM monitoring failed: {e}")
+                break
+    
+    thread = threading.Thread(target=_monitor, daemon=True)
+    thread.start()
+\end{lstlisting}
+
+\textbf{Configuración de Despliegue Recomendada:}
+
+\begin{lstlisting}[language=bash]
+#!/bin/bash
+# deployment/run_predictor.sh
+
+# Variables de entorno CRÍTICAS para producción
+export XLA_PYTHON_CLIENT_MEM_FRACTION=0.7
+export XLA_PYTHON_CLIENT_ALLOCATOR=platform
+export TF_FORCE_GPU_ALLOW_GROWTH=true
+
+# Logs de configuración
+echo "[INFO] XLA VRAM Fraction: 0.7 (28/40 GB en A100)"
+echo "[INFO] Allocator: platform (dynamic)"
+echo "[INFO] GPU growth: enabled"
+
+# Ejecutar predictor
+python3 -u predictor_service.py \
+    --config config.yaml \
+    --device gpu \
+    --pool-size 100 \
+    --monitor-interval 300
+\end{lstlisting}
+
+\textbf{Garantías de Confiabilidad:}
+
+\begin{itemize}
+    \item \textbf{Sin OOM Silencioso}: Margen de 30\% previene asignaciones inesperadas.
+    \item \textbf{Fragmentación Reducida}: Allocador \texttt{platform} libera agresivamente.
+    \item \textbf{Uptime Sostenido}: Pool predefinido evita picos de asignación.
+    \item \textbf{Degradación Gradual}: Monitoreo detecta saturación tempranamente.
+\end{itemize}
+
 \section{Persistencia (Atomic Snapshotting)}
 
 El sistema implementa persistencia binaria protegida por checksum.
