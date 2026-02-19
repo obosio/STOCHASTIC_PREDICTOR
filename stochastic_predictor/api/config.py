@@ -244,6 +244,30 @@ FIELD_TO_SECTION_MAP: Dict[str, str] = {
     "sanitize_replace_inf_value": "validation",
     "sanitize_clip_range": "validation",
     
+    # Mode Collapse Detection (Orchestration)
+    "mode_collapse_min_threshold": "orchestration",
+    "mode_collapse_window_ratio": "orchestration",
+    
+    # Meta-Optimization (Capa 3 - Auto-Tuning v2.1.0)
+    "log_sig_depth_min": "meta_optimization",
+    "log_sig_depth_max": "meta_optimization",
+    "wtmm_buffer_size_min": "meta_optimization",
+    "wtmm_buffer_size_max": "meta_optimization",
+    "wtmm_buffer_size_step": "meta_optimization",
+    "besov_cone_c_min": "meta_optimization",
+    "besov_cone_c_max": "meta_optimization",
+    "cusum_k_min": "meta_optimization",
+    "cusum_k_max": "meta_optimization",
+    "sinkhorn_alpha_min": "meta_optimization",
+    "sinkhorn_alpha_max": "meta_optimization",
+    "volatility_alpha_min": "meta_optimization",
+    "volatility_alpha_max": "meta_optimization",
+    "n_trials": "meta_optimization",
+    "n_startup_trials": "meta_optimization",
+    "multivariate": "meta_optimization",
+    "train_ratio": "meta_optimization",
+    "n_folds": "meta_optimization",
+    
     # I/O Policies
     "data_feed_timeout": "io",
     "data_feed_max_retries": "io",

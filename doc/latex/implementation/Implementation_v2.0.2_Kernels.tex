@@ -1293,11 +1293,10 @@ if low_entropy:
 else:
     mode_collapse_counter = 0
 
-# Warning threshold: emit if counter exceeds configuration
-# Using entropy_window / 10 as heuristic (configurable in future)
+# Warning threshold: config-driven (v2.2.0 - no hardcoded values)
 mode_collapse_warning_threshold = max(
-    10,
-    config.entropy_window // 10
+    config.mode_collapse_min_threshold,
+    int(config.entropy_window * config.mode_collapse_window_ratio)
 )
 mode_collapse_warning = bool(
     mode_collapse_counter >= mode_collapse_warning_threshold

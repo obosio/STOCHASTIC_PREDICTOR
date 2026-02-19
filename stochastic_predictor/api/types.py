@@ -52,6 +52,8 @@ class PredictorConfig:
     entropy_gamma_min: float = 0.5  # Minimum gamma for crisis mode (lenient mode collapse detection)
     entropy_gamma_max: float = 1.0  # Maximum gamma for low-volatility mode (strict mode collapse detection)
     entropy_gamma_default: float = 0.8  # Default gamma for normal volatility regime
+    mode_collapse_min_threshold: int = 10  # Minimum number of consecutive steps before mode collapse warning
+    mode_collapse_window_ratio: float = 0.1  # Ratio of entropy_window for mode collapse warning threshold
     
     # Kernel D (Log-Signatures)
     log_sig_depth: int = 3          # Truncation Depth (L)

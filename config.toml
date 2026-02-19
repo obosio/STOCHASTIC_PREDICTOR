@@ -32,6 +32,8 @@ entropy_threshold = 0.8          # Deprecated: use entropy_gamma_* parameters
 entropy_gamma_min = 0.5          # Crisis mode: lenient mode collapse detection
 entropy_gamma_max = 1.0          # Low-vol mode: strict mode collapse detection
 entropy_gamma_default = 0.8      # Normal mode: balanced mode collapse detection
+mode_collapse_min_threshold = 10  # Minimum consecutive steps before mode collapse warning
+mode_collapse_window_ratio = 0.1  # Ratio of entropy_window for mode collapse warning threshold
 
 # CUSUM grace period (in steps, see doc/Predictor_Estocastico_API_Python.tex §3.2)
 grace_period_steps = 20
@@ -132,6 +134,36 @@ snapshot_hash_algorithm = "sha256"  # or "crc32c"
 # Telemetry
 telemetry_hash_interval_steps = 1
 telemetry_buffer_capacity = 1024  # Maximum capacity of telemetry buffer (zero-heuristics injection)
+
+[meta_optimization]
+# Bayesian Meta-Optimization Search Space (Capa 3 - Auto-Tuning v2.1.0)
+# Reference: MIGRATION_AUTOTUNING_v1.0.md §3.2
+
+# Structural parameters (high impact, coarse tuning)
+log_sig_depth_min = 2
+log_sig_depth_max = 5
+wtmm_buffer_size_min = 64
+wtmm_buffer_size_max = 512
+wtmm_buffer_size_step = 64
+besov_cone_c_min = 1.0
+besov_cone_c_max = 3.0
+
+# Sensitivity parameters (medium impact, fine tuning)
+cusum_k_min = 0.1
+cusum_k_max = 1.0
+sinkhorn_alpha_min = 0.1
+sinkhorn_alpha_max = 1.0
+volatility_alpha_min = 0.05
+volatility_alpha_max = 0.3
+
+# Optimization control (TPE sampler)
+n_trials = 50
+n_startup_trials = 10
+multivariate = true
+
+# Walk-forward validation (prevent overfitting)
+train_ratio = 0.7
+n_folds = 5
 
 [validation]
 # Phase 5: Zero-Heuristics Validation Constraints

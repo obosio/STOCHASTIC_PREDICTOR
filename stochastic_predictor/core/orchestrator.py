@@ -276,8 +276,11 @@ def orchestrate_step(
     else:
         mode_collapse_counter = 0
     
-    # Warning threshold: emit if counter exceeds config.entropy_window steps (reuse as window)
-    mode_collapse_warning_threshold = max(10, config.entropy_window // 10)  # Default 10 or 1/10 of entropy_window
+    # Warning threshold: config-driven (eliminates hardcoded constants)
+    mode_collapse_warning_threshold = max(
+        config.mode_collapse_min_threshold,
+        int(config.entropy_window * config.mode_collapse_window_ratio)
+    )
     mode_collapse_warning = bool(mode_collapse_counter >= mode_collapse_warning_threshold)
     
     updated_state = replace(
