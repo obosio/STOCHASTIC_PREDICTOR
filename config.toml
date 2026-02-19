@@ -20,7 +20,7 @@ staleness_ttl_ns = 500_000_000  # TTL: 500ms (degraded mode trigger)
 epsilon = 0.001  # Entropic regularization (Sinkhorn)
 learning_rate = 0.01  # JKO learning rate (tau)
 
-# Sinkhorn parameters (volatility-coupled, see doc/Predictor_Estocastico_Implementacion.tex §2.4)
+# Sinkhorn parameters (dispersion-coupled, see doc/Predictor_Estocastico_Implementacion.tex §2.4)
 sinkhorn_epsilon_min = 0.01
 sinkhorn_epsilon_0 = 0.1
 sinkhorn_alpha = 0.5  # Coupling coefficient to volatility
@@ -70,9 +70,9 @@ sde_dt = 0.01  # Time step
 sde_numel_integrations = 100
 
 [io]
-# Market feed parameters
-market_feed_timeout = 30  # seconds
-market_feed_max_retries = 3
+# Data feed parameters (domain-agnostic: applies to any external data source)
+data_feed_timeout = 30  # seconds
+data_feed_max_retries = 3
 
 # Snapshot parameters
 snapshot_atomic_fsync = true

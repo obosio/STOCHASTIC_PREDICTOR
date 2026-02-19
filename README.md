@@ -165,10 +165,10 @@ Para detalles, ver [doc/README.md](doc/README.md).
 - 7 documentos LaTeX especificación exhaustiva (1.73 MB PDFs)
 - Estructura de 5 capas implementada (`api/`, `core/`, `kernels/`, `io/`, `utils/`)
 - **API layer materialized**:
-  - `types.py` (347 líneas): PredictorConfig, MarketObservation, PredictionResult
+  - `types.py` (347 líneas): PredictorConfig, ProcessState, PredictionResult
   - `prng.py` (301 líneas): JAX threefry2x32 deterministic PRNG management
   - `validation.py` (467 líneas): Input/output domain validation
-  - `schemas.py` (330 líneas): Pydantic models for serialization (MarketObservationSchema, PredictionResultSchema, TelemetryDataSchema)
+  - `schemas.py` (330 líneas): Pydantic models for serialization (ProcessStateSchema, PredictionResultSchema, TelemetryDataSchema)
   - `config.py` (220 líneas): ConfigManager singleton with config.toml injection
 - Golden Master con dependency pinning estricto (`==`)
 - Documentación reorganizada en estructura jerárquica

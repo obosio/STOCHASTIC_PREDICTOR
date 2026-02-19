@@ -81,12 +81,12 @@ class PredictorConfig:
     inference_recovery_hysteresis: float = 0.8  # Factor histéresis para recuperación de modo degradado
 \end{lstlisting}
 
-\subsection{Entrada Operativa (\texorpdfstring{$y_t, y_{target}, \tau$}{y\_t, y\_target, tau})}
+\subsection{Entrada Operativa (\texorpdfstring{$y_t, y_{reference}, \tau$}{y\_t, y\_reference, tau})}
 \begin{lstlisting}[language=Python]
 @dataclass(frozen=True)
-class MarketObservation:
-    price: Float[Array, "1"]      # y_t (Normalizado o Absoluto)
-    target: Float[Array, "1"]     # y_target (Generalmente price actual)
+class ProcessState:
+    magnitude: Float[Array, "1"]  # y_t (Normalizado o Absoluto)
+    reference: Float[Array, "1"]  # y_reference (Magnitud de referencia)
     timestamp_ns: int             # Unix Epoch (Nanosegundos)
     
     def validate_domain(self, sigma_bound: float = 20.0, sigma_val: float = 1.0) -> bool:

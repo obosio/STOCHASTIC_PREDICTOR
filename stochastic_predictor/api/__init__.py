@@ -1,7 +1,7 @@
 """API Layer - External Contracts and Validation.
 
 This layer exposes the predictor's public interface, including:
-  - Data structures (types.py): PredictorConfig, MarketObservation, PredictionResult
+  - Data structures (types.py): PredictorConfig, ProcessState, PredictionResult
   - PRNG management (prng.py): JAX threefry2x32 deterministic configuration
   - Input/output validation (validation.py): Sanitization and domain verification
 
@@ -20,7 +20,7 @@ References:
 # Import and re-export from submodules
 from stochastic_predictor.api.types import (
     PredictorConfig,
-    MarketObservation,
+    ProcessState,
     PredictionResult,
     KernelOutput,
     InternalState,
@@ -41,7 +41,7 @@ from stochastic_predictor.api.prng import (
 )
 
 from stochastic_predictor.api.validation import (
-    validate_price,
+    validate_magnitude,
     validate_timestamp,
     check_staleness,
     validate_shape,
@@ -56,7 +56,7 @@ from stochastic_predictor.api.validation import (
 
 from stochastic_predictor.api.schemas import (
     OperatingMode as OperatingModeSchema,
-    MarketObservationSchema,
+    ProcessStateSchema,
     KernelOutputSchema,
     TelemetryDataSchema,
     PredictionResultSchema,
@@ -73,7 +73,7 @@ from stochastic_predictor.api.config import (
 __all__ = [
     # Types
     "PredictorConfig",
-    "MarketObservation",
+    "ProcessState",
     "PredictionResult",
     "KernelOutput",
     "InternalState",
@@ -90,7 +90,7 @@ __all__ = [
     "check_prng_state",
     "verify_determinism",
     # Validation
-    "validate_price",
+    "validate_magnitude",
     "validate_timestamp",
     "check_staleness",
     "validate_shape",
@@ -103,7 +103,7 @@ __all__ = [
     "warn_if_invalid",
     # Schemas
     "OperatingModeSchema",
-    "MarketObservationSchema",
+    "ProcessStateSchema",
     "KernelOutputSchema",
     "TelemetryDataSchema",
     "PredictionResultSchema",

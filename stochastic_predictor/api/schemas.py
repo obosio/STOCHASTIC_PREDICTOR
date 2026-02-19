@@ -32,43 +32,46 @@ class OperatingMode(str, Enum):
     DIAGNOSTIC = "diagnostic"
 
 
-class MarketObservationSchema(BaseModel):
+class ProcessStateSchema(BaseModel):
     """
-    Market observation data transfer object.
+    Process state observation data transfer object.
     
-    Schema for timestamped price observations from external market feeds.
+    Schema for timestamped observations from external data feeds.
     Includes temporal and domain validation.
     
+    Domain-Agnostic: Applicable to financial markets, industrial telemetry,
+    biological signals, or physical measurements.
+    
     Attributes:
-        price: Market price at observation time (positive, shape [1])
+        magnitude: Measured value at observation time (positive, shape [1])
         timestamp_utc: UTC timestamp (ISO 8601)
-        regime_tag: Optional market regime identifier (e.g., "bullish", "choppy")
+        state_tag: Optional process state identifier (e.g., "high", "low", "transient")
         volatility_proxy: Optional realized volatility estimate for kernel tuning
     """
-    price: Float[Array, "1"]
+    magnitude: Float[Array, "1"]
     timestamp_utc: datetime = Field(description="Observation time (UTC)")
-    regime_tag: Optional[str] = Field(default=None, description="Market regime label")
-    volatility_proxy: Optional[Float[Array, "1"]] = Field(
+    state_tag: Optional[str] = Field(default=None, description="Process state label (e.g., 'high_variance', 'stationary', 'trending')")
+    dispersion_proxy: Optional[Float[Array, "1"]] = Field(
         default=None,
-        description="Realized volatility estimate for Sinkhorn coupling"
+        description="Realized dispersion estimate for Sinkhorn coupling"
     )
     
     class Config:
         use_enum_values = True
         arbitrary_types_allowed = True
     
-    @validator("price")
-    def validate_price_positive(cls, value):
-        """Ensure price is strictly positive."""
+    @validator("magnitude")
+    def validate_magnitude_positive(cls, value):
+        """Ensure magnitude is strictly positive."""
         if jnp.any(value <= 0):
-            raise ValueError(f"Price must be positive, got {value}")
+            raise ValueError(f"Magnitude must be positive, got {value}")
         return value
     
-    @validator("volatility_proxy")
-    def validate_volatility_positive(cls, value):
-        """Ensure volatility proxy (if provided) is positive."""
+    @validator("dispersion_proxy")
+    def validate_dispersion_positive(cls, value):
+        """Ensure dispersion proxy (if provided) is positive."""
         if value is not None and jnp.any(value <= 0):
-            raise ValueError(f"Volatility must be positive, got {value}")
+            raise ValueError(f"Dispersion must be positive, got {value}")
         return value
 
 
@@ -77,7 +80,7 @@ class KernelOutputSchema(BaseModel):
     Output contract for kernel computations.
     
     Each kernel (A, B, C, D) produces a normalized probability density estimate
-    over the target variable space.
+    over the reference variable space.
     
     Attributes:
         probability_density: Estimated probability density (summable to ~1.0)
@@ -139,14 +142,14 @@ class PredictionResultSchema(BaseModel):
     confidence metrics, and optional telemetry.
     
     Attributes:
-        target_prediction: Point estimate (mean or mode) of target variable
+        reference_prediction: Point estimate (mean or mode) of reference variable
         confidence_lower: Lower confidence bound (e.g., 2.5th percentile)
         confidence_upper: Upper confidence bound (e.g., 97.5th percentile)
         operating_mode: Mode under which prediction was generated
         telemetry: Diagnostic telemetry (if requested)
         request_id: Unique request identifier for tracing
     """
-    target_prediction: Float[ArrayLike, ""]
+    reference_prediction: Float[ArrayLike, ""]
     confidence_lower: Float[ArrayLike, ""]
     confidence_upper: Float[ArrayLike, ""]
     operating_mode: OperatingMode
@@ -158,11 +161,11 @@ class PredictionResultSchema(BaseModel):
     
     @validator("confidence_lower", always=True)
     def validate_bounds(cls, value, values):
-        """Ensure confidence_lower <= target_prediction <= confidence_upper."""
-        if "target_prediction" in values:
-            target = values["target_prediction"]
-            if jnp.any(value > target):
-                raise ValueError(f"confidence_lower must be <= target_prediction")
+        """Ensure confidence_lower <= reference_prediction <= confidence_upper."""
+        if "reference_prediction" in values:
+            ref_pred = values["reference_prediction"]
+            if jnp.any(value > ref_pred):
+                raise ValueError(f"confidence_lower must be <= reference_prediction")
         return value
 
 
@@ -186,7 +189,7 @@ class HealthCheckResponseSchema(BaseModel):
 
 __all__ = [
     "OperatingMode",
-    "MarketObservationSchema",
+    "ProcessStateSchema",
     "KernelOutputSchema",
     "TelemetryDataSchema",
     "PredictionResultSchema",

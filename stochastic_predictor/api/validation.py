@@ -17,26 +17,29 @@ import warnings
 
 
 # ═══════════════════════════════════════════════════════════════════════════
-# MARKET OBSERVATION VALIDATION
+# PROCESS STATE OBSERVATION VALIDATION
 # ═══════════════════════════════════════════════════════════════════════════
 
-def validate_price(
-    price: Union[float, Float[Array, "1"]],
+def validate_magnitude(
+    magnitude: Union[float, Float[Array, "1"]],
     sigma_bound: float,
     sigma_val: float,
     allow_nan: bool = False
 ) -> Tuple[bool, str]:
     """
-    Validate that a price is within statistically reasonable bounds.
+    Validate that a magnitude is within statistically reasonable bounds.
     
     Design: Detection of catastrophic outliers (> N sigma) that could
-    indicate data feed errors or flash crashes.
+    indicate data feed errors or sensor malfunctions.
+    
+    Domain-Agnostic: Applies to any stochastic process (financial prices,
+    industrial telemetry, biological signals, physical measurements).
     
     Zero-Heuristics Policy: All parameters MUST be passed from PredictorConfig.
     No default values to enforce configuration-driven operation.
     
     Args:
-        price: Price to validate (scalar or JAX array)
+        magnitude: Value to validate (scalar or JAX array)
         sigma_bound: Maximum number of standard deviations allowed (from config.sigma_bound)
         sigma_val: Reference standard deviation (from config.sigma_val)
         allow_nan: If True, permits NaN values (for missing data)
@@ -45,37 +48,37 @@ def validate_price(
         Tuple (is_valid: bool, error_message: str)
         
     References:
-        - API_Python.tex §1.2: MarketObservation.validate_domain()
+        - API_Python.tex §1.2: ProcessState.validate_domain()
         
     Example:
-        >>> from stochastic_predictor.api.validation import validate_price
+        >>> from stochastic_predictor.api.validation import validate_magnitude
         >>> from stochastic_predictor.api.config import PredictorConfigInjector
         >>> config = PredictorConfigInjector().create_config()
-        >>> is_valid, msg = validate_price(
-        ...     price=jnp.array([100.5]),
+        >>> is_valid, msg = validate_magnitude(
+        ...     magnitude=jnp.array([100.5]),
         ...     sigma_bound=config.sigma_bound,
         ...     sigma_val=config.sigma_val
         ... )
         >>> assert is_valid
     """
     # Convert to JAX array if necessary
-    price_arr = jnp.asarray(price)
+    magnitude_arr = jnp.asarray(magnitude)
     
     # Check NaN
-    if jnp.any(jnp.isnan(price_arr)):
+    if jnp.any(jnp.isnan(magnitude_arr)):
         if not allow_nan:
-            return False, "Price contains NaN values"
+            return False, "Signal magnitude contains NaN values"
     
     # Check infinities
-    if jnp.any(jnp.isinf(price_arr)):
-        return False, "Price contains infinite values"
+    if jnp.any(jnp.isinf(magnitude_arr)):
+        return False, "Signal magnitude contains infinite values"
     
     # Check bounds (outlier detection)
     threshold = sigma_bound * sigma_val
-    if jnp.any(jnp.abs(price_arr) > threshold):
-        max_val = float(jnp.max(jnp.abs(price_arr)))
+    if jnp.any(jnp.abs(magnitude_arr) > threshold):
+        max_val = float(jnp.max(jnp.abs(magnitude_arr)))
         return False, (
-            f"Price outlier detected: |price|={max_val:.2f} exceeds "
+            f"Signal magnitude outlier detected: |magnitude|={max_val:.2f} exceeds "
             f"{sigma_bound}σ threshold ({threshold:.2f})"
         )
     
@@ -452,8 +455,8 @@ def warn_if_invalid(
         exception_type: If specified, raises exception instead of warning
         
     Example:
-        >>> from stochastic_predictor.api.validation import validate_price, warn_if_invalid
-        >>> is_valid, msg = validate_price(jnp.array([1000.0]), sigma_bound=5.0)
+        >>> from stochastic_predictor.api.validation import validate_magnitude, warn_if_invalid
+        >>> is_valid, msg = validate_magnitude(jnp.array([1000.0]), sigma_bound=5.0, sigma_val=1.0)
         >>> warn_if_invalid(is_valid, msg, exception_type=ValueError)
     """
     if not is_valid:
@@ -469,7 +472,7 @@ def warn_if_invalid(
 
 __all__ = [
     # Observation Validation
-    "validate_price",
+    "validate_magnitude",
     "validate_timestamp",
     "check_staleness",
     # Array Validation

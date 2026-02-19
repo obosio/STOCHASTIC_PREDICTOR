@@ -141,9 +141,9 @@ class PredictorConfig:
     max_future_drift_ns: int = 1_000_000_000     # Clock skew (1s)
     max_past_drift_ns: int = 86_400_000_000_000  # Stale data (24h)
     
-    # I/O Policies
-    market_feed_timeout: int = 30
-    market_feed_max_retries: int = 3
+    # I/O Policies (domain-agnostic: data from any source)
+    data_feed_timeout: int = 30
+    data_feed_max_retries: int = 3
     snapshot_atomic_fsync: bool = True
     snapshot_compression: str = "none"
     
@@ -165,11 +165,11 @@ class PredictorConfig:
     \item Compression: Must be ``none'', ``gzip'', or ``brotli''
 \end{itemize}
 
-\subsection{MarketObservation}
+\subsection{ProcessState}
 
 \begin{lstlisting}[language=Python]
 @dataclass(frozen=True)
-class MarketObservation:
+class ProcessState:
     """Single observation from market data stream."""
     timestamp: float
     price: float
@@ -268,20 +268,22 @@ def verify_determinism(seed: int, n_trials: int = 10) -> bool:
 
 \section{Purpose}
 
-The validation framework enforces domain constraints on all inputs. Each validator function implements business logic specific to financial time series and stochastic process parameters.
+The validation framework enforces domain constraints on all inputs. Each validator function implements business logic applicable to any stochastic process (financial, industrial, biological, physical) without semantic assumptions.
 
-\section{Price Validation}
+\section{Magnitude Validation}
+
+Domain-agnostic validation for detecting catastrophic outliers.
 
 \begin{lstlisting}[language=Python]
-def validate_price(price: float, min_price: float = 1e-10,
-                   max_price: float = 1e10) -> tuple[bool, str]:
+def validate_magnitude(magnitude: float) -> tuple[bool, str]:
     """
-    Validate market price.
+    Validate magnitude (domain-agnostic).
     
     Rules:
-    - Strictly positive (> min_price)
-    - Finite (< max_price)
-    - Not NaN or infinity
+    - Strictly positive
+    - Finite (not infinity)
+    - Not NaN
+    - Within sigma_bound threshold (from config)
     """
 \end{lstlisting}
 
@@ -319,8 +321,10 @@ def validate_beta_stable(beta: float, alpha: float) -> tuple[bool, str]:
 
 \textbf{Critical Refactor}: Removed ALL hardcoded defaults from validation functions to enforce configuration-driven operation (Diamond Level Specification).
 
+Additionally applied Domain-Agnostic nomenclature: \texttt{validate\_price()} $\to$ \texttt{validate\_magnitude()}, enabling application to any stochastic process.
+
 \begin{lstlisting}[language=Python]
-# BEFORE (hardcoded heuristics - VIOLATIONS):
+# BEFORE (hardcoded heuristics + domain-specific semantics - VIOLATIONS):
 def validate_price(
     price: Float[Array, "1"],
     sigma_bound: float = 20.0,  # MAGIC NUMBER 1
@@ -335,9 +339,9 @@ def validate_timestamp(
 ) -> Tuple[bool, str]:
     # ...
 
-# AFTER (zero-heuristics - COMPLIANT):
-def validate_price(
-    price: Float[Array, "1"],
+# AFTER (zero-heuristics + domain-agnostic - COMPLIANT):
+def validate_magnitude(
+    magnitude: Float[Array, "1"],
     sigma_bound: float,  # From config.sigma_bound
     sigma_val: float     # From config.sigma_val
 ) -> Tuple[bool, str]:
@@ -352,10 +356,10 @@ def validate_timestamp(
     """ALL parameters MUST come from PredictorConfig."""
     # ...
 
-# Usage:
+# Usage (domain-agnostic):
 config = PredictorConfigInjector().create_config()
-is_valid, msg = validate_price(
-    price=jnp.array([100.5]), 
+is_valid, msg = validate_magnitude(
+    magnitude=jnp.array([100.5]),  # Works for prices, sensors, signals, etc.
     sigma_bound=config.sigma_bound,
     sigma_val=config.sigma_val  # Explicit config injection
 )
@@ -367,7 +371,7 @@ is_valid, msg = validate_timestamp(
 )
 \end{lstlisting}
 
-\textbf{Rationale}: Hardcoded defaults for outlier detection (\texttt{sigma\_bound}, \texttt{sigma\_val}) and temporal drift validation (\texttt{max\_future\_drift\_ns}, \texttt{max\_past\_drift\_ns}) violated the Diamond Level principle that ALL hyperparameters must reside in PredictorConfig. This prevented runtime tuning for different market regimes (HFT vs. daily trading) and broke the unity of the configuration vector $\Lambda$.
+\textbf{Rationale}: Hardcoded defaults for outlier detection (\texttt{sigma\_bound}, \texttt{sigma\_val}) and temporal drift validation (\texttt{max\_future\_drift\_ns}, \texttt{max\_past\_drift\_ns}) violated the Diamond Level principle that ALL hyperparameters must reside in PredictorConfig. Financial domain semantics (\texttt{price}, \texttt{market\_feed}) limited applicability to other stochastic processes (industrial telemetry, biological signals, physics). Refactoring to abstract nomenclature enables Universal applicability.
 
 \chapter{Schema Definitions (schemas.py)}
 
@@ -377,10 +381,10 @@ The \texttt{schemas.py} module defines Pydantic v2 models that enforce API contr
 
 \section{Core Schemas}
 
-\subsection{MarketObservationSchema}
+\subsection{ProcessStateSchema}
 
 \begin{lstlisting}[language=Python]
-class MarketObservationSchema(BaseModel):
+class ProcessStateSchema(BaseModel):
     """API contract for market observation data."""
     # Dimensional consistency: Float[Array, "1"] for vmap compatibility
     price: Float[Array, "1"]
@@ -392,7 +396,7 @@ class MarketObservationSchema(BaseModel):
     )
 \end{lstlisting}
 
-\textbf{Critical Fix (commit dc16b1a)}: Changed \texttt{Float[ArrayLike, ""]} to \texttt{Float[Array, "1"]} for consistency with \texttt{types.MarketObservation} and to prevent silent broadcasting errors in JAX vmap operations.
+\textbf{Critical Fix (commit dc16b1a)}: Changed \texttt{Float[ArrayLike, ""]} to \texttt{Float[Array, "1"]} for consistency with \texttt{types.ProcessState} and to prevent silent broadcasting errors in JAX vmap operations.
 
 \subsection{PredictionResultSchema}
 
@@ -528,8 +532,8 @@ FIELD_TO_SECTION_MAP: Dict[str, str] = {
     "max_past_drift_ns": "orchestration",
     
     # I/O Policies
-    "market_feed_timeout": "io",
-    "market_feed_max_retries": "io",
+    "data_feed_timeout": "io",
+    "data_feed_max_retries": "io",
     "snapshot_atomic_fsync": "io",
     "snapshot_compression": "io",
     
@@ -632,8 +636,8 @@ USP_KERNELS__SDE_DT=0.01                      # NEW (integration timestep)
 USP_KERNELS__SDE_NUMEL_INTEGRATIONS=100       # NEW
 
 # I/O Policies (4 total, ALL NEW)
-USP_IO__MARKET_FEED_TIMEOUT=30                # NEW
-USP_IO__MARKET_FEED_MAX_RETRIES=3             # NEW
+USP_IO__DATA_FEED_TIMEOUT=30                # NEW
+USP_IO__DATA_FEED_MAX_RETRIES=3             # NEW
 USP_IO__SNAPSHOT_ATOMIC_FSYNC=true            # NEW
 USP_IO__SNAPSHOT_COMPRESSION=none             # NEW
 

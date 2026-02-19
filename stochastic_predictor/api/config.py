@@ -180,8 +180,8 @@ FIELD_TO_SECTION_MAP: Dict[str, str] = {
     "max_past_drift_ns": "orchestration",
     
     # I/O Policies
-    "market_feed_timeout": "io",
-    "market_feed_max_retries": "io",
+    "data_feed_timeout": "io",
+    "data_feed_max_retries": "io",
     "snapshot_atomic_fsync": "io",
     "snapshot_compression": "io",
     

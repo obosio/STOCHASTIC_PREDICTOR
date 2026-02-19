@@ -79,9 +79,9 @@ class PredictorConfig:
     max_future_drift_ns: int = 1_000_000_000      # Max future drift: 1 second (clock skew tolerance)
     max_past_drift_ns: int = 86_400_000_000_000   # Max past drift: 24 hours (stale data threshold)
     
-    # I/O Policies (Market Feed & Snapshots)
-    market_feed_timeout: int = 30           # Timeout in seconds
-    market_feed_max_retries: int = 3        # Maximum retry attempts
+    # I/O Policies (Data Feed & Snapshots)
+    data_feed_timeout: int = 30           # Timeout in seconds
+    data_feed_max_retries: int = 3        # Maximum retry attempts
     snapshot_atomic_fsync: bool = True      # Force fsync for atomicity
     snapshot_compression: str = "none"      # Compression: "none", "gzip", "brotli"
     
@@ -143,10 +143,10 @@ class PredictorConfig:
             f"max_past_drift_ns must be > 0, got {self.max_past_drift_ns}"
         
         # I/O constraints
-        assert self.market_feed_timeout > 0, \
-            f"market_feed_timeout must be > 0, got {self.market_feed_timeout}"
-        assert self.market_feed_max_retries >= 0, \
-            f"market_feed_max_retries must be >= 0, got {self.market_feed_max_retries}"
+        assert self.data_feed_timeout > 0, \
+            f"data_feed_timeout must be > 0, got {self.data_feed_timeout}"
+        assert self.data_feed_max_retries >= 0, \
+            f"data_feed_max_retries must be >= 0, got {self.data_feed_max_retries}"
         assert self.snapshot_compression in {"none", "gzip", "brotli"}, \
             f"snapshot_compression must be 'none', 'gzip', or 'brotli', got '{self.snapshot_compression}'"
         
@@ -160,19 +160,22 @@ class PredictorConfig:
 # ═══════════════════════════════════════════════════════════════════════════
 
 @dataclass(frozen=True)
-class MarketObservation:
+class ProcessState:
     """
-    Predictor operational input (y_t, y_target, tau).
+    Predictor operational input (y_t, y_reference, tau).
     
     Design: Scalar fields (shape [1]) for compatibility with vmap
     in multi-asset architecture (vectorized batching).
+    
+    Domain-Agnostic: Applies to any stochastic process (financial, industrial,
+    biological, physical) without semantic assumptions.
     
     References:
         - API_Python.tex §1.2: Operational Input
         - IO.tex §2: Observation Protocol
     """
-    price: Float[Array, "1"]        # y_t: Normalized or absolute price
-    target: Float[Array, "1"]       # y_target: Typically current price
+    magnitude: Float[Array, "1"]    # y_t: Normalized or absolute magnitude
+    reference: Float[Array, "1"]    # y_reference: Reference magnitude for comparison
     timestamp_ns: int               # Unix Epoch (nanoseconds)
     
     def validate_domain(
@@ -198,13 +201,13 @@ class MarketObservation:
             
         Example:
             >>> config = PredictorConfigInjector().create_config()
-            >>> obs = MarketObservation(...)
+            >>> obs = ProcessState(...)
             >>> is_valid = obs.validate_domain(
             ...     sigma_bound=config.sigma_bound,
             ...     sigma_val=config.sigma_val
             ... )
         """
-        return bool(jnp.abs(self.price) <= (sigma_bound * sigma_val))
+        return bool(jnp.abs(self.magnitude) <= (sigma_bound * sigma_val))
 
 
 @dataclass(frozen=True)
@@ -305,7 +308,7 @@ class InternalState:
         - Python.tex §6: State Management
     """
     # History Buffers (rolling windows)
-    price_buffer: Float[Array, "N"]         # Last N prices
+    signal_history: Float[Array, "N"]       # Last N signal magnitudes
     residual_buffer: Float[Array, "N"]      # Last N prediction errors
     
     # Orchestrator Weights (simplex)
@@ -410,7 +413,7 @@ __all__ = [
     # Configuration
     "PredictorConfig",
     # Input/Output
-    "MarketObservation",
+    "ProcessState",
     "PredictionResult",
     # Internal Structures
     "KernelOutput",
