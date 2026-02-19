@@ -1,15 +1,15 @@
-# Testing Plan for v2.1.0-RC1
+# Testing Plan for v2.2.0
 
-**Branch**: `testing/v2.1.0-RC1`  
-**Tag**: `impl/v2.1.0-RC1`  
-**Status**: Ready for QA/Validation Phase  
+**Branch**: `testing/v2.2.0`  
+**Tag**: `test/v2.2.0`  
+**Status**: Testing Phase (QA/Validation)  
 **Date**: February 19, 2026
 
 ---
 
 ## Objective
 
-Validate v2.1.0-RC1 (Release Candidate 1) across all critical dimensions before advancing to Phase 5 (comprehensive test suite) and v3.0.0 (production release).
+Validate v2.2.0 (Testing Phase) across all critical dimensions before advancing to Phase 5 (comprehensive test suite) and v3.0.0 (production release).
 
 **Pre-Testing Status**:
 
@@ -271,9 +271,9 @@ For each test subsection, record:
 
 ## Timeline
 
-- **RC1 Testing Window**: February 19 - March 5, 2026
+- **v2.2.0 Testing Window**: February 19 - March 5, 2026
 - **Bug Fix Window**: March 6 - March 12, 2026
-- **RC2 Release**: March 13, 2026 (if bugfixes needed)
+- **v2.2.1 Patch Release**: March 13, 2026 (if bugfixes needed)
 - **v3.0.0 Target**: April 2026
 
 ---

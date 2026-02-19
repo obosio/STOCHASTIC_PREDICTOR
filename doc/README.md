@@ -1,7 +1,7 @@
 # Documentation - Implementation Branch
 
-**Version**: v2.1.0-RC1
-**Status**: Release Candidate 1 (Production-Ready)
+**Version**: v2.2.0
+**Status**: Testing Phase
 **Branch**: `implementation/base-jax`
 
 ## Current Structure
@@ -70,8 +70,8 @@ doc/                                  # Documentation root
     - Policies: catastrophic outlier rejection, frozen signal detection, TTL staleness, binary serialization (msgpack), hash-verified snapshots, credential injection
     - Critical Features: Zero-heuristics (no implicit defaults), 64-bit precision enforcement, layer isolation (PRNG in API)
     - Orchestrator Integration: evaluate_ingestion() gate, IngestionDecision flags, degraded mode support
-  - **`impl/v2.1.0-RC1`** (commit a2bb60c)
-    - Release Candidate 1: XLA Compliance & Golden Master Enforcement
+  - **`test/v2.2.0`** (commit 1930a7e)
+    - Testing Phase: XLA Compliance & Golden Master Enforcement
     - **Critical Fixes**: 5 blocking issues resolved
       - XLA control flow violations in Kernel C (jax.lax.cond refactoring)
       - Type system incompatibility in orchestrator PyTree
@@ -79,8 +79,8 @@ doc/                                  # Documentation root
       - Golden Master dependency violation (OTT-JAX enforcement)
       - Pydantic V2 validation migration (@field_validator)
     - **Status**: 100% VSCode error compliance, 13-point audit passed
-    - **Ready for**: Intensive production testing, load testing, chaos engineering
-    - See [CHANGELOG.md](../CHANGELOG.md) and [RELEASE_NOTES.md](../RELEASE_NOTES.md) for details
+    - **Ready for**: Comprehensive QA/testing, load testing, edge case validation
+    - See [CHANGELOG.md](../CHANGELOG.md), [RELEASE_NOTES.md](../RELEASE_NOTES.md), and [TESTING.md](../TESTING.md) for details
 
 - **`pdf/specification/`**: Compiled specification PDFs
 
