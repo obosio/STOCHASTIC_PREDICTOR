@@ -14,7 +14,7 @@ from enum import Enum
 from typing import Any, Dict, Optional
 
 import jax.numpy as jnp
-from jaxtyping import Float, Array
+from jaxtyping import Float, Array, ArrayLike
 from pydantic import BaseModel, Field, validator
 
 
@@ -39,8 +39,7 @@ class ProcessStateSchema(BaseModel):
     Schema for timestamped observations from external data feeds.
     Includes temporal and domain validation.
     
-    Domain-Agnostic: Applicable to financial markets, industrial telemetry,
-    biological signals, or physical measurements.
+    Domain-Agnostic: Applies to any stochastic process observation stream without semantic assumptions.
     
     Attributes:
         magnitude: Measured value at observation time (positive, shape [1])
@@ -117,7 +116,7 @@ class TelemetryDataSchema(BaseModel):
         step_index: Current prediction step index
         jax_device: JAX device being used (cpu, gpu:0, tpu:0, etc.)
         cusum_statistic: Current CUSUM test statistic (for anomaly detection)
-        entropy_estimate: Shannon entropy from market regime
+        entropy_estimate: Shannon entropy of current stochastic process regime
         sinkhorn_epsilon: Current regularization level (time-dependent)
         kernel_outputs: All kernel outputs for this step
         timestamp_utc: When telemetry was captured

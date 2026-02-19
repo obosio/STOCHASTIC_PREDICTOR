@@ -35,8 +35,7 @@ def validate_magnitude(
     Design: Detection of catastrophic outliers (> N sigma) that could
     indicate data feed errors or sensor malfunctions.
     
-    Domain-Agnostic: Applies to any stochastic process (financial prices,
-    industrial telemetry, biological signals, physical measurements).
+    Domain-Agnostic: Applies to any stochastic process without semantic assumptions.
     
     Zero-Heuristics Policy: All parameters MUST be passed from PredictorConfig.
     No default values to enforce configuration-driven operation.
@@ -229,18 +228,21 @@ def validate_shape(
 
 def validate_finite(
     array: jnp.ndarray,
-    name: str = "array",
-    allow_nan: bool = False,
-    allow_inf: bool = False
+    name: str,
+    allow_nan: bool,
+    allow_inf: bool
 ) -> Tuple[bool, str]:
     """
     Validate that an array contains only finite values.
     
+    Zero-Heuristics Policy: All parameters MUST be injected from PredictorConfig.
+    No default values to enforce configuration-driven operation.
+    
     Args:
         array: JAX array to validate
-        name: Array name (for error messages)
-        allow_nan: If True, permits NaN values
-        allow_inf: If True, permits infinite values
+        name: Array name (for error messages) - from config.validation_finite_name
+        allow_nan: If True, permits NaN values - from config.validation_finite_allow_nan
+        allow_inf: If True, permits infinite values - from config.validation_finite_allow_inf
         
     Returns:
         Tuple (is_valid: bool, error_message: str)
@@ -263,17 +265,20 @@ def validate_finite(
 
 def validate_simplex(
     weights: Float[Array, "N"],
-    atol: float = 1e-6,
-    name: str = "weights"
+    atol: float,
+    name: str
 ) -> Tuple[bool, str]:
     """
     Validate that an array forms a simplex (sum = 1.0, all >= 0).
     
     Design: Critical for verifying JKO orchestrator weights [ρ_A, ρ_B, ρ_C, ρ_D].
     
+    Zero-Heuristics Policy: All parameters MUST be injected from PredictorConfig.
+    No default values to enforce configuration-driven operation.
+    
     Args:
         weights: Weight array to validate
-        atol: Absolute tolerance for sum
+        atol: Absolute tolerance for sum - from config.validation_simplex_atol
         name: Array name (for error messages)
         
     Returns:
@@ -286,8 +291,10 @@ def validate_simplex(
     Example:
         >>> import jax.numpy as jnp
         >>> from stochastic_predictor.api.validation import validate_simplex
+        >>> from stochastic_predictor.api.config import get_config
+        >>> config = get_config()
         >>> weights = jnp.array([0.25, 0.25, 0.25, 0.25])
-        >>> is_valid, msg = validate_simplex(weights)
+        >>> is_valid, msg = validate_simplex(weights, config.validation_simplex_atol, "weights")
         >>> assert is_valid
     """
     # Verify non-negativity
@@ -312,16 +319,19 @@ def validate_simplex(
 
 def validate_holder_exponent(
     H: Union[float, Float[Array, "1"]],
-    min_val: float = 0.0,
-    max_val: float = 1.0
+    min_val: float,
+    max_val: float
 ) -> Tuple[bool, str]:
     """
-    Validate that a Holder exponent is in the range [0, 1].
+    Validate that a Holder exponent is in the specified range.
+    
+    Zero-Heuristics Policy: All parameters MUST be injected from PredictorConfig.
+    No default values to enforce configuration-driven operation.
     
     Args:
         H: Holder exponent to validate
-        min_val: Minimum allowed value
-        max_val: Maximum allowed value
+        min_val: Minimum allowed value - from config.validation_holder_exponent_min
+        max_val: Maximum allowed value - from config.validation_holder_exponent_max
         
     Returns:
         Tuple (is_valid: bool, error_message: str)
@@ -342,18 +352,21 @@ def validate_holder_exponent(
 
 def validate_alpha_stable(
     alpha: float,
-    min_val: float = 0.0,
-    max_val: float = 2.0,
-    exclusive_bounds: bool = True
+    min_val: float,
+    max_val: float,
+    exclusive_bounds: bool
 ) -> Tuple[bool, str]:
     """
     Validate alpha parameter of Lévy stable distribution.
     
+    Zero-Heuristics Policy: All parameters MUST be injected from PredictorConfig.
+    No default values to enforce configuration-driven operation.
+    
     Args:
         alpha: Stability parameter
-        min_val: Minimum value (default: 0.0)
-        max_val: Maximum value (default: 2.0)
-        exclusive_bounds: If True, use (min, max] instead of [min, max]
+        min_val: Minimum value - from config.validation_alpha_stable_min
+        max_val: Maximum value - from config.validation_alpha_stable_max
+        exclusive_bounds: If True, use (min, max] instead of [min, max] - from config.validation_alpha_stable_exclusive_bounds
         
     Returns:
         Tuple (is_valid: bool, error_message: str)
@@ -382,16 +395,19 @@ def validate_alpha_stable(
 
 def validate_beta_stable(
     beta: float,
-    min_val: float = -1.0,
-    max_val: float = 1.0
+    min_val: float,
+    max_val: float
 ) -> Tuple[bool, str]:
     """
     Validate beta (skewness) parameter of stable distribution.
     
+    Zero-Heuristics Policy: All parameters MUST be injected from PredictorConfig.
+    No default values to enforce configuration-driven operation.
+    
     Args:
         beta: Skewness parameter
-        min_val: Minimum value (default: -1.0)
-        max_val: Maximum value (default: 1.0)
+        min_val: Minimum value - from config.validation_beta_stable_min
+        max_val: Maximum value - from config.validation_beta_stable_max
         
     Returns:
         Tuple (is_valid: bool, error_message: str)
@@ -414,23 +430,27 @@ def validate_beta_stable(
 
 def sanitize_array(
     array: jnp.ndarray,
-    replace_nan: float = 0.0,
-    replace_inf: Union[float, None] = None,
-    clip_range: Union[Tuple[float, float], None] = None
+    replace_nan: float,
+    replace_inf: Union[float, None],
+    clip_range: Union[Tuple[float, float], None]
 ) -> jnp.ndarray:
     """
     Sanitize an array by replacing NaN/Inf and applying clipping.
     
+    Zero-Heuristics Policy: All parameters MUST be injected from PredictorConfig.
+    No default values to enforce configuration-driven operation.
+    
     Args:
         array: JAX array to sanitize
-        replace_nan: Value to replace NaN (None to preserve)
-        replace_inf: Value to replace Inf (None to preserve)
-        clip_range: Tuple (min, max) for clipping (None to skip)
+        replace_nan: Value to replace NaN (from config.sanitize_replace_nan_value) - None to preserve
+        replace_inf: Value to replace Inf (from config.sanitize_replace_inf_value) - None to preserve
+        clip_range: Tuple (min, max) for clipping (from config.sanitize_clip_range) - None to skip
         
     Returns:
         Sanitized JAX array
         
-    Note: Use with caution - may mask underlying problems
+    Note: Use with caution - may mask underlying problems. All sanitization
+        policies are determined by configuration, not heuristics.
     """
     result = array
     

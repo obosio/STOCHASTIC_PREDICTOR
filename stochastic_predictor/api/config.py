@@ -196,6 +196,21 @@ FIELD_TO_SECTION_MAP: Dict[str, str] = {
     "max_future_drift_ns": "orchestration",
     "max_past_drift_ns": "orchestration",
     
+    # Validation Constraints (Phase 5: Zero-Heuristics)
+    "validation_finite_allow_nan": "validation",
+    "validation_finite_allow_inf": "validation",
+    "validation_simplex_atol": "validation",
+    "validation_holder_exponent_min": "validation",
+    "validation_holder_exponent_max": "validation",
+    "validation_alpha_stable_min": "validation",
+    "validation_alpha_stable_max": "validation",
+    "validation_alpha_stable_exclusive_bounds": "validation",
+    "validation_beta_stable_min": "validation",
+    "validation_beta_stable_max": "validation",
+    "sanitize_replace_nan_value": "validation",
+    "sanitize_replace_inf_value": "validation",
+    "sanitize_clip_range": "validation",
+    
     # I/O Policies
     "data_feed_timeout": "io",
     "data_feed_max_retries": "io",

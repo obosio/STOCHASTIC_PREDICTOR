@@ -119,6 +119,21 @@ class PredictorConfig:
     base_min_signal_length: int = 32            # Minimum required signal length
     signal_normalization_method: str = "zscore"  # Method: 'zscore' or 'minmax'
     
+    # Validation Constraints (Phase 5: Zero-Heuristics)
+    validation_finite_allow_nan: bool = False         # Allow NaN in finite validation
+    validation_finite_allow_inf: bool = False         # Allow Inf in finite validation
+    validation_simplex_atol: float = 1e-6             # Tolerance for simplex constraint
+    validation_holder_exponent_min: float = 0.0       # Min bound for Holder exponent
+    validation_holder_exponent_max: float = 1.0       # Max bound for Holder exponent
+    validation_alpha_stable_min: float = 0.0          # Min bound for alpha (stability)
+    validation_alpha_stable_max: float = 2.0          # Max bound for alpha (stability)
+    validation_alpha_stable_exclusive_bounds: bool = True  # Use strict inequalities for alpha
+    validation_beta_stable_min: float = -1.0          # Min bound for beta (skewness)
+    validation_beta_stable_max: float = 1.0           # Max bound for beta (skewness)
+    sanitize_replace_nan_value: float = 0.0           # Replacement value for NaN in sanitization
+    sanitize_replace_inf_value: Optional[float] = None  # Replacement value for Inf (None to preserve)
+    sanitize_clip_range: Optional[tuple] = None       # Tuple (min, max) for clipping (None to skip)
+    
     def __post_init__(self):
         """Validate mathematical invariants and configuration coherence."""
         # Simplex constraint implicit: learning_rate <= 1.0
@@ -196,8 +211,7 @@ class ProcessState:
     Design: Scalar fields (shape [1]) for compatibility with vmap
     in multi-asset architecture (vectorized batching).
     
-    Domain-Agnostic: Applies to any stochastic process (financial, industrial,
-    biological, physical) without semantic assumptions.
+    Domain-Agnostic: Applies to any stochastic process without semantic assumptions.
     
     References:
         - API_Python.tex §1.2: Operational Input
