@@ -22,10 +22,13 @@ from jaxtyping import Float, Array, Bool, PRNGKeyArray
 @dataclass(frozen=True)
 class PredictorConfig:
     """
-    System Hyperparameter Vector Lambda.
+    System Hyperparameter Vector Lambda (Complete Configuration).
     
     Design: Immutable (frozen=True) to guarantee thread-safety and 
     enable hashing (used in JAX JIT compilation cache).
+    
+    All parameters from config.toml are explicitly defined here to enforce
+    zero hardcoded heuristics policy (Diamond Level Specification).
     
     References:
         - API_Python.tex §1.1: Configuration (Lambda)
@@ -38,6 +41,13 @@ class PredictorConfig:
     # JKO Orchestrator (Optimal Transport)
     epsilon: float = 1e-3           # Entropic Regularization (Sinkhorn)
     learning_rate: float = 0.01     # Learning Rate (tau in JKO)
+    sinkhorn_epsilon_min: float = 0.01  # Minimum epsilon for volatility coupling
+    sinkhorn_epsilon_0: float = 0.1     # Base epsilon before coupling
+    sinkhorn_alpha: float = 0.5         # Volatility coupling coefficient
+    
+    # Entropy Monitoring (Mode Collapse Detection)
+    entropy_window: int = 100       # Sliding window for entropy computation
+    entropy_threshold: float = 0.8  # Minimum entropy threshold
     
     # Kernel D (Log-Signatures)
     log_sig_depth: int = 3          # Truncation Depth (L)
@@ -45,6 +55,12 @@ class PredictorConfig:
     # Kernel A (WTMM + Fokker-Planck)
     wtmm_buffer_size: int = 128     # N_buf: Sliding memory
     besov_cone_c: float = 1.5       # Besov Cone of Influence
+    
+    # Kernel C (SDE Integration)
+    stiffness_low: int = 100        # Threshold for explicit Euler-Maruyama
+    stiffness_high: int = 1000      # Threshold for implicit trapezial
+    sde_dt: float = 0.01            # Time step for SDE integration
+    sde_numel_integrations: int = 100  # Number of integration steps
     
     # Circuit Breaker (Holder Singularity)
     holder_threshold: float = 0.4   # H_min: Critical threshold
@@ -57,13 +73,22 @@ class PredictorConfig:
     # Volatility Monitoring (EWMA)
     volatility_alpha: float = 0.1   # α: Exponential decay
     
+    # Validation (Outlier Detection)
+    sigma_bound: float = 20.0       # Black Swan threshold (N sigma)
+    
+    # I/O Policies (Market Feed & Snapshots)
+    market_feed_timeout: int = 30           # Timeout in seconds
+    market_feed_max_retries: int = 3        # Maximum retry attempts
+    snapshot_atomic_fsync: bool = True      # Force fsync for atomicity
+    snapshot_compression: str = "none"      # Compression: "none", "gzip", "brotli"
+    
     # Latency and Anti-Aliasing Policies
     staleness_ttl_ns: int = 500_000_000         # TTL: 500ms (degraded mode)
     besov_nyquist_interval_ns: int = 100_000_000 # Nyquist: 100ms (WTMM)
     inference_recovery_hysteresis: float = 0.8  # Recovery hysteresis factor
     
     def __post_init__(self):
-        """Validate mathematical invariants."""
+        """Validate mathematical invariants and configuration coherence."""
         # Simplex constraint implicit: learning_rate <= 1.0
         assert 0.0 < self.learning_rate <= 1.0, \
             f"learning_rate must be in (0, 1], got {self.learning_rate}"
@@ -71,10 +96,30 @@ class PredictorConfig:
         # Entropic regularization must be positive
         assert self.epsilon > 0, \
             f"epsilon must be > 0 (Sinkhorn), got {self.epsilon}"
+        assert self.sinkhorn_epsilon_min > 0, \
+            f"sinkhorn_epsilon_min must be > 0, got {self.sinkhorn_epsilon_min}"
+        assert self.sinkhorn_epsilon_0 >= self.sinkhorn_epsilon_min, \
+            f"sinkhorn_epsilon_0 must be >= epsilon_min, got {self.sinkhorn_epsilon_0}"
+        assert 0.0 < self.sinkhorn_alpha <= 1.0, \
+            f"sinkhorn_alpha must be in (0, 1], got {self.sinkhorn_alpha}"
+        
+        # Entropy monitoring constraints
+        assert self.entropy_window > 0, \
+            f"entropy_window must be > 0, got {self.entropy_window}"
+        assert 0.0 < self.entropy_threshold <= 1.0, \
+            f"entropy_threshold must be in (0, 1], got {self.entropy_threshold}"
         
         # Log-signature depth reasonable (exponential complexity)
         assert 1 <= self.log_sig_depth <= 5, \
             f"log_sig_depth must be in [1, 5], got {self.log_sig_depth}"
+        
+        # SDE integration parameters
+        assert self.sde_dt > 0, \
+            f"sde_dt must be > 0, got {self.sde_dt}"
+        assert self.sde_numel_integrations > 0, \
+            f"sde_numel_integrations must be > 0, got {self.sde_numel_integrations}"
+        assert self.stiffness_low > 0 and self.stiffness_high > self.stiffness_low, \
+            f"stiffness thresholds must satisfy 0 < low < high, got {self.stiffness_low}, {self.stiffness_high}"
         
         # Holder exponent bounds (stochastic processes)
         assert 0.0 < self.holder_threshold < 1.0, \
@@ -83,6 +128,18 @@ class PredictorConfig:
         # CUSUM thresholds
         assert self.cusum_h > 0 and self.cusum_k >= 0, \
             "CUSUM thresholds must be non-negative"
+        
+        # Outlier detection
+        assert self.sigma_bound > 0, \
+            f"sigma_bound must be > 0, got {self.sigma_bound}"
+        
+        # I/O constraints
+        assert self.market_feed_timeout > 0, \
+            f"market_feed_timeout must be > 0, got {self.market_feed_timeout}"
+        assert self.market_feed_max_retries >= 0, \
+            f"market_feed_max_retries must be >= 0, got {self.market_feed_max_retries}"
+        assert self.snapshot_compression in {"none", "gzip", "brotli"}, \
+            f"snapshot_compression must be 'none', 'gzip', or 'brotli', got '{self.snapshot_compression}'"
         
         # TTL/Nyquist coherence
         assert self.staleness_ttl_ns > 0 and self.besov_nyquist_interval_ns > 0, \
@@ -111,14 +168,17 @@ class MarketObservation:
     
     def validate_domain(
         self, 
-        sigma_bound: float = 20.0, 
+        sigma_bound: float, 
         sigma_val: float = 1.0
     ) -> bool:
         """
         Catastrophic Outlier Detection (> N sigma).
         
+        Zero-Heuristics Policy: sigma_bound MUST be passed from PredictorConfig.
+        No default value to enforce configuration-driven operation.
+        
         Args:
-            sigma_bound: Maximum number of standard deviations
+            sigma_bound: Maximum number of standard deviations (from config.sigma_bound)
             sigma_val: Reference standard deviation
             
         Returns:
@@ -126,6 +186,11 @@ class MarketObservation:
             
         References:
             - API_Python.tex §1.2: validate_domain()
+            
+        Example:
+            >>> config = PredictorConfigInjector().create_config()
+            >>> obs = MarketObservation(...)
+            >>> is_valid = obs.validate_domain(sigma_bound=config.sigma_bound)
         """
         return bool(jnp.abs(self.price) <= (sigma_bound * sigma_val))
 

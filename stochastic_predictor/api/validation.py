@@ -22,7 +22,7 @@ import warnings
 
 def validate_price(
     price: Union[float, Float[Array, "1"]],
-    sigma_bound: float = 20.0,
+    sigma_bound: float,
     sigma_val: float = 1.0,
     allow_nan: bool = False
 ) -> Tuple[bool, str]:
@@ -32,9 +32,12 @@ def validate_price(
     Design: Detection of catastrophic outliers (> N sigma) that could
     indicate data feed errors or flash crashes.
     
+    Zero-Heuristics Policy: sigma_bound MUST be passed from PredictorConfig.
+    No default value to enforce configuration-driven operation.
+    
     Args:
         price: Price to validate (scalar or JAX array)
-        sigma_bound: Maximum number of standard deviations allowed
+        sigma_bound: Maximum number of standard deviations allowed (from config)
         sigma_val: Reference standard deviation
         allow_nan: If True, permits NaN values (for missing data)
         
@@ -46,7 +49,9 @@ def validate_price(
         
     Example:
         >>> from stochastic_predictor.api.validation import validate_price
-        >>> is_valid, msg = validate_price(jnp.array([100.5]), sigma_bound=20.0)
+        >>> from stochastic_predictor.api.config import PredictorConfigInjector
+        >>> config = PredictorConfigInjector().create_config()
+        >>> is_valid, msg = validate_price(jnp.array([100.5]), sigma_bound=config.sigma_bound)
         >>> assert is_valid
     """
     # Convert to JAX array if necessary

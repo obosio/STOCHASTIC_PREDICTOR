@@ -147,12 +147,23 @@ FIELD_TO_SECTION_MAP: Dict[str, str] = {
     # JKO Orchestrator & Optimal Transport
     "epsilon": "orchestration",
     "learning_rate": "orchestration",
+    "sinkhorn_epsilon_min": "orchestration",
+    "sinkhorn_epsilon_0": "orchestration",
+    "sinkhorn_alpha": "orchestration",
+    
+    # Entropy Monitoring
+    "entropy_window": "orchestration",
+    "entropy_threshold": "orchestration",
     
     # Kernel Parameters
     "log_sig_depth": "kernels",
     "wtmm_buffer_size": "kernels",
     "besov_cone_c": "kernels",
     "besov_nyquist_interval_ns": "kernels",
+    "stiffness_low": "kernels",
+    "stiffness_high": "kernels",
+    "sde_dt": "kernels",
+    "sde_numel_integrations": "kernels",
     
     # Circuit Breaker & Regime Detection
     "holder_threshold": "orchestration",
@@ -161,6 +172,15 @@ FIELD_TO_SECTION_MAP: Dict[str, str] = {
     "grace_period_steps": "orchestration",
     "volatility_alpha": "orchestration",
     "inference_recovery_hysteresis": "orchestration",
+    
+    # Validation & Outlier Detection
+    "sigma_bound": "orchestration",
+    
+    # I/O Policies
+    "market_feed_timeout": "io",
+    "market_feed_max_retries": "io",
+    "snapshot_atomic_fsync": "io",
+    "snapshot_compression": "io",
     
     # Core System Policies
     "staleness_ttl_ns": "core",

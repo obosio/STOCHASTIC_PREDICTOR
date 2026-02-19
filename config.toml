@@ -1,5 +1,9 @@
 # Configuration for Universal Stochastic Predictor
 
+[meta]
+# Snapshot versioning for backward compatibility
+schema_version = "1.0"
+
 [core]
 # JAX configuration
 jax_platforms = "cpu"  # Change to "gpu" or "tpu" as needed
@@ -8,21 +12,50 @@ jax_default_dtype = "float32"
 # Numerical precision
 float_precision = 32
 
-[orchestration]
-# CUSUM grace period (in steps, see doc/Predictor_Estocastico_API_Python.tex §3.2)
-cusum_grace_period = 20
-cusum_threshold = 5.0
+# Latency policies
+staleness_ttl_ns = 500_000_000  # TTL: 500ms (degraded mode trigger)
 
-# Entropy monitoring
-entropy_window = 100
-entropy_threshold = 0.8
+[orchestration]
+# JKO Orchestrator (Optimal Transport)
+epsilon = 0.001  # Entropic regularization (Sinkhorn)
+learning_rate = 0.01  # JKO learning rate (tau)
 
 # Sinkhorn parameters (volatility-coupled, see doc/Predictor_Estocastico_Implementacion.tex §2.4)
 sinkhorn_epsilon_min = 0.01
 sinkhorn_epsilon_0 = 0.1
 sinkhorn_alpha = 0.5  # Coupling coefficient to volatility
 
+# Entropy monitoring
+entropy_window = 100
+entropy_threshold = 0.8
+
+# CUSUM grace period (in steps, see doc/Predictor_Estocastico_API_Python.tex §3.2)
+grace_period_steps = 20
+cusum_h = 5.0  # Drift threshold
+cusum_k = 0.5  # Slack tolerance
+
+# Volatility monitoring (EWMA)
+volatility_alpha = 0.1
+
+# Outlier detection (Black Swan threshold)
+sigma_bound = 20.0  # N sigma for catastrophic outlier detection
+
+# Circuit breaker
+holder_threshold = 0.4  # Holder exponent critical threshold
+
+# Recovery hysteresis
+inference_recovery_hysteresis = 0.8
+
 [kernels]
+# Kernel D (Log-Signatures)
+log_sig_depth = 3  # Truncation depth for signature transform
+
+# Kernel A (WTMM + Fokker-Planck)
+wtmm_buffer_size = 128  # Sliding memory buffer
+besov_cone_c = 1.5  # Besov cone of influence
+besov_nyquist_interval_ns = 100_000_000  # Nyquist interval (100ms)
+
+# Kernel C (SDE Integration)
 # SDE scheme switching stiffness thresholds (Rama C, see doc/Predictor_Estocastico_Teoria.tex §2.3.3)
 stiffness_low = 100  # Below: use explicit Euler-Maruyama
 stiffness_high = 1000  # Above: use implicit trapezial
