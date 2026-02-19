@@ -95,13 +95,14 @@ class PredictorConfig:
     # Kernel A Parameters (RKHS)
     kernel_a_bandwidth: float = 0.1             # Gaussian kernel bandwidth (smoothness)
     kernel_a_embedding_dim: int = 5             # Time-delay embedding dimension (Takens)
+    kernel_a_min_variance: float = 1e-10        # Minimum variance clipping threshold (numerical stability)
     
     # Kernel B Parameters (DGM)
     dgm_width_size: int = 64                    # Hidden layer width for DGM network
     dgm_depth: int = 4                          # Number of hidden layers in DGM
     dgm_entropy_num_bins: int = 50              # Histogram bins for entropy monitoring
-    kernel_b_r: float = 0.05                    # Interest rate (HJB Hamiltonian)
-    kernel_b_sigma: float = 0.2                 # Volatility (HJB diffusion coefficient)
+    kernel_b_r: float = 0.05                    # Drift rate parameter (HJB Hamiltonian)
+    kernel_b_sigma: float = 0.2                 # Dispersion coefficient (HJB diffusion term)
     kernel_b_horizon: float = 1.0               # Prediction horizon (HJB integration time)
     
     # Kernel C Parameters (SDE)
@@ -307,8 +308,13 @@ class PredictionResult:
     mode: str  # "Standard" | "Robust" | "Emergency"
     
     def __post_init__(self):
-        """Validate output (simplex constraint and flag coherence)."""
-        # Weights must sum to 1.0 (simplex)
+        """
+        Validate output (simplex constraint and flag coherence).
+        
+        Note: atol=1e-6 corresponds to config.validation_simplex_atol default.
+        In production, validation should occur at construction site with injected tolerance.
+        """
+        # Weights must sum to 1.0 (simplex) - tolerance from config.validation_simplex_atol
         weights_sum = float(jnp.sum(self.weights))
         assert jnp.allclose(weights_sum, 1.0, atol=1e-6), \
             f"weights must form a simplex (sum=1.0), got sum={weights_sum:.6f}"

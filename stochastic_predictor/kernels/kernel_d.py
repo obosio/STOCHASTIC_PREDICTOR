@@ -28,7 +28,7 @@ from .base import KernelOutput, apply_stop_gradient_to_diagnostics
 @jax.jit
 def compute_log_signature(
     path: Float[Array, "n d"],
-    depth: int
+    config
 ) -> Float[Array, "signature_dim"]:
     """
     Compute log-signature of a path using Signax.
@@ -38,7 +38,7 @@ def compute_log_signature(
     
     Args:
         path: Discrete path (n time steps, d dimensions)
-        depth: Truncation depth (from config.kernel_d_depth - REQUIRED)
+        config: PredictorConfig with kernel_d_depth
     
     Returns:
         Log-signature vector (dimension depends on depth and d)
@@ -51,14 +51,14 @@ def compute_log_signature(
         >>> from stochastic_predictor.api.config import PredictorConfigInjector
         >>> config = PredictorConfigInjector().create_config()
         >>> path = jnp.array([[0.0, 0.0], [1.0, 0.5], [2.0, 1.0]])
-        >>> logsig = compute_log_signature(path, config.kernel_d_depth)
+        >>> logsig = compute_log_signature(path, config)
     """
     # Signax expects shape (batch, length, channels) but path is (length, channels)
     # Add batch dimension
     path_batched = path[None, :, :]  # Shape: (1, n, d)
     
     # Compute log-signature
-    logsig = signax.logsignature(path_batched, depth=depth)
+    logsig = signax.logsignature(path_batched, depth=config.kernel_d_depth)
     
     # Remove batch dimension
     logsig_unbatched = logsig[0]  # Shape: (signature_dim,)
@@ -96,7 +96,6 @@ def create_path_augmentation(
 def predict_from_signature(
     logsig: Float[Array, "signature_dim"],
     last_value: float,
-    alpha: float,
     config
 ) -> tuple[float, float]:
     """
@@ -109,8 +108,7 @@ def predict_from_signature(
     Args:
         logsig: Log-signature vector
         last_value: Last observed value (for baseline prediction)
-        alpha: Extrapolation scaling factor (from config.kernel_d_alpha - REQUIRED)
-        config: Configuration object with kernel_d_confidence_scale
+        config: PredictorConfig with kernel_d_alpha, kernel_d_confidence_scale
     
     Returns:
         Tuple of (prediction, confidence)
@@ -135,7 +133,7 @@ def predict_from_signature(
         direction = 0.0
     
     # Prediction: slight extrapolation based on signature trend
-    prediction = last_value + alpha * direction * sig_norm
+    prediction = last_value + config.kernel_d_alpha * direction * sig_norm
     
     # Confidence: Scale from config (Zero-Heuristics: 0.1 hardcode removed)
     # More activity (larger sig_norm) = less certainty
@@ -191,15 +189,14 @@ def kernel_d_predict(
     path = create_path_augmentation(signal)
     
     # Step 2: Compute log-signature
-    logsig = compute_log_signature(path, depth=config.kernel_d_depth)
+    logsig = compute_log_signature(path, config)
     
     # Step 3: Predict from signature (config injection pattern)
     last_value = signal[-1]
     prediction, confidence = predict_from_signature(
         logsig, 
         last_value, 
-        alpha=config.kernel_d_alpha,
-        config=config
+        config
     )
     
     # Diagnostics

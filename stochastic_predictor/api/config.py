@@ -166,6 +166,7 @@ FIELD_TO_SECTION_MAP: Dict[str, str] = {
     "sde_numel_integrations": "kernels",
     "kernel_a_bandwidth": "kernels",
     "kernel_a_embedding_dim": "kernels",
+    "kernel_a_min_variance": "kernels",
     "dgm_width_size": "kernels",
     "dgm_depth": "kernels",
     "dgm_entropy_num_bins": "kernels",

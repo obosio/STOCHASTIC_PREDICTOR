@@ -23,7 +23,7 @@ diffrax==0.4.1
 
 # ==================== Type Annotations ==================== #
 # Type hints for JAX: static typing for jax arrays and operations
-jaxtyping==0.2.25
+jaxtyping==0.2.24
 
 # ==================== Data Validation ==================== #
 # Pydantic for schema validation and serialization

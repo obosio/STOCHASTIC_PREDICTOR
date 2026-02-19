@@ -84,13 +84,12 @@ def kernel_ridge_regression(
     X_train: Float[Array, "n d"],
     y_train: Float[Array, "n"],
     X_test: Float[Array, "m d"],
-    bandwidth: float,
-    ridge_lambda: float  # From config.kernel_ridge_lambda (NOT hardcoded)
+    config
 ) -> tuple[Float[Array, "m"], Float[Array, "m"]]:
     """
     Kernel Ridge Regression for prediction.
     
-    Zero-Heuristics: ridge_lambda NOT hardcoded; must come from PredictorConfig.
+    Zero-Heuristics: ALL parameters from PredictorConfig (unified config injection).
     
     Solves: alpha = (K + lambda*I)^(-1) y
     Predicts: y_pred = K_test @ alpha
@@ -99,8 +98,7 @@ def kernel_ridge_regression(
         X_train: Training points (n x d)
         y_train: Training targets (n,)
         X_test: Test points (m x d)
-        bandwidth: Kernel bandwidth
-        ridge_lambda: Regularization parameter (from config.kernel_ridge_lambda)
+        config: PredictorConfig with kernel_a_bandwidth, kernel_ridge_lambda, kernel_a_min_variance
     
     Returns:
         Tuple of (predictions, variances) for test points
@@ -112,24 +110,23 @@ def kernel_ridge_regression(
     n = X_train.shape[0]
     
     # Compute Gram matrix on training data
-    K_train = compute_gram_matrix(X_train, bandwidth)
+    K_train = compute_gram_matrix(X_train, config.kernel_a_bandwidth)
     
     # Add ridge regularization to diagonal
-    K_reg = K_train + ridge_lambda * jnp.eye(n)
+    K_reg = K_train + config.kernel_ridge_lambda * jnp.eye(n)
     
     # Solve for alpha coefficients
     alpha = jnp.linalg.solve(K_reg, y_train)
     
-    # Compute kernel between test and train points
+    # Compute kernel between test and train points (vectorized via broadcasting)
     # K_test[i, j] = k(x_test[i], x_train[j])
+    # X_test[:, None, :] has shape (m, 1, d)  - each test point broadcasted
+    # X_train[None, :, :] has shape (1, n, d)  - each train point broadcasted
+    # diff_test has shape (m, n, d)
     m = X_test.shape[0]
-    K_test = jnp.zeros((m, n))
-    
-    for i in range(m):
-        for j in range(n):
-            K_test = K_test.at[i, j].set(
-                gaussian_kernel(X_test[i], X_train[j], bandwidth)
-            )
+    diff_test = X_test[:, None, :] - X_train[None, :, :]
+    squared_dist_test = jnp.sum(diff_test ** 2, axis=-1)
+    K_test = jnp.exp(-squared_dist_test / (2.0 * config.kernel_a_bandwidth ** 2))
     
     # Predictions
     y_pred = K_test @ alpha
@@ -139,7 +136,7 @@ def kernel_ridge_regression(
     k_test_diag = jnp.ones(m)  # k(x, x) = 1 for normalized kernel
     K_inv_K_test_T = jnp.linalg.solve(K_reg, K_test.T)
     variances = k_test_diag - jnp.sum(K_test * K_inv_K_test_T.T, axis=1)
-    variances = jnp.maximum(variances, 1e-10)  # Ensure non-negative
+    variances = jnp.maximum(variances, config.kernel_a_min_variance)  # Ensure non-negative (from config)
     
     return y_pred, variances
 
@@ -147,7 +144,7 @@ def kernel_ridge_regression(
 @jax.jit
 def create_embedding(
     signal: Float[Array, "n"],
-    embedding_dim: int
+    config
 ) -> Float[Array, "n_embed d"]:
     """
     Create time-delay embedding (Takens' embedding) from 1D signal.
@@ -157,7 +154,7 @@ def create_embedding(
     
     Args:
         signal: Input time series (length n)
-        embedding_dim: Embedding dimension (d, from config.kernel_a_embedding_dim)
+        config: PredictorConfig with kernel_a_embedding_dim
     
     Returns:
         Embedded points (n-d+1 x d)
@@ -170,10 +167,11 @@ def create_embedding(
         >>> from stochastic_predictor.api.config import PredictorConfigInjector
         >>> config = PredictorConfigInjector().create_config()
         >>> signal = jnp.array([1, 2, 3, 4, 5])
-        >>> embedding = create_embedding(signal, config.kernel_a_embedding_dim)
+        >>> embedding = create_embedding(signal, config)
         >>> # Returns: [[1, 2, 3], [2, 3, 4], [3, 4, 5]] (if embedding_dim=3)
     """
     n = signal.shape[0]
+    embedding_dim = config.kernel_a_embedding_dim
     n_embed = n - embedding_dim + 1
     
     # Create embedding matrix
@@ -189,9 +187,7 @@ def create_embedding(
 def kernel_a_predict(
     signal: Float[Array, "n"],
     key: Array,
-    ridge_lambda: float,
-    bandwidth: float,
-    embedding_dim: int
+    config
 ) -> KernelOutput:
     """
     Kernel A: RKHS prediction for smooth Gaussian processes.
@@ -205,9 +201,8 @@ def kernel_a_predict(
     Args:
         signal: Input time series (length n)
         key: JAX PRNG key (for compatibility, not used in this deterministic kernel)
-        ridge_lambda: Ridge regularization (from config.kernel_ridge_lambda - REQUIRED)
-        bandwidth: Gaussian kernel bandwidth (from config.kernel_a_bandwidth - REQUIRED)
-        embedding_dim: Time-delay embedding dimension (from config.kernel_a_embedding_dim - REQUIRED)
+        config: PredictorConfig with kernel_ridge_lambda, kernel_a_bandwidth, 
+                kernel_a_embedding_dim, kernel_a_min_variance
     
     Returns:
         KernelOutput with prediction, confidence (std), and metadata
@@ -221,12 +216,7 @@ def kernel_a_predict(
         >>> config = PredictorConfigInjector().create_config()
         >>> signal = jnp.array([1.0, 1.1, 0.95, 1.05])
         >>> key = initialize_jax_prng(42)
-        >>> result = kernel_a_predict(
-        ...     signal, key,
-        ...     ridge_lambda=config.kernel_ridge_lambda,
-        ...     bandwidth=config.kernel_a_bandwidth,
-        ...     embedding_dim=config.kernel_a_embedding_dim
-        ... )
+        >>> result = kernel_a_predict(signal, key, config)
         >>> prediction = result.prediction
         >>> confidence = result.confidence
     """
@@ -237,18 +227,18 @@ def kernel_a_predict(
     stats = compute_signal_statistics(signal)
     
     # Step 3: Create time-delay embedding
-    X_embedded = create_embedding(signal_normalized, embedding_dim)
+    X_embedded = create_embedding(signal_normalized, config)
     n_points = X_embedded.shape[0]
     
     # Step 4: Split into train/test (last point for prediction)
     # Train on all but last embedded point, predict last target
     X_train = X_embedded[:-1]
-    y_train = signal_normalized[embedding_dim:-1]  # Targets (next values)
+    y_train = signal_normalized[config.kernel_a_embedding_dim:-1]  # Targets (next values)
     X_test = X_embedded[-1:] # Last embedded point
     
     # Step 5: Kernel ridge regression
     y_pred_norm, variances = kernel_ridge_regression(
-        X_train, y_train, X_test, bandwidth, ridge_lambda
+        X_train, y_train, X_test, config
     )
     
     # Step 6: Denormalize prediction (inverse z-score)
@@ -258,8 +248,8 @@ def kernel_a_predict(
     # Step 7: Compute diagnostics (with stop_gradient)
     diagnostics = {
         "kernel_type": "A_Hilbert_RKHS",
-        "bandwidth": bandwidth,
-        "embedding_dim": embedding_dim,
+        "bandwidth": config.kernel_a_bandwidth,
+        "embedding_dim": config.kernel_a_embedding_dim,
         "n_training_points": X_train.shape[0],
         "signal_mean": stats["mean"],
         "signal_std": stats["std"]

@@ -48,8 +48,7 @@ class DGM_HJB_Solver(eqx.Module):
         self,
         in_size: int,
         key: Array,
-        width_size: int,
-        depth: int
+        config
     ):
         """
         Initialize DGM solver network.
@@ -57,8 +56,7 @@ class DGM_HJB_Solver(eqx.Module):
         Args:
             in_size: Input dimension (typically d+1 for d spatial dims + 1 time)
             key: JAX PRNG key for weight initialization
-            width_size: Hidden layer width (from config.dgm_width_size - REQUIRED)
-            depth: Number of hidden layers (from config.dgm_depth - REQUIRED)
+            config: PredictorConfig with dgm_width_size, dgm_depth
         
         References:
             - Python.tex §2.2.2: DGM Network Initialization
@@ -66,8 +64,8 @@ class DGM_HJB_Solver(eqx.Module):
         self.mlp = eqx.nn.MLP(
             in_size=in_size,
             out_size=1,
-            width_size=width_size,
-            depth=depth,
+            width_size=config.dgm_width_size,
+            depth=config.dgm_depth,
             key=key,
             activation=jax.nn.tanh  # Smooth activation for derivatives
         )
@@ -98,7 +96,7 @@ def compute_entropy_dgm(
     model: DGM_HJB_Solver,
     t: float,
     x_samples: Float[Array, "n d"],
-    num_bins: int
+    config
 ) -> Float[Array, ""]:
     """
     Compute differential entropy of DGM value function.
@@ -112,7 +110,7 @@ def compute_entropy_dgm(
         model: DGM solver network
         t: Time at which to evaluate
         x_samples: Samples from spatial domain (n x d)
-        num_bins: Number of bins for histogram-based entropy (from config.dgm_entropy_num_bins - REQUIRED)
+        config: PredictorConfig with dgm_entropy_num_bins
     
     Returns:
         Differential entropy (scalar)
@@ -134,7 +132,7 @@ def compute_entropy_dgm(
     values = evaluate_v(x_samples)
     
     # Compute histogram
-    hist, bin_edges = jnp.histogram(values, bins=num_bins, density=True)
+    hist, bin_edges = jnp.histogram(values, bins=config.dgm_entropy_num_bins, density=True)
     
     # Bin width for differential entropy
     bin_width = bin_edges[1] - bin_edges[0]
@@ -153,10 +151,19 @@ def loss_hjb(
     model: DGM_HJB_Solver,
     t_batch: Float[Array, "n_t"],
     x_batch: Float[Array, "n_x d"],
-    r: float,
-    sigma: float
+    config
 ) -> Float[Array, ""]:
     """
+    HJB PDE residual loss for DGM training.
+    
+    Zero-Heuristics: ALL parameters from config (kernel_b_r, kernel_b_sigma).
+    
+    Args:
+        model: DGM network
+        t_batch: Time samples
+        x_batch: Spatial samples
+        config: PredictorConfig with kernel_b_r, kernel_b_sigma
+    
     Returns:
         Mean squared residual loss
     
@@ -189,8 +196,8 @@ def loss_hjb(
         X = x[0]  # Process value (first coordinate)
         
         hamiltonian = (
-            r * X * v_x[0]
-            + 0.5 * sigma ** 2 * X ** 2 * v_xx[0, 0]
+            config.kernel_b_r * X * v_x[0]
+            + 0.5 * config.kernel_b_sigma ** 2 * X ** 2 * v_xx[0, 0]
         )
         
         # PDE residual: V_t + H = 0
@@ -258,8 +265,7 @@ def kernel_b_predict(
         model = DGM_HJB_Solver(
             in_size=2, 
             key=key_model,
-            width_size=config.dgm_width_size,
-            depth=config.dgm_depth
+            config=config
         )
     
     # Evaluate value function at current state and horizon
@@ -284,7 +290,7 @@ def kernel_b_predict(
         config.kernel_b_spatial_samples
     )[:, None]  # Shape (kernel_b_spatial_samples, 1)
     
-    entropy_dgm = compute_entropy_dgm(model, t, x_samples, num_bins=config.dgm_entropy_num_bins)
+    entropy_dgm = compute_entropy_dgm(model, t, x_samples, config)
     
     # Check for mode collapse
     # Threshold: entropy should be > 0.5 * log(100) ≈ 2.3 for healthy distribution
