@@ -24,6 +24,83 @@ from typing import Callable, Optional
 from .base import KernelOutput, apply_stop_gradient_to_diagnostics
 
 
+def estimate_stiffness(
+    drift_fn: Callable,
+    diffusion_fn: Callable,
+    y: Float[Array, "d"],
+    t: float,
+    args: tuple
+) -> float:
+    """
+    Estimate stiffness ratio for dynamic solver selection.
+    
+    Stiffness metric: ||∇f|| / trace(g·g^T)
+    where f is drift, g is diffusion.
+    
+    High ratio → stiff system (implicit solver required)
+    Low ratio → non-stiff system (explicit solver sufficient)
+    
+    Args:
+        drift_fn: Drift function f(t, y, args)
+        diffusion_fn: Diffusion function g(t, y, args)
+        y: Current state
+        t: Current time
+        args: Additional arguments
+    
+    Returns:
+        Stiffness ratio (dimensionless)
+    
+    References:
+        - Teoria.tex §2.3.3: Stiffness-Adaptive Schemes
+        - Implementacion.tex §3.3.1: IMEX Splitting Criteria
+    """
+    # Compute drift Jacobian norm
+    def drift_scalar(y_vec):
+        return jnp.linalg.norm(drift_fn(t, y_vec, args))
+    
+    drift_grad = jax.grad(drift_scalar)(y)
+    drift_jacobian_norm = jnp.linalg.norm(drift_grad)
+    
+    # Compute diffusion magnitude (trace of g·g^T)
+    diffusion_matrix = diffusion_fn(t, y, args)
+    diffusion_variance = jnp.trace(diffusion_matrix @ diffusion_matrix.T)
+    
+    # Stiffness ratio: drift strength / diffusion strength
+    # Add small epsilon to prevent division by zero
+    epsilon = 1e-10
+    stiffness = drift_jacobian_norm / (jnp.sqrt(diffusion_variance) + epsilon)
+    
+    return float(stiffness)
+
+
+def select_stiffness_solver(current_stiffness: float, config):
+    """
+    Dynamic solver selection based on Teoria.tex §2.3.3.
+    
+    Stiffness-adaptive scheme switching:
+    - Low stiffness (< stiffness_low): Explicit Euler (fast, stable for non-stiff)
+    - Medium stiffness (stiffness_low to stiffness_high): Heun (adaptive, balanced)
+    - High stiffness (>= stiffness_high): Implicit Euler (stable for stiff systems)
+    
+    Args:
+        current_stiffness: Estimated stiffness ratio
+        config: Configuration with stiffness_low, stiffness_high thresholds
+    
+    Returns:
+        Diffrax solver instance
+    
+    References:
+        - Teoria.tex §2.3.3: IMEX Splitting for Stiff SDEs
+        - Python.tex §2.2.3: Dynamic Scheme Switching
+    """
+    if current_stiffness < config.stiffness_low:
+        return diffrax.Euler()  # Explicit - fast for non-stiff
+    elif current_stiffness < config.stiffness_high:
+        return diffrax.Heun()  # Adaptive - balanced
+    else:
+        return diffrax.ImplicitEuler()  # Implicit - stable for stiff
+
+
 def drift_levy_stable(
     t: Float[Array, ""],
     y: Float[Array, "d"],
@@ -132,13 +209,10 @@ def solve_sde(
     # Combined SDE terms
     terms = diffrax.MultiTerm(drift_term, diffusion_term)
     
-    # Select solver (Zero-Heuristics: from config.sde_solver_type)
-    if config.sde_solver_type == "euler":
-        solver_obj = diffrax.Euler()
-    elif config.sde_solver_type == "heun":
-        solver_obj = diffrax.Heun()
-    else:
-        solver_obj = diffrax.Euler()  # Default
+    # Dynamic solver selection based on stiffness (Teoria.tex §2.3.3)
+    # Estimate current stiffness from drift/diffusion at initial state
+    current_stiffness = estimate_stiffness(drift_fn, diffusion_fn, y0, t0, args)
+    solver_obj = select_stiffness_solver(current_stiffness, config)
     
     # Adaptive step size controller (Zero-Heuristics: tolerances from config)
     stepsize_controller = diffrax.PIDController(

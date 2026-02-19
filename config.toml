@@ -7,10 +7,10 @@ schema_version = "1.0"
 [core]
 # JAX configuration
 jax_platforms = "cpu"  # Change to "gpu" or "tpu" as needed
-jax_default_dtype = "float32"
+jax_default_dtype = "float64"  # Sync with __init__.py (jax_enable_x64 = True)
 
 # Numerical precision
-float_precision = 32
+float_precision = 64  # Must match jax_enable_x64 for Malliavin stability
 
 # Latency policies
 staleness_ttl_ns = 500_000_000  # TTL: 500ms (degraded mode trigger)
