@@ -150,6 +150,7 @@ FIELD_TO_SECTION_MAP: Dict[str, str] = {
     "sinkhorn_epsilon_min": "orchestration",
     "sinkhorn_epsilon_0": "orchestration",
     "sinkhorn_alpha": "orchestration",
+    "sinkhorn_max_iter": "orchestration",
     
     # Entropy Monitoring
     "entropy_window": "orchestration",

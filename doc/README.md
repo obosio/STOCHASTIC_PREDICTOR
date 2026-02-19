@@ -1,7 +1,7 @@
 # Documentation - Implementation Branch
 
-**Version**: v2.0.2-Phase2-Complete  
-**Status**: Kernels Layer Complete ✅  
+**Version**: v2.0.3-Phase3-Complete  
+**Status**: Core Orchestration Complete ✅  
 **Branch**: `implementation/base-jax`
 
 ## 📂 Current Structure
@@ -52,11 +52,16 @@ doc/                                  # Documentation root
     - Total 1,665 LoC (test infrastructure reserved for v3.x.x)
     - 16KB, comprehensive API documentation
   - **`Implementacion_v2.0.2_Kernels.tex`** ✨
-    - Tag: `impl/v2.0.2` (ready to create, commit 474426c)
+    - Tag: `impl/v2.0.2` (created)
     - Kernels Layer Complete: Four prediction kernels (A, B, C, D)
     - Modules: base.py (217 LoC), kernel_a.py (276 LoC), kernel_b.py (331 LoC), kernel_c.py (277 LoC), kernel_d.py (217 LoC), \_\_init\_\_.py (105 LoC)
     - Total 1,423 LoC with RKHS, DGM, SDE, and Signature methods
     - All kernels JIT-compilable, stateless, with stop_gradient on diagnostics
+  - **`Implementation_v2.0.3_Core.tex`** ✨
+    - Tag: `impl/v2.0.3` (commit b566b2f)
+    - Core Orchestration Complete: JKO/Sinkhorn fusion with volatility coupling
+    - Modules: core/sinkhorn.py, core/fusion.py, core/orchestrator.py
+    - Config-driven simplex validation and weight updates
 
 - **`pdf/specification/`**: Compiled specification PDFs
 
@@ -64,6 +69,7 @@ doc/                                  # Documentation root
   - `Implementacion_v2.0.0_Bootstrap.pdf` (67KB) ✅
   - `Implementacion_v2.0.1_API.pdf` (97KB) ✅
   - `Implementacion_v2.0.2_Kernels.pdf` (v2.0.2) ✅
+  - `Implementation_v2.0.3_Core.pdf` (v2.0.3) ✅
 
 - **`compile.sh`**: Dynamic LaTeX compiler (processes ANY folder in `latex/`)
 

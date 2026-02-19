@@ -24,6 +24,7 @@ learning_rate = 0.01  # JKO learning rate (tau)
 sinkhorn_epsilon_min = 0.01
 sinkhorn_epsilon_0 = 0.1
 sinkhorn_alpha = 0.5  # Coupling coefficient to volatility
+sinkhorn_max_iter = 200  # Max Sinkhorn iterations (scan length)
 
 # Entropy monitoring
 entropy_window = 100

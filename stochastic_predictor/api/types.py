@@ -44,6 +44,7 @@ class PredictorConfig:
     sinkhorn_epsilon_min: float = 0.01  # Minimum epsilon for volatility coupling
     sinkhorn_epsilon_0: float = 0.1     # Base epsilon before coupling
     sinkhorn_alpha: float = 0.5         # Volatility coupling coefficient
+    sinkhorn_max_iter: int = 200        # Max Sinkhorn iterations (scan length)
     
     # Entropy Monitoring (Mode Collapse Detection)
     entropy_window: int = 100       # Sliding window for entropy computation

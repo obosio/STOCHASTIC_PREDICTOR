@@ -1,20 +1,18 @@
 """Sinkhorn utilities for Wasserstein fusion.
 
-Implements volatility-coupled entropic regularization and
-entropy-regularized OT via ott-jax.
+Implements volatility-coupled entropic regularization with a manual
+Sinkhorn loop using jax.lax.scan for predictable XLA lowering.
 
 References:
     - Predictor_Estocastico_Implementacion.tex §2.4
 """
 
 from dataclasses import dataclass
-from typing import Optional
 
+import jax
 import jax.numpy as jnp
 from jaxtyping import Array, Float
-from ott.geometry import geometry
-from ott.problems.linear import linear_problem
-from ott.solvers.linear import sinkhorn
+from jax.scipy.special import logsumexp
 
 from stochastic_predictor.api.types import PredictorConfig
 
@@ -53,26 +51,53 @@ def compute_cost_matrix(
     return jnp.square(diffs)
 
 
-def run_sinkhorn(
+def _smin(matrix: Float[Array, "n n"], epsilon: Float[Array, ""]) -> Float[Array, "n"]:
+    """Log-domain soft minimum operator (stable Sinkhorn update)."""
+    return -epsilon * logsumexp(-matrix / epsilon, axis=1)
+
+
+def volatility_coupled_sinkhorn(
     source_weights: Float[Array, "n"],
     target_weights: Float[Array, "n"],
     cost_matrix: Float[Array, "n n"],
-    epsilon: Float[Array, ""],
-    solver: Optional[sinkhorn.Sinkhorn] = None
+    ema_variance: Float[Array, "1"],
+    config: PredictorConfig
 ) -> SinkhornResult:
-    """Run entropy-regularized OT using ott-jax."""
-    solver = solver or sinkhorn.Sinkhorn()
-    epsilon_value = float(jnp.asarray(epsilon))
-    geom = geometry.Geometry(cost_matrix=cost_matrix, epsilon=epsilon_value)
-    problem = linear_problem.LinearProblem(geom, a=source_weights, b=target_weights)
-    out = solver(problem)
-    reg_ot_cost = out.reg_ot_cost
-    if reg_ot_cost is None:
-        reg_ot_cost = jnp.array(0.0)
+    """Run Sinkhorn with volatility-coupled epsilon using jax.lax.scan."""
+    log_a = jnp.log(jnp.maximum(source_weights, config.numerical_epsilon))
+    log_b = jnp.log(jnp.maximum(target_weights, config.numerical_epsilon))
+
+    f0 = jnp.zeros_like(source_weights)
+    g0 = jnp.zeros_like(target_weights)
+
+    def sinkhorn_step(carry, _):
+        f, g = carry
+        epsilon = compute_sinkhorn_epsilon(ema_variance, config)
+        f = _smin(cost_matrix - g[None, :], epsilon) + log_a
+        g = _smin(cost_matrix.T - f[None, :], epsilon) + log_b
+        return (f, g), None
+
+    (f_final, g_final), _ = jax.lax.scan(
+        sinkhorn_step,
+        (f0, g0),
+        None,
+        length=config.sinkhorn_max_iter
+    )
+
+    epsilon_final = compute_sinkhorn_epsilon(ema_variance, config)
+    transport = jnp.exp((f_final[:, None] + g_final[None, :] - cost_matrix) / epsilon_final)
+    reg_ot_cost = jnp.sum(transport * cost_matrix)
+
+    row_sums = jnp.sum(transport, axis=1)
+    col_sums = jnp.sum(transport, axis=0)
+    row_err = jnp.max(jnp.abs(row_sums - source_weights))
+    col_err = jnp.max(jnp.abs(col_sums - target_weights))
+    max_err = jnp.maximum(row_err, col_err)
+    converged = bool(max_err <= config.validation_simplex_atol)
 
     return SinkhornResult(
-        transport_matrix=out.matrix,
-        reg_ot_cost=jnp.asarray(reg_ot_cost),
-        converged=bool(out.converged),
-        epsilon=jnp.asarray(epsilon_value),
+        transport_matrix=transport,
+        reg_ot_cost=reg_ot_cost,
+        converged=converged,
+        epsilon=jnp.asarray(epsilon_final),
     )

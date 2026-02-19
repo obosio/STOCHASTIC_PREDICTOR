@@ -16,8 +16,7 @@ from stochastic_predictor.kernels.base import KernelOutput
 from stochastic_predictor.core.sinkhorn import (
     SinkhornResult,
     compute_cost_matrix,
-    compute_sinkhorn_epsilon,
-    run_sinkhorn,
+    volatility_coupled_sinkhorn,
 )
 
 
@@ -73,13 +72,13 @@ def fuse_kernel_outputs(
 
     target_weights = _normalize_confidences(confidences, config)
 
-    sinkhorn_epsilon = compute_sinkhorn_epsilon(ema_variance, config)
     cost_matrix = compute_cost_matrix(predictions, config)
-    sinkhorn_result: SinkhornResult = run_sinkhorn(
+    sinkhorn_result: SinkhornResult = volatility_coupled_sinkhorn(
         source_weights=current_weights,
         target_weights=target_weights,
         cost_matrix=cost_matrix,
-        epsilon=sinkhorn_epsilon,
+        ema_variance=ema_variance,
+        config=config,
     )
 
     updated_weights = _jko_update_weights(current_weights, target_weights, config)
