@@ -54,6 +54,21 @@ from stochastic_predictor.api.validation import (
     warn_if_invalid,
 )
 
+from stochastic_predictor.api.schemas import (
+    OperatingMode as OperatingModeSchema,
+    MarketObservationSchema,
+    KernelOutputSchema,
+    TelemetryDataSchema,
+    PredictionResultSchema,
+    HealthCheckResponseSchema,
+)
+
+from stochastic_predictor.api.config import (
+    ConfigManager,
+    get_config,
+    PredictorConfigInjector,
+)
+
 # Consolidated public exports
 __all__ = [
     # Types
@@ -86,4 +101,15 @@ __all__ = [
     "validate_beta_stable",
     "sanitize_array",
     "warn_if_invalid",
+    # Schemas
+    "OperatingModeSchema",
+    "MarketObservationSchema",
+    "KernelOutputSchema",
+    "TelemetryDataSchema",
+    "PredictionResultSchema",
+    "HealthCheckResponseSchema",
+    # Configuration
+    "ConfigManager",
+    "get_config",
+    "PredictorConfigInjector",
 ]

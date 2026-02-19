@@ -25,6 +25,14 @@ diffrax==0.4.1
 # Type hints for JAX: static typing for jax arrays and operations
 jaxtyping==0.2.25
 
+# ==================== Data Validation ==================== #
+# Pydantic for schema validation and serialization
+pydantic==2.0.0
+
+# ==================== Configuration Management ==================== #
+# TOML parser for config.toml (fallback for Python < 3.11)
+tomli==2.0.1
+
 # ==================== Optimal Transport ==================== #
 # Differentiable optimal transport: JKO algorithm, Sinkhorn with volatility-coupled regularization
 ott-jax==0.4.5
