@@ -2297,6 +2297,248 @@ Diamond Level certification & APPROVED & REVALIDATED ✓ \\
 
 \textbf{Audit Verdict}: \textit{CERTIFICACIÓN DIAMOND REVALIDADA - COMPLIANCE TOTAL ALCANZADA}
 
+\section{Adaptive SDE Stiffness-Based Solver Selection (P2.2)}
+
+\subsection{Motivation}
+
+Kernel C integrates stochastic differential equations (SDEs) using Diffrax solvers. The choice of numerical solver significantly impacts both accuracy and computational cost:
+
+\begin{itemize}
+    \item \textbf{Explicit Euler}: Fast, stable for non-stiff systems, fails on stiff systems (unbounded errors)
+    \item \textbf{Heun (Runge-Kutta 2)}: Balanced, handles moderate stiffness, good for most practical systems
+    \item \textbf{Implicit Euler}: Stable for stiff systems, computationally expensive, unnecessary for non-stiff problems
+\end{itemize}
+
+P2.2 implements \textbf{dynamic solver selection} based on real-time \textbf{stiffness estimation}, enabling automatic adaptation to the local dynamics of the process.
+
+\subsection{Stiffness Metric}
+
+The stiffness ratio quantifies the relative strength of drift and diffusion terms:
+
+\begin{equation}
+\text{stiffness} = \frac{\left\|\nabla_y f(t, y)\right\|}{\sqrt{\text{trace}(g \cdot g^T)}}
+\end{equation}
+
+where $f(t, y)$ is the drift term (deterministic), $g(t, y)$ is the diffusion matrix (stochastic), and $\nabla_y$ is the Jacobian.
+
+\begin{itemize}
+    \item \textbf{Low stiffness}: Drift dominates slowly (explicit methods safe)
+    \item \textbf{Medium stiffness}: Competing scales (hybrid methods balanced)
+    \item \textbf{High stiffness}: Drift dominates rapidly (implicit methods required)
+\end{itemize}
+
+\subsection{Solver Selection Strategy}
+
+\begin{table}[h!]
+    \centering
+    \begin{tabular}{|l|c|c|c|}
+        \hline
+        \textbf{Regime} & \textbf{Stiffness Range} & \textbf{Solver} & \textbf{Rationale} \\ \hline
+        Non-Stiff & stiffness $< 100$ & Euler & Fast, stable \\ \hline
+        Medium & $100 \le$ stiffness $< 1000$ & Heun & Balanced accuracy/speed \\ \hline
+        Stiff & stiffness $\ge 1000$ & Implicit Euler & Unconditional stability \\ \hline
+    \end{tabular}
+    \caption{P2.2 Stiffness-Adaptive Solver Selection}
+\end{table}
+
+\subsection{Implementation Pipeline}
+
+\begin{lstlisting}[language=Python]
+@jax.jit
+def estimate_stiffness(
+    drift_fn: Callable,
+    diffusion_fn: Callable,
+    y: Float[Array, "d"],
+    t: float,
+    args: tuple,
+    config  # P2.2: config now passed as parameter
+) -> float:
+    """
+    Estimate local stiffness ratio via Jacobian eigenvalues.
+    
+    Computes: stiffness = ||∇f|| / sqrt(trace(g·g^T))
+    
+    Args:
+        drift_fn: Drift function f(t, y, args)
+        diffusion_fn: Diffusion matrix g(t, y, args)
+        y: Current state (d-dimensional)
+        t: Current time
+        args: Additional parameters tuple
+        config: PredictorConfig with numerical_epsilon
+    
+    Returns:
+        Scalar stiffness ratio (dimensionless)
+    """
+    # Compute drift Jacobian norm
+    def drift_scalar(y_vec):
+        return jnp.linalg.norm(drift_fn(t, y_vec, args))
+    
+    drift_grad = jax.grad(drift_scalar)(y)
+    drift_jacobian_norm = jnp.linalg.norm(drift_grad)
+    
+    # Compute diffusion magnitude
+    diffusion_matrix = diffusion_fn(t, y, args)
+    diffusion_variance = jnp.trace(diffusion_matrix @ diffusion_matrix.T)
+    
+    # Stiffness with numerical stability epsilon
+    stiffness = drift_jacobian_norm / (
+        jnp.sqrt(diffusion_variance) + config.numerical_epsilon
+    )
+    
+    return float(stiffness)
+
+
+def select_stiffness_solver(current_stiffness: float, config):
+    """
+    Select Diffrax SDE solver based on stiffness regime.
+    
+    Strategy:
+    - stiffness < stiffness_low: Explicit (Euler) - fast
+    - stiffness_low ≤ stiffness < stiffness_high: Adaptive (Heun) - balanced
+    - stiffness ≥ stiffness_high: Implicit - stable for stiff
+    
+    Args:
+        current_stiffness: Estimated stiffness ratio
+        config: PredictorConfig with stiffness_low, stiffness_high
+    
+    Returns:
+        Diffrax solver instance (Euler, Heun, or ImplicitEuler)
+    """
+    if current_stiffness < config.stiffness_low:  # default: 100
+        return diffrax.Euler()  # Explicit
+    elif current_stiffness < config.stiffness_high:  # default: 1000
+        return diffrax.Heun()  # Adaptive
+    else:
+        return diffrax.ImplicitEuler()  # Implicit
+
+
+@jax.jit
+def solve_sde(
+    drift_fn: Callable,
+    diffusion_fn: Callable,
+    y0: Float[Array, "d"],
+    t0: float,
+    t1: float,
+    key: Array,
+    config,
+    args: tuple = ()
+) -> Float[Array, "d"]:
+    """
+    Solve SDE with dynamic stiffness-adaptive solver selection (P2.2).
+    
+    Algorithm:
+    1. Estimate stiffness at initial state
+    2. Select appropriate solver (Euler/Heun/Implicit)
+    3. Integrate from t0 to t1 using PID adaptive stepping
+    4. Return final state
+    """
+    # Define SDE terms
+    drift_term = diffrax.ODETerm(drift_fn)
+    diffusion_term = diffrax.ControlTerm(
+        diffusion_fn,
+        diffrax.VirtualBrownianTree(
+            t0=t0, t1=t1,
+            tol=config.sde_brownian_tree_tol,
+            shape=(y0.shape[0],),
+            key=key
+        )
+    )
+    
+    # Combined terms
+    terms = diffrax.MultiTerm(drift_term, diffusion_term)
+    
+    # P2.2: Dynamic solver selection based on stiffness
+    current_stiffness = estimate_stiffness(
+        drift_fn, diffusion_fn, y0, t0, args, config
+    )
+    solver_obj = select_stiffness_solver(current_stiffness, config)
+    
+    # Adaptive stepping via PID controller
+    stepsize_controller = diffrax.PIDController(
+        rtol=config.sde_pid_rtol,
+        atol=config.sde_pid_atol,
+        dtmin=config.sde_pid_dtmin,
+        dtmax=config.sde_pid_dtmax
+    )
+    
+    # Solve
+    solution = diffrax.diffeqsolve(
+        terms,
+        solver_obj,
+        t0=t0, t1=t1,
+        dt0=config.sde_pid_dtmax / config.sde_initial_dt_factor,
+        y0=y0,
+        args=args,
+        stepsize_controller=stepsize_controller,
+        saveat=diffrax.SaveAt(t1=True)
+    )
+    
+    return solution.ys[-1] if solution.ys is not None else y0
+\end{lstlisting}
+
+\subsection{Configuration Parameters}
+
+\begin{table}[h!]
+    \centering
+    \begin{tabular}{|l|c|p{5cm}|}
+        \hline
+        \textbf{Parameter} & \textbf{Default} & \textbf{Purpose} \\ \hline
+        \texttt{stiffness\_low} & 100 & Threshold for explicit solver \\ \hline
+        \texttt{stiffness\_high} & 1000 & Threshold for implicit solver \\ \hline
+        \texttt{sde\_pid\_rtol} & $10^{-3}$ & Relative tolerance for PID controller \\ \hline
+        \texttt{sde\_pid\_atol} & $10^{-6}$ & Absolute tolerance for PID controller \\ \hline
+        \texttt{sde\_pid\_dtmin} & $10^{-5}$ & Minimum time step \\ \hline
+        \texttt{sde\_pid\_dtmax} & 0.1 & Maximum time step \\ \hline
+        \texttt{sde\_brownian\_tree\_tol} & $10^{-3}$ & VirtualBrownianTree tolerance \\ \hline
+    \end{tabular}
+    \caption{P2.2 SDE Solver Configuration}
+\end{table}
+
+\subsection{Benefits}
+
+\begin{itemize}
+    \item \textbf{Robustness}: Automatically selects stable solver for current dynamics
+    \item \textbf{Efficiency}: Uses fast explicit solver when appropriate, expensive implicit only when necessary
+    \item \textbf{Adaptivity}: Responds to local stiffness variations in real time
+    \item \textbf{Zero-Heuristics}: All thresholds from config (not hardcoded)
+    \item \textbf{GPU-Ready}: All computations JAX-compatible, JIT-compilable
+\end{itemize}
+
+\subsection{Integration with Kernel C}
+
+P2.2 is integrated directly into the \texttt{solve\_sde()} function, which is called by \texttt{kernel\_c\_predict()}:
+
+\begin{lstlisting}[language=Python]
+@jax.jit
+def kernel_c_predict(
+    signal: Float[Array, "n"],
+    key: Array,
+    config
+) -> KernelOutput:
+    """Kernel C: Itô/Lévy SDE integration with P2.2 adaptive stiffness."""
+    
+    # Extract current state
+    y0 = jnp.array([signal[-1]])
+    
+    # Integrate SDE (P2.2: Solver selected based on stiffness)
+    y_final = solve_sde(
+        drift_fn=drift_levy_stable,
+        diffusion_fn=diffusion_levy,
+        y0=y0,
+        t0=0.0,
+        t1=config.kernel_c_horizon,
+        key=key,
+        config=config,
+        args=(config.kernel_c_mu, config.kernel_c_alpha, 
+              config.kernel_c_beta, config.sde_diffusion_sigma)
+    )
+    
+    return KernelOutput(
+        prediction=y_final[0],
+        confidence=theoretical_variance,
+        metadata={"stiffness": estimate_stiffness(...)}
+    )
+\end{lstlisting}
 
 \chapter{Phase 2 Summary}
 
