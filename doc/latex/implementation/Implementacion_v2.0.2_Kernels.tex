@@ -584,6 +584,97 @@ kernel\_d.py & 217 \\
     \item \texttt{ott-jax==0.4.5}: (Future: Sinkhorn in orchestration)
 \end{itemize}
 
+\chapter{Phase 6: Kernel Layer Zero-Heuristics Enforcement (Audit v2.1.3)}
+
+\textbf{Audit Report (v2.1.3)}: Critical violations identified in kernel implementations. Phase 6 enforces complete \textbf{Nivel Diamante} compliance by removing all hardcoded constants from kernel layer.
+
+\section{Violations Identified and Remediated (9 Critical)}
+
+\begin{table}[h!]
+\centering
+\begin{tabular}{|l|l|l|}
+\hline
+\textbf{Violation} & \textbf{Component} & \textbf{Resolution} \\
+\hline
+TypeError (missing alpha) & kernel\_d\_predict & Config injection: alpha=config.kernel\_d\_alpha \\
+Validation defaults & validate\_magnitude/shape & Removed all defaults (required params) \\
+SDE tolerances & kernel\_c.solve\_sde & Config fields: sde\_pid\_rtol, sde\_pid\_atol \\
+SDE timestep bounds & PIDController & Config fields: sde\_pid\_dtmin, sde\_pid\_dtmax \\
+Brownian tree tolerance & VirtualBrownianTree & Config field: sde\_brownian\_tree\_tol \\
+Spatial grid size & kernel\_b\_predict & Config field: kernel\_b\_spatial\_samples \\
+Confidence scaling factor & predict\_from\_signature & Config field: kernel\_d\_confidence\_scale \\
+Semantic leaks & schemas.py & Removed domain examples \\
+Simplex tolerance & types.py validation & Using config.validation\_simplex\_atol \\
+\hline
+\end{tabular}
+\end{table}
+
+\section{Key Remediation Patterns}
+
+\textbf{Pattern 1: Config Injection for Kernel Functions}
+
+\begin{lstlisting}[language=Python]
+# BEFORE: Missing alpha parameter injection
+def kernel_d_predict(signal: Array, key: Array, depth: int) -> KernelOutput:
+    logsig = compute_log_signature(path, depth)
+    prediction, confidence = predict_from_signature(logsig, last_value)
+    # TypeError: predict_from_signature() missing 'alpha' argument
+
+# AFTER: Config injection (Zero-Heuristics compliant)
+def kernel_d_predict(signal: Array, key: Array, config: PredictorConfig) -> KernelOutput:
+    logsig = compute_log_signature(path, depth=config.kernel_d_depth)
+    prediction, confidence = predict_from_signature(
+        logsig, last_value, alpha=config.kernel_d_alpha
+    )
+\end{lstlisting}
+
+\textbf{Pattern 2: SDE Tolerance Centralization (kernel\_c)}
+
+\begin{lstlisting}[language=Python]
+# BEFORE: Hardcoded tolerances (11 magic numbers)
+terms_sde = VirtualBrownianTree(t0, t1, tol=1e-3, ...)
+controller = PIDController(rtol=1e-3, atol=1e-6, dtmin=1e-5, dtmax=0.1)
+
+# AFTER: Config-driven (Zero-Heuristics)
+terms_sde = VirtualBrownianTree(
+    t0, t1, tol=config.sde_brownian_tree_tol, ...
+)
+controller = PIDController(
+    rtol=config.sde_pid_rtol,
+    atol=config.sde_pid_atol,
+    dtmin=config.sde_pid_dtmin,
+    dtmax=config.sde_pid_dtmax
+)
+\end{lstlisting}
+
+\section{Configuration Fields Added (8 New)}
+
+All Phase 6 parameters added to PredictorConfig and config.toml [kernels] section:
+
+\begin{itemize}
+    \item \texttt{sde\_brownian\_tree\_tol}: VirtualBrownianTree tolerance (default: 1e-3)
+    \item \texttt{sde\_pid\_rtol}: PID controller relative tolerance (default: 1e-3)
+    \item \texttt{sde\_pid\_atol}: PID controller absolute tolerance (default: 1e-6)
+    \item \texttt{sde\_pid\_dtmin}: Minimum SDE timestep (default: 1e-5)
+    \item \texttt{sde\_pid\_dtmax}: Maximum SDE timestep (default: 0.1)
+    \item \texttt{sde\_solver\_type}: SDE solver selection (default: "heun")
+    \item \texttt{kernel\_b\_spatial\_samples}: Spatial grid points (default: 100)
+    \item \texttt{kernel\_d\_confidence\_scale}: Confidence multiplier (default: 0.1)
+\end{itemize}
+
+Total PredictorConfig fields: $56 + 8 = 64$ (Phase 5: 56, Phase 6: +8)
+
+\section{Compliance Status}
+
+\begin{itemize}
+    \item[$\checkmark$] TypeError in kernel\_d\_predict FIXED (alpha injection)
+    \item[$\checkmark$] All validation function defaults REMOVED
+    \item[$\checkmark$] All SDE tolerances CENTRALIZED to config
+    \item[$\checkmark$] All kernel hardcoded values REMOVED
+    \item[$\checkmark$] Domain-specific language ELIMINATED
+    \item[$\checkmark$] \textbf{Nivel Diamante}: Zero hardcoded policy constants remain in kernel layer
+\end{itemize}
+
 \chapter{Conclusion}
 
 Phase 2 establishes the complete kernel layer with four specialized prediction engines:

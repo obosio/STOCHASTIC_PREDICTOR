@@ -27,7 +27,7 @@ def validate_magnitude(
     magnitude: Union[float, Float[Array, "1"]],
     sigma_bound: float,
     sigma_val: float,
-    allow_nan: bool = False
+    allow_nan: bool
 ) -> Tuple[bool, str]:
     """
     Validate that a magnitude is within statistically reasonable bounds.
@@ -44,7 +44,7 @@ def validate_magnitude(
         magnitude: Value to validate (scalar or JAX array)
         sigma_bound: Maximum number of standard deviations allowed (from config.sigma_bound)
         sigma_val: Reference standard deviation (from config.sigma_val)
-        allow_nan: If True, permits NaN values (for missing data)
+        allow_nan: If True, permits NaN values (from config.validation_finite_allow_nan)
         
     Returns:
         Tuple (is_valid: bool, error_message: str)
@@ -186,15 +186,18 @@ def check_staleness(
 def validate_shape(
     array: jnp.ndarray,
     expected_shape: Tuple[int, ...],
-    name: str = "array"
+    name: str
 ) -> Tuple[bool, str]:
     """
     Validate that an array has the expected shape.
     
+    Zero-Heuristics Policy: All parameters MUST be passed explicitly.
+    No default values to enforce configuration-driven operation.
+    
     Args:
         array: JAX array to validate
         expected_shape: Expected shape (can contain -1 for variable dimensions)
-        name: Array name (for error messages)
+        name: Array name (for error messages - REQUIRED)
         
     Returns:
         Tuple (is_valid: bool, error_message: str)
@@ -473,15 +476,18 @@ def sanitize_array(
 def warn_if_invalid(
     is_valid: bool,
     message: str,
-    exception_type: Union[type, None] = None
+    exception_type: Union[type, None]
 ) -> None:
     """
     Emit a warning or exception if validation fails.
     
+    Zero-Heuristics Policy: exception_type MUST be specified explicitly.
+    No default values to enforce configuration-driven operation.
+    
     Args:
         is_valid: Validation result
         message: Error message
-        exception_type: If specified, raises exception instead of warning
+        exception_type: Exception class to raise if invalid (REQUIRED - pass None to use warnings)
         
     Example:
         >>> from stochastic_predictor.api.validation import validate_magnitude, warn_if_invalid

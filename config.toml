@@ -69,6 +69,20 @@ stiffness_high = 1000  # Above: use implicit trapezial
 sde_dt = 0.01  # Time step
 sde_numel_integrations = 100
 
+# Phase 6: SDE Solver Hyperparameters (Zero-Heuristics - Kernel C)
+sde_brownian_tree_tol = 1e-3                # Brownian tree tolerance
+sde_pid_rtol = 1e-3                         # Relative tolerance for PID controller
+sde_pid_atol = 1e-6                         # Absolute tolerance for PID controller
+sde_pid_dtmin = 1e-5                        # Minimum time step
+sde_pid_dtmax = 0.1                         # Maximum time step
+sde_solver_type = "heun"                    # Solver type: "euler" or "heun"
+
+# Phase 6: Kernel B Hyperparameters (Zero-Heuristics)
+kernel_b_spatial_samples = 100              # Number of spatial sample points for entropy computation
+
+# Phase 6: Kernel D Hyperparameters (Zero-Heuristics)
+kernel_d_confidence_scale = 0.1             # Scaling factor for signature-based confidence
+
 [io]
 # Data feed parameters (domain-agnostic: applies to any external data source)
 data_feed_timeout = 30  # seconds

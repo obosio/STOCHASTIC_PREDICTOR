@@ -134,6 +134,20 @@ class PredictorConfig:
     sanitize_replace_inf_value: Optional[float] = None  # Replacement value for Inf (None to preserve)
     sanitize_clip_range: Optional[tuple] = None       # Tuple (min, max) for clipping (None to skip)
     
+    # Phase 6: SDE Integration Tolerances (Kernel C - Zero-Heuristics)
+    sde_brownian_tree_tol: float = 1e-3               # Brownian tree tolerance for path generation
+    sde_pid_rtol: float = 1e-3                        # Relative tolerance for PID controller
+    sde_pid_atol: float = 1e-6                        # Absolute tolerance for PID controller
+    sde_pid_dtmin: float = 1e-5                       # Minimum time step for PID controller
+    sde_pid_dtmax: float = 0.1                        # Maximum time step for PID controller
+    sde_solver_type: str = "heun"                     # SDE solver: "euler" or "heun"
+    
+    # Phase 6: Kernel B Hyperparameters (PDE/DGM - Zero-Heuristics)
+    kernel_b_spatial_samples: int = 100               # Number of spatial sample points for entropy
+    
+    # Phase 6: Kernel D Hyperparameters (Signatures - Zero-Heuristics)
+    kernel_d_confidence_scale: float = 0.1            # Scaling factor for signature confidence
+    
     def __post_init__(self):
         """Validate mathematical invariants and configuration coherence."""
         # Simplex constraint implicit: learning_rate <= 1.0
@@ -296,7 +310,7 @@ class PredictionResult:
         """Validate output (simplex constraint and flag coherence)."""
         # Weights must sum to 1.0 (simplex)
         weights_sum = float(jnp.sum(self.weights))
-        assert jnp.allclose(weights_sum, 1.0, atol=1e-6), \
+        assert jnp.allclose(weights_sum, 1.0, atol=self.config.validation_simplex_atol), \
             f"weights must form a simplex (sum=1.0), got sum={weights_sum:.6f}"
         
         # Weights non-negative

@@ -208,6 +208,20 @@ FIELD_TO_SECTION_MAP: Dict[str, str] = {
     "validation_beta_stable_min": "validation",
     "validation_beta_stable_max": "validation",
     "sanitize_replace_nan_value": "validation",
+    
+    # Phase 6: SDE Integration Tolerances (Kernel C - Zero-Heuristics)
+    "sde_brownian_tree_tol": "kernels",
+    "sde_pid_rtol": "kernels",
+    "sde_pid_atol": "kernels",
+    "sde_pid_dtmin": "kernels",
+    "sde_pid_dtmax": "kernels",
+    "sde_solver_type": "kernels",
+    
+    # Phase 6: Kernel B Hyperparameters (Zero-Heuristics)
+    "kernel_b_spatial_samples": "kernels",
+    
+    # Phase 6: Kernel D Hyperparameters (Zero-Heuristics)
+    "kernel_d_confidence_scale": "kernels",
     "sanitize_replace_inf_value": "validation",
     "sanitize_clip_range": "validation",
     

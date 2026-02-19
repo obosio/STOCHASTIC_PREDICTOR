@@ -240,7 +240,7 @@ def kernel_c_predict(
         key=key,
         args=args,
         dt0=dt0,
-        solver="heun"  # Heun for better accuracy on SDEs
+        solver=config.sde_solver_type  # From config ("euler" or "heun")
     )
     
     # Prediction

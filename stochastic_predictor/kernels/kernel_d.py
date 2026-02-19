@@ -136,7 +136,7 @@ def predict_from_signature(
     prediction = last_value + alpha * direction * sig_norm
     
     # Confidence: proportional to signature norm (more activity = less certainty)
-    confidence = 0.1 * (1.0 + sig_norm)
+    confidence = config.kernel_d_confidence_scale * (1.0 + sig_norm)
     
     return prediction, confidence
 
@@ -145,7 +145,7 @@ def predict_from_signature(
 def kernel_d_predict(
     signal: Float[Array, "n"],
     key: Array,
-    depth: int
+    config
 ) -> KernelOutput:
     """
     Kernel D: Signature-based prediction for rough paths.
@@ -156,10 +156,13 @@ def kernel_d_predict(
         3. Extract prediction from signature features
         4. Return with confidence estimate
     
+    Zero-Heuristics Policy: All hyperparameters MUST be injected from config.
+    No hardcoded constants remain in kernel implementation.
+    
     Args:
         signal: Input time series (historical trajectory)
         key: JAX PRNG key (for compatibility, not used in deterministic signature)
-        depth: Signature truncation depth (L)
+        config: PredictorConfig with kernel_d_depth and kernel_d_alpha parameters
     
     Returns:
         KernelOutput with prediction, confidence, and diagnostics
@@ -170,9 +173,11 @@ def kernel_d_predict(
         - Implementacion.tex §3.4: Signature Memory Optimization
     
     Example:
+        >>> from stochastic_predictor.api.config import PredictorConfigInjector
         >>> signal = jnp.array([1.0, 1.2, 1.1, 1.3, 1.2])
         >>> key = initialize_jax_prng(42)
-        >>> result = kernel_d_predict(signal, key, depth=3)
+        >>> config = PredictorConfigInjector().create_config()
+        >>> result = kernel_d_predict(signal, key, config)
         >>> prediction = result.prediction
     
     Note:
@@ -183,11 +188,15 @@ def kernel_d_predict(
     path = create_path_augmentation(signal)
     
     # Step 2: Compute log-signature
-    logsig = compute_log_signature(path, depth=depth)
+    logsig = compute_log_signature(path, depth=config.kernel_d_depth)
     
     # Step 3: Predict from signature
     last_value = signal[-1]
-    prediction, confidence = predict_from_signature(logsig, last_value)
+    prediction, confidence = predict_from_signature(
+        logsig, 
+        last_value, 
+        alpha=config.kernel_d_alpha
+    )
     
     # Diagnostics
     diagnostics = {

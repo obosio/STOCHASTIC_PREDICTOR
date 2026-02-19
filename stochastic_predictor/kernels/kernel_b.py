@@ -279,10 +279,10 @@ def kernel_b_predict(
     x_samples = jnp.linspace(
         current_state * 0.5,
         current_state * 1.5,
-        100
-    )[:, None]  # Shape (100, 1)
+        config.kernel_b_spatial_samples
+    )[:, None]  # Shape (config.kernel_b_spatial_samples, 1)
     
-    entropy_dgm = compute_entropy_dgm(model, t, x_samples, num_bins=20)
+    entropy_dgm = compute_entropy_dgm(model, t, x_samples, num_bins=config.dgm_entropy_num_bins)
     
     # Check for mode collapse
     # Threshold: entropy should be > 0.5 * log(100) ≈ 2.3 for healthy distribution
