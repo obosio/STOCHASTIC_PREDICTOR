@@ -15,7 +15,35 @@ Este repositorio contiene:
 - ✅ **Golden Master**: Dependency pinning estricto (`==`)
 - 🚧 **Código de implementación**: En desarrollo activo (branch `implementation/base-jax`)
 
-## 🎯 Características Principales del Sistema Especificado
+## �️ Versionado por Rama
+
+| Rama | Convención | Descripción |
+| ---- | ---------- | ----------- |
+| `main` | `spec/v1.x.x` | **Specification phase** (immutable, frozen) |
+| `implementation/base-jax` | `impl/v2.x.x` | **Implementation phases** (active development) |
+
+### Tags Actuales
+
+**Specification**:
+
+- `spec/v1.0.0` - Pure specification (v1.0.0-Specification equivalent)
+
+**Implementation**:
+
+- `impl/v2.0.0-Bootstrap` - Initial 5-tier architecture scaffold
+- `impl/v2.0.0-Phase1` - Foundations: API layer, PRNG, validation, test fixtures
+- `impl/v2.0.0-Phase2` - *Pending*: Kernels A, B, C, D
+- `impl/v2.0.0-Phase3` - *Pending*: Orchestration (JKO, Sinkhorn)  
+- `impl/v2.0.0-Phase4` - *Pending*: I/O (snapshots, streaming)
+- `impl/v2.1.0-Stable` - *Pending*: First production-ready version
+
+**Legacy** (for history):
+
+- `v0.0.1-spec-complete`
+- `v1.0.0-Specification`
+- `v1.1.0-Implementation-Scaffold`
+
+## �🎯 Características Principales del Sistema Especificado
 
 ### Arquitectura Multinúcleo
 
