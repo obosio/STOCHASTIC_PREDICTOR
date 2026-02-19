@@ -439,6 +439,7 @@ class InternalState:
     kurtosis: Float[Array, "1"]             # κ_t: Empirical kurtosis
     holder_exponent: Float[Array, "1"]      # H_t: WTMM Holder
     dgm_entropy: Float[Array, "1"]          # H_DGM: Kernel B entropy
+    mode_collapse_consecutive_steps: int    # V-MAJ-5: Counter for consecutive low-entropy steps
     
     # State Flags
     degraded_mode: bool                     # Degraded mode active

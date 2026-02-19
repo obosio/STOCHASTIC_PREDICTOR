@@ -60,6 +60,7 @@ def initialize_state(
         kurtosis=jnp.array(0.0),
         holder_exponent=jnp.array(0.0),
         dgm_entropy=jnp.array(0.0),
+        mode_collapse_consecutive_steps=0,  # V-MAJ-5: Initialize counter
         degraded_mode=False,
         emergency_mode=False,
         regime_changed=False,
@@ -236,6 +237,26 @@ def orchestrate_step(
         grace_counter -= 1
         updated_state = replace(updated_state, grace_counter=grace_counter)
 
+    # V-MAJ-5: Mode Collapse Detection (consecutive low-entropy steps)
+    # If dgm_entropy < threshold → increment counter, else reset
+    dgm_entropy_threshold = config.entropy_threshold
+    low_entropy = float(updated_state.dgm_entropy) < dgm_entropy_threshold
+    mode_collapse_counter = updated_state.mode_collapse_consecutive_steps
+    
+    if low_entropy:
+        mode_collapse_counter = mode_collapse_counter + 1
+    else:
+        mode_collapse_counter = 0
+    
+    # Warning threshold: emit if counter exceeds config.entropy_window steps (reuse as window)
+    mode_collapse_warning_threshold = max(10, config.entropy_window // 10)  # Default 10 or 1/10 of entropy_window
+    mode_collapse_warning = bool(mode_collapse_counter >= mode_collapse_warning_threshold)
+    
+    updated_state = replace(
+        updated_state,
+        mode_collapse_consecutive_steps=mode_collapse_counter
+    )
+
     emergency_mode = bool(updated_state.holder_exponent < config.holder_threshold)
     
     # Override emergency mode if observation was rejected
@@ -257,7 +278,7 @@ def orchestrate_step(
         degraded_inference_mode=degraded_mode,
         emergency_mode=emergency_mode,
         regime_change_detected=regime_change_detected,
-        mode_collapse_warning=bool(kernel_outputs[KernelType.KERNEL_B].metadata.get("mode_collapse", False)),
+        mode_collapse_warning=mode_collapse_warning,  # V-MAJ-5: Use calculated warning
         mode=_compute_mode(degraded_mode, emergency_mode),
     )
 
