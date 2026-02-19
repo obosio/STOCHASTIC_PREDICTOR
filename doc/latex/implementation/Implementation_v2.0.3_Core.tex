@@ -95,18 +95,39 @@ def compute_sinkhorn_epsilon(ema_variance, config):
     return jnp.maximum(config.sinkhorn_epsilon_min, epsilon_t)
 \end{lstlisting}
 
-\section{Entropy-Regularized OT}
+\section{Entropy-Regularized OT (Scan-Based)}
+
+The Sinkhorn iterations are implemented with \texttt{jax.lax.scan} to ensure predictable XLA lowering and to support per-iteration volatility coupling. The iteration count is controlled by \texttt{config.sinkhorn\_max\_iter}.
 
 \begin{lstlisting}[language=Python]
-def run_sinkhorn(source_weights, target_weights, cost_matrix, epsilon):
-    geom = geometry.Geometry(cost_matrix=cost_matrix, epsilon=float(epsilon))
-    problem = linear_problem.LinearProblem(geom, a=source_weights, b=target_weights)
-    out = sinkhorn.Sinkhorn()(problem)
+def volatility_coupled_sinkhorn(source_weights, target_weights, cost_matrix, ema_variance, config):
+    log_a = jnp.log(jnp.maximum(source_weights, config.numerical_epsilon))
+    log_b = jnp.log(jnp.maximum(target_weights, config.numerical_epsilon))
+    f0 = jnp.zeros_like(source_weights)
+    g0 = jnp.zeros_like(target_weights)
+
+    def sinkhorn_step(carry, _):
+        f, g = carry
+        eps = compute_sinkhorn_epsilon(ema_variance, config)
+        f = _smin(cost_matrix - g[None, :], eps) + log_a
+        g = _smin(cost_matrix.T - f[None, :], eps) + log_b
+        return (f, g), None
+
+    (f_final, g_final), _ = jax.lax.scan(
+        sinkhorn_step, (f0, g0), None, length=config.sinkhorn_max_iter
+    )
+
+    epsilon_final = compute_sinkhorn_epsilon(ema_variance, config)
+    transport = jnp.exp((f_final[:, None] + g_final[None, :] - cost_matrix) / epsilon_final)
+    reg_ot_cost = jnp.sum(transport * cost_matrix)
+    row_err = jnp.max(jnp.abs(jnp.sum(transport, axis=1) - source_weights))
+    col_err = jnp.max(jnp.abs(jnp.sum(transport, axis=0) - target_weights))
+    converged = jnp.maximum(row_err, col_err) <= config.validation_simplex_atol
     return SinkhornResult(
-        transport_matrix=out.matrix,
-        reg_ot_cost=jnp.asarray(out.reg_ot_cost) if out.reg_ot_cost is not None else jnp.array(0.0),
-        converged=bool(out.converged),
-        epsilon=jnp.asarray(float(epsilon)),
+        transport_matrix=transport,
+        reg_ot_cost=reg_ot_cost,
+        converged=bool(converged),
+        epsilon=jnp.asarray(epsilon_final),
     )
 \end{lstlisting}
 
@@ -126,13 +147,13 @@ def fuse_kernel_outputs(kernel_outputs, current_weights, ema_variance, config):
     confidences = jnp.array([ko.confidence for ko in kernel_outputs]).reshape(-1)
     target_weights = _normalize_confidences(confidences, config)
 
-    sinkhorn_epsilon = compute_sinkhorn_epsilon(ema_variance, config)
     cost_matrix = compute_cost_matrix(predictions, config)
-    sinkhorn_result = run_sinkhorn(
+    sinkhorn_result = volatility_coupled_sinkhorn(
         source_weights=current_weights,
         target_weights=target_weights,
         cost_matrix=cost_matrix,
-        epsilon=sinkhorn_epsilon,
+        ema_variance=ema_variance,
+        config=config,
     )
 
     updated_weights = _jko_update_weights(current_weights, target_weights, config)
@@ -161,7 +182,7 @@ PredictionResult.validate_simplex(updated_weights, config.validation_simplex_ato
 
 \begin{lstlisting}[language=Python]
 from .fusion import FusionResult, fuse_kernel_outputs
-from .sinkhorn import SinkhornResult, compute_sinkhorn_epsilon
+from .sinkhorn import SinkhornResult, compute_sinkhorn_epsilon, volatility_coupled_sinkhorn
 \end{lstlisting}
 
 \section{Compliance Checklist}
