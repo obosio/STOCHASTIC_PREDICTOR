@@ -24,6 +24,7 @@ class SinkhornResult:
     reg_ot_cost: Float[Array, ""]
     converged: Array
     epsilon: Float[Array, ""]
+    max_err: Float[Array, ""]
 
 
 def compute_sinkhorn_epsilon(
@@ -102,4 +103,5 @@ def volatility_coupled_sinkhorn(
         reg_ot_cost=reg_ot_cost,
         converged=converged,
         epsilon=jnp.asarray(epsilon_final),
+        max_err=jnp.asarray(max_err),
     )

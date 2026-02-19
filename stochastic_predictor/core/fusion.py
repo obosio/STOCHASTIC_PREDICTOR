@@ -29,6 +29,7 @@ class FusionResult:
     sinkhorn_converged: Bool[Array, ""]
     sinkhorn_epsilon: Float[Array, ""]
     sinkhorn_transport: Float[Array, "4 4"]
+    sinkhorn_max_err: Float[Array, ""]
 
 
 def _normalize_confidences(
@@ -97,4 +98,5 @@ def fuse_kernel_outputs(
         sinkhorn_converged=sinkhorn_result.converged,
         sinkhorn_epsilon=sinkhorn_result.epsilon,
         sinkhorn_transport=sinkhorn_result.transport_matrix,
+        sinkhorn_max_err=sinkhorn_result.max_err,
     )
