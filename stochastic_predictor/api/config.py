@@ -12,6 +12,7 @@ References:
 from __future__ import annotations
 
 import os
+from dataclasses import fields
 from pathlib import Path
 from typing import Any, Dict, Optional, TYPE_CHECKING
 
@@ -132,6 +133,40 @@ def get_config() -> ConfigManager:
     return _config_manager
 
 
+# ═══════════════════════════════════════════════════════════════════════════
+# FIELD MAPPING METADATA (Single Source of Truth)
+# ═══════════════════════════════════════════════════════════════════════════
+
+# Maps PredictorConfig field names to their config.toml section
+# Format: {field_name: section_name}
+# This is the ONLY place that needs updating when adding new config fields
+FIELD_TO_SECTION_MAP: Dict[str, str] = {
+    # Metadata
+    "schema_version": "meta",
+    
+    # JKO Orchestrator & Optimal Transport
+    "epsilon": "orchestration",
+    "learning_rate": "orchestration",
+    
+    # Kernel Parameters
+    "log_sig_depth": "kernels",
+    "wtmm_buffer_size": "kernels",
+    "besov_cone_c": "kernels",
+    "besov_nyquist_interval_ns": "kernels",
+    
+    # Circuit Breaker & Regime Detection
+    "holder_threshold": "orchestration",
+    "cusum_h": "orchestration",
+    "cusum_k": "orchestration",
+    "grace_period_steps": "orchestration",
+    "volatility_alpha": "orchestration",
+    "inference_recovery_hysteresis": "orchestration",
+    
+    # Core System Policies
+    "staleness_ttl_ns": "core",
+}
+
+
 class PredictorConfigInjector:
     """
     Dependency injection wrapper for PredictorConfig.
@@ -150,77 +185,55 @@ class PredictorConfigInjector:
     
     def create_config(self) -> PredictorConfig:
         """
-        Create a PredictorConfig instance from config.toml.
+        Create a PredictorConfig instance from config.toml using automated field mapping.
         
-        Maps all fields from config.toml to PredictorConfig dataclass,
-        ensuring single source of truth for algorithmic configuration.
+        Uses dataclass introspection to ensure all PredictorConfig fields are populated
+        from config.toml or environment variables, with dataclass defaults as fallback.
         
-        Imports PredictorConfig here to avoid circular imports.
+        Architecture:
+            1. Introspect PredictorConfig fields using dataclasses.fields()
+            2. Map each field to its config.toml section via FIELD_TO_SECTION_MAP
+            3. Auto-construct cfg_dict without manual hard-coding
+            4. Validate completeness (all fields have section mappings)
         
         Returns:
             Configured PredictorConfig instance with all fields populated
+            
+        Raises:
+            ValueError: If FIELD_TO_SECTION_MAP is incomplete (missing field mappings)
+        
+        References:
+            - FIELD_TO_SECTION_MAP: Single source of truth for field→section mapping
+            - PredictorConfig: types.py dataclass with defaults
         """
         from .types import PredictorConfig
         
-        cfg_dict = {
-            # Snapshot Versioning
-            "schema_version": self.config_manager.get(
-                "meta", "schema_version", "1.0"
-            ),
+        # Introspect PredictorConfig dataclass fields
+        config_fields = fields(PredictorConfig)
+        
+        # Validate that FIELD_TO_SECTION_MAP is complete
+        field_names = {f.name for f in config_fields}
+        mapped_fields = set(FIELD_TO_SECTION_MAP.keys())
+        
+        missing_mappings = field_names - mapped_fields
+        if missing_mappings:
+            raise ValueError(
+                f"FIELD_TO_SECTION_MAP is incomplete. Missing mappings for: {missing_mappings}. "
+                f"Update FIELD_TO_SECTION_MAP in config.py to include all PredictorConfig fields."
+            )
+        
+        # Auto-construct configuration dictionary
+        cfg_dict = {}
+        for field in config_fields:
+            field_name = field.name
+            section = FIELD_TO_SECTION_MAP[field_name]
             
-            # JKO Orchestrator (Optimal Transport)
-            "epsilon": self.config_manager.get(
-                "orchestration", "epsilon", 1e-3
-            ),
-            "learning_rate": self.config_manager.get(
-                "orchestration", "learning_rate", 0.01
-            ),
+            # Get value from config.toml, fallback to dataclass default
+            default_value = field.default if field.default is not field.default_factory else None
+            value = self.config_manager.get(section, field_name, default_value)
             
-            # Kernel D (Log-Signatures)
-            "log_sig_depth": self.config_manager.get(
-                "kernels", "log_sig_depth", 3
-            ),
-            
-            # Kernel A (WTMM + Fokker-Planck)
-            "wtmm_buffer_size": self.config_manager.get(
-                "kernels", "wtmm_buffer_size", 128
-            ),
-            "besov_cone_c": self.config_manager.get(
-                "kernels", "besov_cone_c", 1.5
-            ),
-            
-            # Circuit Breaker (Holder Singularity)
-            "holder_threshold": self.config_manager.get(
-                "orchestration", "holder_threshold", 0.4
-            ),
-            
-            # CUSUM (Regime Change Detection)
-            "cusum_h": self.config_manager.get(
-                "orchestration", "cusum_h", 5.0
-            ),
-            "cusum_k": self.config_manager.get(
-                "orchestration", "cusum_k", 0.5
-            ),
-            "grace_period_steps": self.config_manager.get(
-                "orchestration", "grace_period_steps", 20
-            ),
-            
-            # Volatility Monitoring (EWMA)
-            "volatility_alpha": self.config_manager.get(
-                "orchestration", "volatility_alpha", 0.1
-            ),
-            
-            # Latency and Anti-Aliasing Policies
-            "staleness_ttl_ns": self.config_manager.get(
-                "core", "staleness_ttl_ns", 500_000_000
-            ),
-            "besov_nyquist_interval_ns": self.config_manager.get(
-                "kernels", "besov_nyquist_interval_ns", 100_000_000
-            ),
-            "inference_recovery_hysteresis": self.config_manager.get(
-                "orchestration", "inference_recovery_hysteresis", 0.8
-            ),
-        }
+            cfg_dict[field_name] = value
+        
         return PredictorConfig(**cfg_dict)
     
     def verify_jax_config(self) -> Dict[str, bool]:
