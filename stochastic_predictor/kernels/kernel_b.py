@@ -382,6 +382,10 @@ def kernel_b_predict(
     
     entropy_dgm = compute_entropy_dgm(model, t, x_samples, config)
     
+    # V-MAJ-8: Apply stop_gradient to entropy diagnostic
+    # Prevents gradient backprop through entropy computation (VRAM optimization)
+    entropy_dgm = jax.lax.stop_gradient(entropy_dgm)
+    
     # Check for mode collapse [V-MAJ-1: Adaptive threshold]
     if ema_variance is not None:
         # V-MAJ-1: Use adaptive threshold based on volatility regime
@@ -396,8 +400,8 @@ def kernel_b_predict(
     diagnostics = {
         "kernel_type": "B_DGM_Fokker_Planck",
         "value_function": value,
-        "entropy_dgm": entropy_dgm,
-        "entropy_threshold_adaptive": entropy_threshold_adaptive,  # V-MAJ-1: Diagnostic
+        "entropy_dgm": entropy_dgm,  # V-MAJ-8: Already blocked by stop_gradient above
+        "entropy_threshold_adaptive": entropy_threshold_adaptive,  # V-MAJ-1: Diagnostic (also stopped)
         "mode_collapse": mode_collapse,
         "r": config.kernel_b_r,
         "sigma": config.kernel_b_sigma,
