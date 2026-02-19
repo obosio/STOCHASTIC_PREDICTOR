@@ -54,13 +54,87 @@ $$\hat{X}_{t+h} = \underset{Z \in L^2(\mathcal{F}_t)}{\text{argmin}} \, \mathbb{
 La especificación define y justifica rigurosamente el siguiente stack para implementación futura:
 
 - **JAX 0.4.20**: Motor XLA con diferenciación automática y vectorización (capa fundamental)
-- **Equinox 0.11.3**: Framework neuronal pythonico para Ramas B y C (DGM, Neural ODEs)
+- **Equinox 0.11.2**: Framework neuronal pythonico para Ramas B y C (DGM, Neural ODEs)
 - **Diffrax 0.4.1**: Solver diferenciable de SDEs/ODEs para Rama C
 - **Signax 0.1.4**: Cálculo de log-signatures en GPU para Rama D
 - **PyWavelets 1.4.1**: Transformada wavelet continua para SIA (WTMM)
 - **OTT-JAX 0.4.5**: Transporte óptimo diferenciable para Orquestador JKO
 
+> ⚠️ **Golden Master (Mandatory Pinning)**: Todas las versiones DEBEN fijarse con `==` en requirements.txt. **Prohibido** usar operadores dinámicos (`>=`, `-U`). Ver [Python.tex §2.1](doc/Predictor_Estocastico_Python.tex) para justificación.
+
 > 📘 **Justificación completa**: Ver [Python.tex §1](doc/Predictor_Estocastico_Python.tex) (~250 líneas) con análisis técnico y alternativas descartadas.
+
+### Arquitectura de Implementación (5 Capas - Clean Architecture)
+
+La estructura de directorios OBLIGATORIA sigue patrón Clean Architecture en 5 capas:
+
+```
+stochastic_predictor/
+├── api/                    # Capa de Exposición: Façade público, config, load shedding
+├── core/                   # Capa de Orquestación: JKO, Sinkhorn, entropy monitoring
+├── kernels/                # Capa de Motores XLA: Núcleos A,B,C,D (SIA, DGM, Itô, Signatures)
+├── io/                     # Capa de I/O Física: Snapshots atómicos, gestión de canales
+└── tests/                  # Capa de Validación (externa): Tests independientes de implementación
+```
+
+**Restricción**: Toda implementación DEBE respetar estas 5 capas. Mezclar responsabilidades o crear capas adicionales viola el contrato de especificación. Ver [Python.tex §2](doc/Predictor_Estocastico_Python.tex) para detalles.
+
+### Políticas de Seguridad en I/O
+
+#### Prohibición Explícita de Hardcoding de Credenciales
+
+- ❌ **Prohibido**: API keys, tokens, secrets de bases de datos directamente en código
+- ✅ **Requerido**: Inyección de variables de entorno mediante archivos `.env`
+
+```bash
+# .env (NUNCA commitear a git)
+API_KEY_MARKET_FEED=sk_live_xxxxxxxxxxxxx
+DB_PASSWORD=p@ssw0rd_secure_123
+```
+
+```python
+# Correcto: leer desde entorno
+import os
+api_key = os.getenv("API_KEY_MARKET_FEED")
+if not api_key:
+    raise ValueError("API_KEY_MARKET_FEED no configurada")
+```
+
+#### Reglas Obligatorias de `.gitignore`
+
+```
+# Archivos de secretos
+.env
+.env.local
+.env.*.local
+secrets/
+credentials/
+
+# Logs con potencial data sensible
+*.log
+logs/
+```
+
+Ver [IO.tex §2.2](doc/Predictor_Estocastico_IO.tex) para política completa de credentials.
+
+### Validación de Entorno en CI/CD (Pre-Test)
+
+**Requisito Mandatorio**: Antes de ejecutar pytest, CI/CD DEBE validar que el entorno virtual coincida exactamente con el Golden Master:
+
+```bash
+# Script de validación (ejecutar previo a pytest)
+#!/bin/bash
+EXPECTED_JAX=$(grep "^jax==" requirements.txt | cut -d'=' -f3)
+ACTUAL_JAX=$(python -c "import jax; print(jax.__version__)")
+
+if [[ "$EXPECTED_JAX" != "$ACTUAL_JAX" ]]; then
+  echo "❌ Versión JAX diverge: esperado $EXPECTED_JAX, encontrado $ACTUAL_JAX"
+  exit 1
+fi
+echo "✓ Entorno validado - Proceder con pytest"
+```
+
+**Fail-Fast**: Si el entorno diverge del Golden Master, la pipeline CI/CD DEBE fallar antes de ejecutar tests. Esto previene falsos negativos y garantiza reproducibilidad. Ver [Tests_Python.tex §1.1](doc/Predictor_Estocastico_Tests_Python.tex) para detalles.
 
 ## 📚 Documentación
 
