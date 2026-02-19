@@ -17,6 +17,7 @@ from stochastic_predictor.api.validation import validate_simplex
 from stochastic_predictor.api.prng import RNG_SPLIT_COUNT
 from stochastic_predictor.core.fusion import FusionResult, fuse_kernel_outputs
 from stochastic_predictor.io.loaders import evaluate_ingestion
+from stochastic_predictor.io.telemetry import TelemetryBuffer, TelemetryRecord, should_emit_hash, parity_hashes  # P2.3: Telemetry integration
 from stochastic_predictor.kernels import kernel_a_predict, kernel_b_predict, kernel_c_predict, kernel_d_predict
 from stochastic_predictor.kernels.base import KernelOutput, validate_kernel_input
 
@@ -127,6 +128,8 @@ def orchestrate_step(
     config: PredictorConfig,
     observation: ProcessState,
     now_ns: int,
+    telemetry_buffer: Optional[TelemetryBuffer] = None,  # P2.3: Telemetry buffer for audit trail
+    step_counter: int = 0,  # P2.3: Step number for telemetry records
 ) -> OrchestrationResult:
     """Run a single orchestration step with IO ingestion validation."""
     min_length = config.base_min_signal_length
@@ -314,6 +317,33 @@ def orchestrate_step(
         emergency_mode=emergency_mode,
         regime_changed=regime_change_detected,
     )
+
+    # P2.3: Telemetry Buffer Integration (non-blocking audit trail)
+    if telemetry_buffer is not None:
+        # Create telemetry record with weights, diagnostics, and parity hashes
+        parity_record = parity_hashes(
+            rho=final_rho,
+            ot_cost=float(free_energy) if fusion is not None else 0.0
+        )
+        
+        telemetry_payload = {
+            "step": step_counter,
+            "timestamp_ns": timestamp_ns,
+            "prediction": float(fused_prediction),
+            "weights": [float(w) for w in final_rho],
+            "kurtosis": float(updated_state.kurtosis),
+            "holder_exponent": float(updated_state.holder_exponent),
+            "dgm_entropy": float(updated_state.dgm_entropy),
+            "mode_collapse_warning": mode_collapse_warning,
+            "degraded_mode": degraded_mode,
+            "emergency_mode": emergency_mode,
+            "parity_hashes": parity_record,
+        }
+        
+        # Enqueue only if hash interval triggers (P2.3: config-driven)
+        if should_emit_hash(step_counter, config.telemetry_hash_interval_steps):
+            telemetry_record = TelemetryRecord(step=step_counter, payload=telemetry_payload)
+            telemetry_buffer.enqueue(telemetry_record)
 
     return OrchestrationResult(
         prediction=prediction,
