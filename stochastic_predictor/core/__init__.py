@@ -28,13 +28,23 @@ Expected module structure:
 from .fusion import FusionResult, fuse_kernel_outputs
 from .orchestrator import OrchestrationResult, initialize_state, orchestrate_step
 from .sinkhorn import SinkhornResult, compute_sinkhorn_epsilon
+from .meta_optimizer import (
+    BayesianMetaOptimizer,
+    MetaOptimizationConfig,
+    OptimizationResult,
+    walk_forward_split,
+)
 
 __all__ = [
+    "BayesianMetaOptimizer",
     "FusionResult",
+    "MetaOptimizationConfig",
+    "OptimizationResult",
     "OrchestrationResult",
     "SinkhornResult",
     "compute_sinkhorn_epsilon",
     "fuse_kernel_outputs",
     "initialize_state",
     "orchestrate_step",
+    "walk_forward_split",
 ]

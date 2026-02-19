@@ -1,8 +1,8 @@
 # Universal Stochastic Predictor (USP)
 
 ![License](https://img.shields.io/badge/license-MIT-blue.svg)
-![Status](https://img.shields.io/badge/status-Phase%204%20Complete-brightgreen.svg)
-![Version](https://img.shields.io/badge/version-v2.0.4-brightgreen.svg)
+![Status](https://img.shields.io/badge/status-Auto--Tuning%20Complete-brightgreen.svg)
+![Version](https://img.shields.io/badge/version-v2.1.0-brightgreen.svg)
 
 ## Description
 
@@ -34,7 +34,8 @@ This repository contains:
 - `impl/v2.0.1` - Phase 1 Complete: Full API Layer (types, PRNG, validation, schemas, config)
 - `impl/v2.0.2` - Phase 2 Complete: Kernels A, B, C, D (RKHS, DGM, SDE, Signatures)
 - `impl/v2.0.3` - Phase 3 Complete: Core Orchestration (JKO, Sinkhorn)
-- `impl/v2.0.4` - Phase 4 Complete: I/O Layer (ingestion, snapshots, telemetry, credentials) [CURRENT]
+- `impl/v2.0.4` - Phase 4 Complete: I/O Layer (ingestion, snapshots, telemetry, credentials)
+- `impl/v2.1.0` - Auto-Tuning Migration Complete: Learning to Learn architecture (3-layer auto-parametrization) [CURRENT]
 - `impl/v2.5.x` - Pending: Phase 5 - Tests and hardening
 - `impl/v3.0.0` - Pending: First production-ready version
 
@@ -57,6 +58,13 @@ This repository contains:
    - **Branch D (Signatures)**: rough paths topological analysis
 
 3. **Adaptive Orchestrator**: Wasserstein transport with JKO scheme, CUSUM change detection.
+
+4. **Auto-Tuning System (v2.1.0)**:
+   - **Layer 1**: Automatic entropy reset on regime change (max-entropy JKO restart)
+   - **Layer 2**: Real-time parameter adaptation (kurtosis-coupled CUSUM, volatility-coupled Sinkhorn)
+   - **Layer 3**: Bayesian meta-optimization (TPE/Optuna for structural hyperparameters)
+   - Walk-forward validation (no look-ahead bias)
+   - Stop-gradient diagnostics (VRAM-optimized gradient flow)
 
 ## Specified Tech Stack
 

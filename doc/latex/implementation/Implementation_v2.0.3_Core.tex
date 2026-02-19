@@ -260,7 +260,7 @@ where:
 
 Already present in config.toml:
 
-\begin{lstlisting}[language=TOML]
+\begin{lstlisting}[language=bash]
 # config.toml
 [orchestration]
 sinkhorn_epsilon_min = 0.01       # Minimum epsilon
@@ -563,9 +563,9 @@ where:
 \subsection{Hysteresis Window}
 
 \begin{itemize}
-    \item \textbf{Entry}: Immediate (c_t = 0)
-    \item \textbf{Recovery}: Requires N_r consecutive clean observations
-    \item \textbf{Asymmetry}: Upper threshold (for entry) < Lower threshold (for recovery)
+    \item \textbf{Entry}: Immediate ($c_t = 0$)
+    \item \textbf{Recovery}: Requires $N_r$ consecutive clean observations
+    \item \textbf{Asymmetry}: Upper threshold (for entry) $<$ Lower threshold (for recovery)
     \item \textbf{Benefit}: Prevents thrashing; maintains stability during borderline conditions
 \end{itemize}
 

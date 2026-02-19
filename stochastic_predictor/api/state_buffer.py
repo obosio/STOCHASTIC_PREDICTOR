@@ -259,8 +259,11 @@ def update_cusum_statistics(
     
     # 3. Compute adaptive threshold with kurtosis adjustment
     # h_t = k · σ_t · (1 + ln(κ_t / 3))
-    h_t = (config.cusum_k * sigma_t * 
-           (1.0 + jnp.log(jnp.maximum(kurtosis, 3.0) / 3.0)))
+    # Apply stop_gradient to prevent backprop contamination (VRAM constraint)
+    h_t = jax.lax.stop_gradient(
+        config.cusum_k * sigma_t * 
+        (1.0 + jnp.log(jnp.maximum(kurtosis, 3.0) / 3.0))
+    )
     
     # 4. CUSUM update equations
     g_plus_new = jnp.maximum(0.0, cusum_g_plus + residual - config.cusum_k)
@@ -282,12 +285,13 @@ def update_cusum_statistics(
         jnp.maximum(0, grace_counter - 1)
     )
     
-    # 8. Return updated state with all components
+    # 8. Return updated state with all components (including adaptive_h_t)
     final_state = replace(
         new_state,
         cusum_g_plus=final_g_plus,
         cusum_g_minus=final_g_minus,
-        grace_counter=int(new_grace_counter),
+        grace_counter=int(jnp.asarray(new_grace_counter)),
+        adaptive_h_t=h_t,  # Persist adaptive threshold
         kurtosis=kurtosis,
     )
     

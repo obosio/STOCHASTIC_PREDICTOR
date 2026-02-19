@@ -36,10 +36,15 @@ def compute_sinkhorn_epsilon(
 
     Formula:
         epsilon_t = max(epsilon_min, epsilon_0 * (1 + alpha * sigma_t))
+    
+    Apply stop_gradient to prevent backprop contamination (VRAM constraint).
+    References: MIGRATION_AUTOTUNING_v1.0.md §4 (VRAM Constraint)
     """
-    sigma_t = jnp.sqrt(jnp.maximum(ema_variance, config.numerical_epsilon))
+    # Stop gradient on variance to avoid polluting neural net gradients
+    ema_variance_sg = jax.lax.stop_gradient(ema_variance)
+    sigma_t = jnp.sqrt(jnp.maximum(ema_variance_sg, config.numerical_epsilon))
     epsilon_t = config.sinkhorn_epsilon_0 * (1.0 + config.sinkhorn_alpha * sigma_t)
-    return jnp.maximum(config.sinkhorn_epsilon_min, epsilon_t)
+    return jax.lax.stop_gradient(jnp.maximum(config.sinkhorn_epsilon_min, epsilon_t))
 
 
 def compute_cost_matrix(

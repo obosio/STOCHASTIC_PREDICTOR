@@ -60,6 +60,12 @@ pandas==2.0.0
 matplotlib==3.7.0
 seaborn==0.12.0
 
+# ==================== Meta-Optimization (Layer 3 - Optional) ==================== #
+# Bayesian hyperparameter search for auto-tuning (Learning to Learn)
+# TPE (Tree-structured Parzen Estimator) sampler for structural parameters
+# Optional: System operates without this, but meta-optimization unavailable
+optuna==3.5.0
+
 # ==================== Development & Testing ==================== #
 # Testing framework with coverage
 pytest==7.3.0

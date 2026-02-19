@@ -1068,7 +1068,7 @@ class InternalState:
 
 \subsection{New Configuration Parameters}
 
-\begin{lstlisting}[language=TOML]
+\begin{lstlisting}[language=bash]
 # config.toml
 [predictor]
 residual_window_size = 252  # Annual window (252 trading days)
@@ -1206,16 +1206,50 @@ def update_cusum_statistics(
         jnp.maximum(0, grace_counter - 1)
     )
     
+    # V-CRIT-AUTOTUNING-4: Persist adaptive_h_t in state for telemetry
     final_state = replace(
         new_state,
         cusum_g_plus=final_g_plus,
         cusum_g_minus=final_g_minus,
-        grace_counter=int(new_grace_counter),
+        grace_counter=int(jnp.asarray(new_grace_counter)),
+        adaptive_h_t=h_t,  # NEW: Persist adaptive threshold
         kurtosis=kurtosis,
     )
     
     return final_state, bool(should_alarm), float(h_t)
 \end{lstlisting}
+
+\subsection{V-CRIT-AUTOTUNING-2: Gradient Blocking in h\_t Calculation}
+
+\textbf{Date}: February 19, 2026
+
+\textbf{Issue}: The adaptive threshold \texttt{h\_t} computation must not propagate gradients back to \texttt{sigma\_t} or \texttt{kurtosis}, as these are diagnostic statistics that should not affect neural network training.
+
+\textbf{Solution}: Wrap the entire \texttt{h\_t} calculation in \texttt{jax.lax.stop\_gradient()} per MIGRATION\_AUTOTUNING\_v1.0.md §4.
+
+\textbf{Updated Implementation}:
+\begin{lstlisting}[language=Python]
+# state_buffer.py (update_cusum_statistics)
+# Compute adaptive threshold h_t (kurtosis-scaled)
+sigma_t = jnp.sqrt(jnp.maximum(ema_variance, config.numerical_epsilon))
+kurtosis_factor = jnp.maximum(kurtosis, 3.0) / 3.0
+
+# V-CRIT-AUTOTUNING-2: Apply stop_gradient to entire h_t calculation
+h_t = jax.lax.stop_gradient(
+    config.cusum_k * sigma_t *
+    (1.0 + jnp.log(kurtosis_factor))
+)
+\end{lstlisting}
+
+\textbf{Impact}: \texttt{h\_t} remains diagnostic-only - gradients are not leaked to CUSUM statistics.
+
+\subsection{V-CRIT-AUTOTUNING-4: Adaptive Threshold Persistence}
+
+\textbf{Issue}: The computed \texttt{adaptive\_h\_t} was calculated but not stored in \texttt{InternalState}, causing telemetry to report stale values.
+
+\textbf{Solution}: Add \texttt{adaptive\_h\_t=h\_t} to the \texttt{replace()} call in \texttt{update\_cusum\_statistics()}.
+
+\textbf{Result}: \texttt{PredictionResult.adaptive\_threshold} now reflects the current kurtosis-adapted CUSUM threshold for real-time monitoring.
 
 \subsubsection{Updated atomic\_state\_update()}
 
