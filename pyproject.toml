@@ -4,8 +4,8 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "stochastic-predictor"
-version = "0.1.0"
-description = "Universal Stochastic Predictor - Sistema de predicción estocástica con análisis multifractal y transporte óptimo"
+version = "0.0.1"
+description = "Universal Stochastic Predictor - Sistema de predicción estocástica con análisis multifractal y transporte óptimo. Fase de especificación completa + implementación desde cero."
 readme = "README.md"
 requires-python = ">=3.10"
 license = {text = "MIT"}
