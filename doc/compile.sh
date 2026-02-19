@@ -11,21 +11,35 @@ cd "$DOC_DIR"
 # Asegurar que existen los directorios (sin borrar PDFs previos)
 mkdir -p "$DOC_DIR/.build" "$DOC_DIR/pdf"
 
-# Función para compilar un archivo
+# Función para compilar un archivo con lualatex directo (dos pasadas para actualizar referencias)
 compile_doc() {
     local tex_file="$1"
     local base_name=$(basename "$tex_file" .tex)
     
-    echo "📄 Compilando $base_name.tex..."
+    echo "📄 Compilando $base_name.tex con lualatex..."
     
-    latexmk -lualatex \
-            -auxdir="$DOC_DIR/.build" \
-            -outdir="$DOC_DIR/pdf" \
-            -interaction=nonstopmode \
-            -file-line-error \
-            "$tex_file"
+    # Primera pasada: generar .aux con referencias
+    lualatex -interaction=nonstopmode \
+             -file-line-error \
+             -synctex=1 \
+             -output-directory="$DOC_DIR/.build" \
+             "$tex_file" > /dev/null 2>&1
     
-    echo "✅ $base_name.pdf generado en pdf/"
+    # Segunda pasada: resolver referencias cruzadas y tabla de contenidos
+    lualatex -interaction=nonstopmode \
+             -file-line-error \
+             -synctex=1 \
+             -output-directory="$DOC_DIR/.build" \
+             "$tex_file" > /dev/null 2>&1
+    
+    # Copiar PDF al directorio pdf/
+    if [ -f "$DOC_DIR/.build/$base_name.pdf" ]; then
+        cp "$DOC_DIR/.build/$base_name.pdf" "$DOC_DIR/pdf/$base_name.pdf"
+        echo "✅ $base_name.pdf generado en pdf/"
+    else
+        echo "❌ Error: No se generó $base_name.pdf"
+        return 1
+    fi
 }
 
 # Función para limpiar
