@@ -1,4 +1,4 @@
-# Documentación LaTeX
+# Documentación LaTeX - Predictor Estocástico Universal
 
 Este directorio contiene la documentación técnica completa del Predictor Estocástico Universal en formato LaTeX.
 
@@ -10,7 +10,7 @@ doc/
 ├── pdf/                            # PDFs compilados (versionados en git)
 ├── .build/                         # Artefactos de compilación (oculto, ignorado por git)
 ├── .latexmkrc                      # Configuración de compilación (lualatex)
-├── compile.sh                      # Script de compilación bash
+├── compile.sh                      # Script inteligente de compilación bash
 └── README.md                       # Este archivo
 ```
 
@@ -18,31 +18,59 @@ doc/
 
 ### Documentos Teóricos y Generales
 
-- **Predictor_Estocastico_Teoria.tex** - Fundamentos matemáticos y teoremas
-- **Predictor_Estocastico_Implementacion.tex** - Algoritmos y métodos numéricos
+- **Predictor_Estocastico_Teoria.tex** (500+ líneas) - Fundamentos matemáticos, teoremas, **esquemas SDE adaptativos** con transición dinámica Euler/implícito
+- **Predictor_Estocastico_Implementacion.tex** (800+ líneas) - Algoritmos, métodos numéricos, **dinámica de Sinkhorn acoplada a volatilidad**
 - **Predictor_Estocastico_Pruebas.tex** - Protocolo de validación y pruebas (agnóstico de lenguaje)
 - **Predictor_Estocastico_IO.tex** - Especificación de I/O y telemetría
 
-### Documentos Específicos de Python
+### Documentos Específicos de Python/JAX
 
-- **Predictor_Estocastico_Python.tex** - Guía de implementación en Python con JAX
-- **Predictor_Estocastico_API_Python.tex** - Especificación de API Python
+- **Predictor_Estocastico_Python.tex** (1700+ líneas) - Guía de implementación en Python con JAX, **optimizaciones de grafo con stop_gradient**
+- **Predictor_Estocastico_API_Python.tex** (685+ líneas) - Especificación de API Python, **período de gracia CUSUM** post-cambio de régimen
 - **Predictor_Estocastico_Tests_Python.tex** - Suite de pruebas en Python/pytest
+
+## ✨ Mejoras Recientes (Febrero 2026)
+
+| Mejora | Impacto | Documento |
+| -------- | --------- | --------- |
+| Transición dinámica SDE (Euler ↔ implícito) | Robustez numérica bajo high stiffness | Teoria.tex §2.3.3 |
+| Sinkhorn acoplado a volatilidad | Paisaje suave durante crisis | Implementacion.tex §2.4 |
+| Período de gracia CUSUM | Evita cascadas de falsas alarmas | API_Python.tex §3.2 |
+| Stop gradient en SIA/CUSUM | Ahorro 30-50% VRAM, 20-40% JIT | Python.tex §3.1 |
+| Compilación inteligente | Detecta cambios por timestamps | compile.sh |
 
 ## 🚀 Compilación
 
-### Compilar todos los documentos
+### Sin argumentos (muestra ayuda por defecto)
 
 ```bash
 ./compile.sh
 ```
 
+### Compilar solo documentos con cambios
+
+```bash
+./compile.sh --all
+```
+
+Esto verifica timestamps: solo compila si `.tex` es más nuevo que su `.pdf` correspondiente.
+
+### Forzar recompilación de todos los documentos
+
+```bash
+./compile.sh --all --force
+# O versión corta:
+./compile.sh -a -f
+```
+
+Útil cuando necesitas actualizar índices, referencias cruzadas o después de cambios globales.
+
 ### Compilar un documento específico
 
 ```bash
-./compile.sh Predictor_Estocastico_Teoria.tex
-# O simplemente:
 ./compile.sh Predictor_Estocastico_Teoria
+# O con extensión:
+./compile.sh Predictor_Estocastico_Teoria.tex
 ```
 
 ### Limpiar artefactos de compilación
@@ -51,15 +79,65 @@ doc/
 ./compile.sh clean
 ```
 
-## 🎯 Configuración Automática
+## 🧠 Cómo Funciona el Script
+
+### Detección Inteligente de Cambios
+
+El script `compile.sh` compara timestamps automáticamente:
+
+```bash
+# Estructura interna (simplificada):
+if [ "$tex_file" -nt "$pdf_file" ]; then
+    compile_doc "$tex_file"  # .tex más nuevo→recompila
+else
+    echo "⏭️  Sin cambios, omitiendo..."
+fi
+```
+
+**Beneficios:**
+
+- ⏱️ Compilaciones rápidas cuando nada cambió
+- 🎯 Precisión: solo recompila lo necesario
+- 📊 Resumen al final: cuántos compilados vs omitidos
+
+### Compilación en Dos Pasadas
+
+Cada documento se compila **dos veces automáticamente** para garantizar convergencia de referencias:
+
+1. **Primera pasada**: Genera archivo `.aux` con etiquetas de referencias
+2. **Segunda pasada**: Resuelve referencias cruzadas, actualiza tabla de contenidos, índices
+
+Esto asegura que:
+
+- ✅ Tabla de contenidos sincronizada
+- ✅ Referencias cruzadas correctas
+- ✅ Números de página actualizados
+- ✅ Índices coherentes
+
+### Manejo de Errores
+
+Si hay error de compilación LaTeX:
+
+```bash
+🔴 ERRORES ENCONTRADOS EN Predictor_Estocastico_Python.tex:
+─────────────────────────────────────────
+Predictor_Estocastico_Python.tex:666: error message here
+─────────────────────────────────────────
+📋 Log completo disponible en:
+   doc/.build/Predictor_Estocastico_Python.log
+```
+
+El script extrae líneas de error relevantes y proporciona la ruta del log completo para debugging.
+
+## 🎯 Configuración de Compilación
 
 El archivo `.latexmkrc` configura automáticamente:
 
+- **Compilador**: `lualatex` (LuaTeX con soporte Unicode completo)
+- **Modo PDF**: `$pdf_mode = 4` (lualatex directo)
 - **Directorio de artefactos**: `.build/` (oculto, ignorado por git)
 - **Directorio de salida**: `pdf/` (PDFs finales, versionados)
-- **Compilador**: `lualatex` (LuaTeX/XeTeX) con `synctex` habilitado
-- **Limpieza automática**: Archivos auxiliares (`.aux`, `.log`, `.toc`, etc.) generados en `.build/`
-- **Integración git**: `.build/` excluido por `.gitignore`, solo `.tex` y `pdf/` versionados
+- **Helpers**: `synctex` habilitado para edición inversa
 
 ## 🛠️ Requisitos
 
@@ -77,88 +155,154 @@ sudo tlmgr install latexmk
 
 ### Paquetes LaTeX Necesarios
 
-- `babel[spanish]`
-- `fontspec`
-- `amsmath`, `amssymb`, `amsthm`
-- `listings`, `xcolor`
-- `hyperref`
-- `geometry`, `booktabs`
+- `babel[spanish]` - Soporte para español
+- `fontspec` - Gestión de fuentes OpenType
+- `amsmath`, `amssymb`, `amsthm` - Matemáticas
+- `listings`, `xcolor` - Resaltado de código
+- `hyperref` - Enlaces e índices
+- `geometry`, `booktabs` - Layout
 
-## 📝 Flujo de Trabajo
+Instalación automática:
 
-1. **Editar** archivos `.tex` en el directorio raíz (`doc/`)
-2. **Compilar** con `./compile.sh all` o `./compile.sh <archivo>` (sin extensión `.tex`)
-3. **Revisar** PDFs generados en `pdf/`
-4. **Commit** solo archivos `.tex` y PDFs finales (no artefactos)
+```bash
+sudo tlmgr install babel fontspec amsmath amssymb amsthm listings xcolor hyperref geometry booktabs enumitem
+```
 
-Los artefactos de compilación (`.aux`, `.log`, `.toc`, etc.) se generan automáticamente en `.build/` (oculto) y son ignorados por git. La limpieza se realiza con `./compile.sh clean`.
+## 📝 Flujo de Trabajo Dev
+
+### Ciclo Típico
+
+1. **Editar** archivos `.tex` en el editor
+2. **Compilar** con `./compile.sh --all` (solo compila cambios)
+3. **Revisar** PDFs en `pdf/` (abrir en reader)
+4. **Commit** cuando esté listo:
+
+   ```bash
+   git add doc/*.tex doc/pdf/*.pdf
+   git commit -m "docs: descripción de cambios"
+   ```
+
+### Después de Cambios Globales
+
+```bash
+# Fuerza recompilación de todo para sincronizar referencias
+./compile.sh --all --force
+```
+
+### Limpiar y Recompilar (Rebuild Completo)
+
+```bash
+./compile.sh clean              # Elimina .build/ y pdf/
+./compile.sh --all --force      # Recompila todo desde cero
+```
 
 ## 📊 Estado Actual (Febrero 2026)
 
-**Documentos compilados exitosamente:**
+**Últimas mejoras documentadas:**
 
-- ✅ Predictor_Estocastico_Teoria.tex (228 KB)
-- ✅ Predictor_Estocastico_Implementacion.tex (226 KB)
-- ✅ Predictor_Estocastico_IO.tex (165 KB)
-- ✅ Predictor_Estocastico_Pruebas.tex (256 KB)
-- ✅ Predictor_Estocastico_Python.tex (32 páginas con mejoras de robustez)
-- ✅ Predictor_Estocastico_API_Python.tex (10 páginas con hardening producción)
-- ✅ Predictor_Estocastico_Tests_Python.tex (33 páginas con testing avanzado)
+✅ **Rama C - Esquemas SDE Adaptativos** (Predictor_Estocastico_Teoria.tex)
 
-**Mejoras recientes:**
+- Detección automática de rigidez (stiffness) del proceso
+- Transición dinámica: Euler explícito → Moulton implícito
+- Métrica de rigidez normalizada con umbrales adaptativos
+- Esquema híbrido convexo para regímenes intermedios
+- Teorema de convergencia fuerte adaptativa
 
-- Optimización de memoria en WTMM (compute_cwt_windowed)
-- Gestión de precisión JAX (jax_enable_x64)
-- Annealing de entropía en algoritmo JKO
-- Versionado de schema en API
-- Dump de emergencia para depuración
-- Fuzzing con hypothesis
-- Tests FPGA Q16.16
-- Validación de causalidad
+✅ **Transición Dinámica de Sinkhorn** (Predictor_Estocastico_Implementacion.tex)
+
+- Acoplamiento volatilidad-entropía: ε_t = ε₀·(1 + α·σ_t)
+- Dinámica suave vs fallback discreto
+- Parámetros calibrados para crisis de mercado
+
+✅ **Período de Gracia CUSUM** (Predictor_Estocastico_API_Python.tex)
+
+- Ventana refractoria post-cambio de régimen (10-60 pasos)
+- Previene cascadas de falsas alarmas
+- Telemetría: monitoreo de G+ durante gracia
+
+✅ **Script de Compilación Mejora** (compile.sh)
+
+- Detección automática de cambios en .tex
+- Compilación en dos pasadas (referencias convergentes)
+- Forzamiento opcional con --force
+- Help por defecto sin argumentos
+- Mensajes de error detallados con líneas de problema
+- Resumen final: compilados vs omitidos
+
+**Documentos compilados:**
+
+- ✅ Predictor_Estocastico_Teoria.pdf (242 KB, 500+ líneas nuevas)
+- ✅ Predictor_Estocastico_Implementacion.pdf (233 KB)
+- ✅ Predictor_Estocastico_API_Python.pdf (215 KB)
+- ✅ Predictor_Estocastico_IO.pdf (169 KB)
+- ✅ Predictor_Estocastico_Python.pdf (307 KB)
+- ✅ Predictor_Estocastico_Tests_Python.pdf (295 KB)
+- ✅ Predictor_Estocastico_Pruebas.pdf (267 KB)
+
+**Total:** 1.73 MB documentación sincronizada
+
+### Tabla de Características Documentadas
+
+| Feature | Status | Documento | Beneficio |
+| --------- | -------- | --------- | ---------- |
+| Esquemas SDE Dinámicos | ✅ | Teoria.tex | Robustez numérica |
+| Sinkhorn Acoplado Volatilidad | ✅ | Implementacion.tex | Crisis-proof |
+| Período Gracia CUSUM | ✅ | API_Python.tex | Anti-cascadas |
+| Stop Gradient JAX | ✅ | Python.tex | Eficiencia VRAM/JIT |
+| Compilación Inteligente | ✅ | compile.sh | Dev speed |
 
 ## ✨ Ventajas de Esta Configuración
 
 - ✅ **Workspace limpio**: Solo archivos fuente visibles (artefactos en `.build/` oculto)
-- ✅ **Compilación rápida**: `latexmk` gestiona dependencias y paralelización automáticamente
-- ✅ **Git amigable**: Artefactos no contaminan el historial; solo PDFs finales versionados
-- ✅ **PDFs organizados**: Salida centralizada en `pdf/`, históricamente preservada
+- ✅ **Compilación inteligente**: Detecta cambios automáticamente
+- ✅ **Índices actualizados**: Dos pasadas garantizan convergencia
+- ✅ **Errores claros**: Script muestra líneas problemáticas
+- ✅ **Git amigable**: Artefactos no contaminan historial; solo PDFs versionados
 - ✅ **Reproducible**: Configuración versionada en `.latexmkrc` y `compile.sh`
-- ✅ **LuaTeX moderno**: Soporte nativo para Unicode, fuentes OpenType, características avanzadas
+- ✅ **LuaTeX moderno**: Soporte Unicode, fuentes OpenType, características avanzadas
 
 ## 🔧 Configuración del Editor
 
-### VS Code (LaTeX Workshop)
+### VS Code (sin extensiones necesarias)
 
-Agregar a `.vscode/settings.json`:
+Configurar `.vscode/settings.json`:
 
 ```json
 {
-  "latex-workshop.latex.outDir": "pdf",
-  "latex-workshop.latex.auxDir": ".build",
   "files.exclude": {
-    "**/.*": true
+    "**/.*": true,
+    "**/__pycache__": true
+  },
+  "[latex]": {
+    "editor.formatOnSave": false
   }
 }
 ```
 
-El parámetro `files.exclude` oculta el directorio `.build/` en el explorador de archivos.
+### Editor Local + Terminal
 
-### Overleaf / TeXstudio
+Usar `./compile.sh` directamente desde terminal:
 
-Configurar directorio de salida en preferencias del proyecto.
+```bash
+cd doc
+./compile.sh --all            # Compila solo cambios
+# Luego abrir PDFs en pdf/ con tu reader favorito
+```
 
 ## ⚠️ Avisos de Compilación Conocidos
 
 Se reportan advertencias menores sobre caracteres faltantes en fuentes monoespaciadas:
 
-- Símbolos griegos (κ, γ, ρ) en `\texttt{}`/`\lstlisting`
+- Símbolos griegos (κ, γ, ρ) en bloques de código
 - Caracteres especiales de caja de dibujo (├, ─, etc.)
 
 **Impacto**: Cosmético. Los PDFs se generan completamente sin errores; las advertencias solo indican sustituciones de fuentes en entornos monoespaciados.
 
-**Solución** (si es necesario): Usar fuentes específicas que soporten Unicode completo o reemplazar caracteres griegos con `\ensuremath{}`.
+**Solución** (si es necesario): Usar fuentes Unicode o replacer símbolos con comandos LaTeX equivalentes.
 
 ## 📚 Referencias
 
 - [latexmk documentation](https://mg.readthedocs.io/latexmk.html)
 - [LaTeX project](https://www.latex-project.org/)
+- [LuaTeX documentation](http://www.luatex.org/)
+- [fontspec package](https://ctan.org/pkg/fontspec)

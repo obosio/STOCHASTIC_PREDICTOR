@@ -38,6 +38,15 @@ $$\hat{X}_{t+h} = \underset{Z \in L^2(\mathcal{F}_t)}{\text{argmin}} \, \mathbb{
 
 ## 🛠️ Stack Tecnológico
 
+### Build & Documentation Tools
+
+- **LuaLaTeX**: Motor de compilación LaTeX con soporte Unicode nativo
+- **Bash Script**: `doc/compile.sh` con detección inteligente de cambios
+  - Compila solo documentos modificados (ahorro de tiempo)
+  - Modo `--force` para fuerza recompilación completa
+  - Reporting de errores LaTeX integrado
+  - Dos pasadas automáticas para actualizar índices
+
 ### Implementación Python
 
 - **JAX**: Computación numérica acelerada con XLA, vectorización automática y diferenciación
@@ -60,51 +69,138 @@ ott-jax >= 0.4.0
 
 ## 📚 Documentación
 
-El proyecto incluye documentación técnica completa en LaTeX:
+El proyecto incluye documentación técnica completa en LaTeX con especificaciones e implementaciones:
 
-- **`Predictor_Estocastico_Teoria.tex`**: Fundamentación matemática y teoría
-- **`Predictor_Estocastico_Implementacion.tex`**: Guía de implementación numérica y algorítmica
-- **`Predictor_Estocastico_Python.tex`**: Implementación específica en Python/JAX
-- **`Predictor_Estocastico_API_Python.tex`**: Especificación de la API
+- **`Predictor_Estocastico_Teoria.tex`**: Fundamentación matemática, arquitectura y teoría (500+ líneas, transición dinámica SDE)
+- **`Predictor_Estocastico_Implementacion.tex`**: Guía algorítmica con volatilidad acoplada en Sinkhorn (800+ líneas)
+- **`Predictor_Estocastico_Python.tex`**: Implementación Python/JAX con truncamiento de gradientes (1700+ líneas)
+- **`Predictor_Estocastico_API_Python.tex`**: Especificación de la API con período de gracia CUSUM (685+ líneas)
 - **`Predictor_Estocastico_IO.tex`**: Interfaz de entrada/salida del sistema
+- **`Predictor_Estocastico_Tests_Python.tex`**: Suite de tests y validaciones
+- **`Predictor_Estocastico_Pruebas.tex`**: Pruebas adicionales y casos especiales
 
-Los PDFs compilados están disponibles en el directorio `doc/`.
+**PDFs compilados**: 7 documentos (1.73 MB total) disponibles en `doc/pdf/` con índices y referencias sincronizadas.
+
+### Compilación de Documentos
+
+```bash
+# Mostrar ayuda (opción por defecto sin argumentos)
+cd doc && ./compile.sh
+
+# Compilar solo documentos con cambios
+./compile.sh --all
+
+# Forzar recompilación de todos
+./compile.sh --all --force
+
+# Compilar un documento específico
+./compile.sh Predictor_Estocastico_Python
+
+# Limpiar artefactos de compilación
+./compile.sh clean
+```
+
+El script utiliza **detección inteligente de cambios** basada en timestamps para evitar compilaciones innecesarias.
 
 ## 🚀 Estado del Proyecto
 
-### ⚠️ En Desarrollo Activo
+### � Avances Recientes (Febrero 2026)
 
-Actualmente el proyecto está en fase de especificación y documentación. La implementación de código está planificada para incluir:
+**Arquitectura mejorada con algoritmos robustos**:
 
-- [ ] Motor de identificación (SIA/WTMM)
-- [ ] Núcleos de predicción (A, B, C, D)
-- [ ] Orquestador adaptativo (JKO/Sinkhorn)
-- [ ] Sistema de detección de cambio de régimen (CUSUM)
-- [ ] API de alto nivel para inferencia en tiempo real
-- [ ] Suite de tests y benchmarks
-- [ ] Ejemplos de uso con datos sintéticos y reales
+- ✨ Transición dinámica de esquemas SDE (explícito ↔ implícito según rigidez)
+- ✨ Dinámica de Sinkhorn acoplada a volatilidad (regularización adaptativa)
+- ✨ Período de gracia CUSUM para evitar cascadas de falsas alarmas
+- ✨ Optimización del grafo XLA con `stop_gradient` (ahorro: 30-50% VRAM)
+- ✨ Script de compilación con detección inteligente de cambios
 
-**Plan detallado**: Consulta [IMPLEMENTATION_PLAN.md](IMPLEMENTATION_PLAN.md) para el roadmap completo (6 fases, 26-38 semanas estimadas).
+**Documentación completa**: 7 PDFs (1.73 MB) con especificaciones matemáticas e implementación.
+
+### �📖 Fase Actual: Especificación y Arquitectura Avanzada
+
+El proyecto está en fase de **especificación detallada de arquitectura** con implementaciones de algoritmos clave ya documentadas.
+
+#### ✅ Completado en Documentación
+
+- [x] Arquitectura multinúcleo especificada (4 ramas de predicción)
+- [x] Fundamentación matemática completa (teoría de procesos estocásticos, óptimo transporte, rough paths)
+- [x] Algoritmo SIA (System Identification Archive) especificado
+- [x] Núcleo B (Fokker-Planck, DGM) documentado
+- [x] Núcleo C (Itô/Lévy) con **transición dinámica de esquemas SDE** (Euler explícito ↔ implícito)
+- [x] Núcleo D (Signatures) especificado
+- [x] Orquestador JKO con **dinámica de Sinkhorn acoplada a volatilidad**
+- [x] Sistema CUSUM con **período de gracia (refractario)** post-cambio de régimen
+- [x] Optimización del grafo computacional con **JAX stop_gradient**
+- [x] Suite de tests para validación de módulos
+
+#### 🔄 En Progreso: Implementación
+
+- [ ] Motor de identificación (SIA/WTMM) - inicio prioritario
+- [ ] Kernels A, B, C, D - según roadmap
+- [ ] Orquestador adaptativo (JKO/Sinkhorn) con volatilidad acoplada
+- [ ] Sistema de detección de régimen (CUSUM) con período de gracia
+- [ ] API de alto nivel para inferencia
+- [ ] Benchmarks y ejemplos con datos sintéticos/reales
+
+#### 📋 Características Algorítmicas Documentadas
+
+| Componente | Estado | Documento |
+| --- | --- | --- |
+| Stop Gradient Optimization | ✅ Documentado | Python.tex §3.1 |
+| Dinámica Sinkhorn Volátil | ✅ Documentado | Implementacion.tex §2.4 |
+| Período de Gracia CUSUM | ✅ Documentado | API_Python.tex §3.2 |
+| Esquemas SDE Dinámicos | ✅ Documentado | Teoria.tex §2.3.3 |
+| Detección Adaptativa CUSUM | ✅ Documentado | Teoria.tex §6.2 |
+
+**Roadmap detallado**: [IMPLEMENTATION_PLAN.md](IMPLEMENTATION_PLAN.md)
 
 ## 📖 Conceptos Clave
 
 ### Análisis Multifractal
 
-Caracterización de singularidades locales mediante wavelets y estimación del espectro de singularidades $D(h)$.
+Caracterización de singularidades locales mediante wavelets y estimación del espectro de singularidades $D(h)$ usando técnicas de WTMM (Wavelet Transform Modulus Maxima).
 
-### Transporte Óptimo
+### Transporte Óptimo Adaptativo
 
-Actualización de pesos mediante el esquema de minimización JKO en el espacio de Wasserstein:
+Actualización de distribuciones de probabilidad mediante el esquema JKO con **regulación dinámica de entropía acoplada a volatilidad**:
 
-$$\rho_{n+1} = \underset{\rho \in \mathcal{P}_2(\Omega)}{\text{argmin}} \left\{ E(\rho) + \frac{1}{2\tau} W_2^2(\rho, \rho_n) \right\}$$
+$$\varepsilon_t = \max(\varepsilon_{\min}, \varepsilon_0 \cdot (1 + \alpha \cdot \sigma_t))$$
+
+Donde $\sigma_t$ es volatilidad estimada mediante EMA. Esta formulación garantiza suavidad del paisaje de optimización durante crisis de mercado.
+
+### Esquemas de Discretización Dinámica para SDEs
+
+En la Rama C (Itô/Lévy), **transición automática** entre esquemas numéricos según rigidez (stiffness):
+
+- **Bajo stiffness** ($S_t < 100$): Euler-Maruyama explícito (rápido)
+- **Medio stiffness**: Esquema híbrido interpolado
+- **Alto stiffness** ($S_t > 1000$): Método implícito trapezial (robusto)
+
+Métrica: $S_t = \max(\text{ratio de valores propios}, |d\log\sigma/dt| \cdot \Delta t)$
+
+### Truncamiento de Gradientes en Diagnósticos
+
+Optimización del grafo computacional JAX mediante `stop_gradient` para outputs no-entrenable (SIA, CUSUM):
+
+$$\frac{\partial H}{\partial \rho} = 0, \quad \frac{\partial \text{alarm}}{\partial \rho} = 0$$
+
+Ahorro esperado: **30-50% VRAM, 20-40% tiempo JIT, 50%+ backward pass**.
+
+### Período de Gracia (Refractario) en CUSUM
+
+Mecanismo de silenciamiento temporal post-cambio de régimen para evitar cascadas de falsas alarmas:
+
+$$\text{alarm}_t = \left\{ \begin{array}{ll} \text{False} & \text{si } t - t_{\text{change}} < \tau_g \\ G^+ > h_t & \text{si no} \end{array} \right.$$
+
+Parámetro: $\tau_g \in [10, 60]$ pasos según volatilidad del mercado.
 
 ### Rough Paths Theory
 
-Integración robusta mediante el cálculo de signatures para procesos con baja regularidad de Hölder.
+Integração robusta mediante cálculo de signatures para procesos con baja regularidad de Hölder ($H \leq 1/2$).
 
 ### Circuit Breaker
 
-Mecanismo de protección que suspende operaciones cuando $H < H_{min}$, evitando divergencias numéricas.
+Mecanismo de protección que suspende operaciones cuando $H < H_{\min}$, fuerza Rama D (signatures) y activa pérdida de Huber robusta.
 
 ## 🔬 Aplicaciones
 
