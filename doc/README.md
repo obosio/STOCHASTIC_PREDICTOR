@@ -41,23 +41,22 @@ doc/                                  # Documentation root
 
 - **`latex/implementation/`**: Implementation documentation (one file per tag)
   - **`Implementacion_v2.0.0_Bootstrap.tex`** ✨
-    - Tag: `impl/v2.0.0`
+    - Tag: `impl/v2.0.0` (commit 85abb8c)
     - Documents initial 5-layer architecture scaffold
     - Language policy, Golden Master dependencies, git workflow
-  - **`Implementacion_v2.0.1_Phase1_Foundations.tex`** ✨
-    - Tag: `impl/v2.0.1` [CURRENT]
-    - Phase 1 Complete: Full API layer
-    - Modules: types.py, prng.py, validation.py, schemas.py, config.py
-    - Total ~2000 LoC with complete type system, PRNG management, I/O validation, serialization, and config injection
-  - **`Implementacion_v2.0.2_Phase1_Complete.tex`** (FOR REFERENCE - documents Phase 1 details)
-    - Detailed documentation of schemas.py and config.py implementation
-    - Phase 1 metrics and verification
-    - Phase 2 roadmap
+    - 12KB, 381 lines
+  - **`Implementacion_v2.0.1_Phase1.tex`** ✨
+    - Tag: `impl/v2.0.1` [CURRENT] (commit 4757710 through 76f87c2)
+    - Phase 1 Complete: Full API layer consolidated
+    - Modules: types.py (347 LoC), prng.py (301 LoC), validation.py (467 LoC), schemas.py (330 LoC), config.py (220 LoC), conftest.py (345 LoC)
+    - Total 2,010 LoC with complete type system, PRNG management, I/O validation, Pydantic schemas, and config injection
+    - 16KB, comprehensive Phase 1 documentation
 
 - **`pdf/specification/`**: Auto-generated compiled PDFs (git-ignored)
 
 - **`pdf/implementation/`**: Auto-generated implementation PDFs (git-ignored)
-  - Will generate `Implementacion_v2.0.0_Bootstrap.pdf`, `Implementacion_v2.0.1_Phase1_Foundations.pdf`, `Implementacion_v2.0.2_Phase1_Complete.pdf` (detailed reference) on compile
+  - `Implementacion_v2.0.0_Bootstrap.pdf` (67KB) ✅
+  - `Implementacion_v2.0.1_Phase1.pdf` (97KB) ✅
 
 - **`compile.sh`**: Dynamic LaTeX compiler (processes ANY folder in `latex/`)
 

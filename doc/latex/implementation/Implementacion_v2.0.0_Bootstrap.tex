@@ -1,0 +1,380 @@
+\documentclass[11pt, a4paper]{report}
+
+% --- PREAMBLE ---
+\usepackage[a4paper, top=2.5cm, bottom=2.5cm, left=2cm, right=2cm]{geometry}
+\usepackage{fontspec}
+\usepackage{amsmath}
+\usepackage{amssymb}
+\usepackage{listings}
+\usepackage{xcolor}
+\usepackage[hidelinks]{hyperref}
+\usepackage{graphicx}
+\usepackage{booktabs}
+\usepackage{array}
+
+\usepackage[spanish, provide=*]{babel}
+\babelprovide[import, onchar=ids fonts]{spanish}
+
+% Code highlighting
+\definecolor{codegreen}{rgb}{0,0.6,0}
+\definecolor{codegray}{rgb}{0.5,0.5,0.5}
+\definecolor{codepurple}{rgb}{0.58,0,0.82}
+\definecolor{backcolour}{rgb}{0.95,0.95,0.92}
+
+\lstdefinestyle{mystyle}{
+    backgroundcolor=\color{backcolour},   
+    commentstyle=\color{codegreen},
+    keywordstyle=\color{magenta},
+    numberstyle=\tiny\color{codegray},
+    stringstyle=\color{codepurple},
+    basicstyle=\ttfamily\footnotesize,
+    breakatwhitespace=false,         
+    breaklines=true,                 
+    captionpos=b,                    
+    keepspaces=true,                 
+    numbers=left,                    
+    numbersep=5pt,                  
+    showspaces=false,                
+    showstringspaces=false,
+    showtabs=false,                  
+    tabsize=2,
+    frame=single
+}
+
+\lstset{style=mystyle}
+
+\title{\textbf{Universal Stochastic Predictor \\ Bootstrap Infrastructure}}
+\author{Implementation Team}
+\date{February 19, 2026}
+
+\begin{document}
+
+\maketitle
+
+\tableofcontents
+
+\chapter{Executive Summary}
+
+This document records the Bootstrap phase (Tag: \texttt{impl/v2.0.0-Bootstrap}) of the Universal Stochastic Predictor implementation. Bootstrap establishes the foundational 5-layer Clean Architecture structure and development environment.
+
+\section{Tag Information}
+
+\begin{table}[h]
+\centering
+\begin{tabular}{ll}
+\hline
+\textbf{Tag} & \texttt{impl/v2.0.0-Bootstrap} \\
+\textbf{Commit} & 85abb8c \\
+\textbf{Branch} & \texttt{implementation/base-jax} \\
+\textbf{Date} & February 18, 2026 \\
+\hline
+\end{tabular}
+\end{table}
+
+\chapter{Architecture: Clean 5-Layer Design}
+
+\section{Architectural Constraints}
+
+Per \texttt{Predictor\_Estocastico\_Python.tex §2.1}, the system enforces a strict 5-layer Clean Architecture:
+
+\begin{figure}[h]
+\centering
+\begin{verbatim}
+stochastic_predictor/
+├── api/                    Layer 1: External Contracts
+│   ├── types.py           
+│   ├── prng.py            
+│   ├── validation.py      
+│   ├── schemas.py         
+│   ├── config.py          
+│   └── __init__.py        
+│
+├── core/                   Layer 2: Orchestration Logic
+│   ├── jko.py             
+│   ├── wasserstein.py     
+│   └── __init__.py
+│
+├── kernels/                Layer 3: Stateless Kernels (A, B, C, D)
+│   ├── base.py            
+│   ├── kernel_a.py        
+│   ├── kernel_b.py        
+│   ├── kernel_c.py        
+│   ├── kernel_d.py        
+│   └── __init__.py
+│
+├── io/                     Layer 4: Snapshots & Streaming
+│   ├── snapshots.py       
+│   └── __init__.py
+│
+└── tests/                  Layer 5: Validation (Hardware Parity)
+    ├── conftest.py        
+    ├── test_integration.py
+    └── [subdirs for each layer]
+\end{verbatim}
+\end{figure}
+
+\section{Clean Architecture Compliance}
+
+Each layer has strict responsibilities:
+
+\begin{table}[h]
+\centering
+\begin{tabular}{|p{2cm}|p{5cm}|p{6cm}|}
+\hline
+\textbf{Layer} & \textbf{Responsibility} & \textbf{Prohibited} \\
+\hline
+\texttt{api/} & External contracts, validation, configuration & Business logic, stateful operations \\
+\texttt{core/} & Orchestration, decision logic, fusion algorithms & Direct device operations, I/O \\
+\texttt{kernels/} & Pure, stateless JAX functions (JIT-compilable) & Configuration, file I/O, randomness generation \\
+\texttt{io/} & Atomic snapshots, stream sanitization & Prediction logic, kernel computations \\
+\texttt{tests/} & Validation, fixtures, integration tests & Implementation logic \\
+\hline
+\end{tabular}
+\caption{Clean Architecture Layer Boundaries}
+\end{table}
+
+\chapter{Development Environment Setup}
+
+\section{Python Ecosystem}
+
+Bootstrap establishes the Golden Master dependency pinning:
+
+\begin{itemize}
+    \item Python 3.10.12
+    \item JAX 0.4.20 (with XLA backend)
+    \item Equinox 0.11.2 (neural networks)
+    \item Diffrax 0.4.1 (differential equations)
+    \item OTT-JAX 0.4.5 (optimal transport)
+    \item Signax 0.1.4 (signatures/rough paths)
+    \item PyWavelets 1.4.1 (wavelet analysis)
+\end{itemize}
+
+\textbf{Critical Rule}: All versions use strict equality operator (\texttt{==}). No \texttt{>=}, no \texttt{pip install -U}.
+
+\section{Project Structure Initialization}
+
+Bootstrap creates the 5-layer directory structure with minimal \texttt{\_\_init\_\_.py} files for module discovery.
+
+\begin{lstlisting}[language=bash]
+# Create layer directories
+mkdir -p stochastic_predictor/{api,core,kernels,io}
+touch stochastic_predictor/{__init__.py,api/__init__.py,core/__init__.py,kernels/__init__.py,io/__init__.py}
+
+# Create tests structure
+mkdir -p tests/{integrators,kernels,orchestrator,sia,utils}
+touch tests/{__init__.py,conftest.py}
+touch tests/{integrators,kernels,orchestrator,sia,utils}/__init__.py
+\end{lstlisting}
+
+\chapter{Language Policy Enforcement}
+
+\section{100\% English in Code}
+
+Bootstrap establishes the foundational language policy:
+
+\textbf{All code files MUST be 100\% English}:
+\begin{itemize}
+    \item File names, class names, variable names, method names
+    \item Docstrings (triple quotes)
+    \item Inline comments (\#)
+    \item Log messages and error messages
+    \item Configuration files (TOML, YAML, JSON)
+    \item Requirements files and dependencies metadata
+    \item README files and inline documentation
+\end{itemize}
+
+\textbf{Spanish reserved for}:
+\begin{itemize}
+    \item LaTeX specification documents (\texttt{.tex}, \texttt{.pdf})
+    \item Chat responses and external communication
+\end{itemize}
+
+\textbf{Rationale}: Bit-exact reproducibility across global development environments requires linguistic homogeneity in all executable and configuration artifacts.
+
+\chapter{Golden Master: Dependency Pinning}
+
+\section{Frozen Requirements}
+
+\texttt{requirements.txt} established with strict \texttt{==} operators:
+
+\begin{verbatim}
+jax==0.4.20
+jaxlib==0.4.20
+equinox==0.11.2
+diffrax==0.4.1
+jaxtyping==0.2.25
+ott-jax==0.4.5
+signax==0.1.4
+PyWavelets==1.4.1
+numpy==1.24.0
+scipy==1.10.0
+pandas==2.0.0
+\end{verbatim}
+
+\section{Rationale}
+
+Per \texttt{Predictor\_Estocastico\_Python.tex §1}:
+
+\begin{itemize}
+    \item \textbf{Bit-exactness}: Numerical results must be reproducible
+    \item \textbf{XLA caching}: JIT compilation depends on exact library versions
+    \item \textbf{JAX API stability}: Breaking changes in minor versions
+    \item \textbf{Research integrity}: Published results must be reproducible
+\end{itemize}
+
+\chapter{Configuration Management}
+
+Bootstrap establishes \texttt{config.toml} for centralized parameter management:
+
+\begin{lstlisting}
+[core]
+jax_platforms = "cpu"
+jax_default_dtype = "float32"
+
+[orchestration]
+cusum_grace_period = 20
+cusum_threshold = 5.0
+entropy_window = 100
+sinkhorn_epsilon_0 = 0.1
+sinkhorn_alpha = 0.5
+
+[kernels]
+stiffness_low = 100
+stiffness_high = 1000
+sde_dt = 0.01
+
+[io]
+market_feed_timeout = 30
+market_feed_max_retries = 3
+\end{lstlisting}
+
+\chapter{Git Workflow and Versioning}
+
+\section{Branch Strategy}
+
+\begin{itemize}
+    \item \textbf{\texttt{main}}: Specification branch (locked at \texttt{spec/v1.0.0})
+    \item \textbf{\texttt{implementation/base-jax}}: Active development branch (incremental versioning)
+\end{itemize}
+
+\section{Tag Naming Convention}
+
+\begin{table}[h]
+\centering
+\begin{tabular}{ll}
+\hline
+\textbf{Pattern} & \textbf{Usage} \\
+\hline
+\texttt{spec/v1.x.x} & Specification versions (immutable) \\
+\texttt{impl/v2.x.x-<PhaseName>} & Implementation phases (incremental) \\
+\hline
+\end{tabular}
+\end{table}
+
+Bootstrap tag: \texttt{impl/v2.0.0-Bootstrap}
+
+\chapter{Pre-Commit Quality Assurance}
+
+Bootstrap establishes mandatory quality gates:
+
+\begin{enumerate}
+    \item \textbf{Make changes} in working directory
+    \item \textbf{ALWAYS run} \texttt{get\_errors()} to check for syntax/type errors
+    \item \textbf{If errors found}: Fix all errors BEFORE staging
+    \item \textbf{Only after} errors cleared:
+    \begin{itemize}
+        \item \texttt{git add <files>}
+        \item \texttt{git commit -m "<meaningful message>"}
+        \item \texttt{git push origin <branch>}
+    \end{itemize}
+\end{enumerate}
+
+\section{Error Types to Monitor}
+
+\begin{itemize}
+    \item Markdown: MD060 (table formatting), MD036 (heading punctuation)
+    \item LaTeX: Unicode incompatibility in verbatim blocks
+    \item Python: Type hints, import statements, syntax errors
+    \item YAML/TOML: Indentation, key format, string escaping
+\end{itemize}
+
+\chapter{Documentation Structure}
+
+Bootstrap establishes \texttt{doc/} hierarchy:
+
+\begin{verbatim}
+doc/
+├── README.md                          Documentation index
+├── compile.sh                         LaTeX compilation automation
+│
+├── latex/
+│   ├── specification/                 Technical specifications (.tex)
+│   │   ├── Predictor_Estocastico_Teoria.tex
+│   │   ├── Predictor_Estocastico_Python.tex
+│   │   ├── ...
+│   │
+│   └── implementation/                Implementation milestone docs
+│       ├── Implementacion_v2.0.0_Bootstrap.tex
+│       ├── Implementacion_v2.0.1_Phase1_Foundations.tex
+│       ├── Implementacion_v2.0.2_Phase1_Complete.tex
+│       └── [future phases]
+│
+└── pdf/
+    ├── specification/                 Compiled PDFs
+    └── implementation/
+\end{verbatim}
+
+\chapter{Initialization Checklist}
+
+\section{Directory Structure}
+
+\begin{itemize}
+    \item[✓] \texttt{stochastic\_predictor/} created with 5-layer structure
+    \item[✓] \texttt{tests/} directory with layer subdirectories
+    \item[✓] All \texttt{\_\_init\_\_.py} files created for module discovery
+    \item[✓] \texttt{doc/} structure established (specification + implementation)
+\end{itemize}
+
+\section{Configuration Files}
+
+\begin{itemize}
+    \item[✓] \texttt{requirements.txt} with Golden Master versions
+    \item[✓] \texttt{config.toml} with default parameters
+    \item[✓] \texttt{pyproject.toml} if needed (project metadata)
+    \item[✓] \texttt{.gitignore} with standard Python patterns
+\end{itemize}
+
+\section{Documentation}
+
+\begin{itemize}
+    \item[✓] \texttt{README.md} (root) with project overview
+    \item[✓] \texttt{doc/README.md} documentation index
+    \item[✓] \texttt{CONTRIBUTING.md} guidelines
+    \item[✓] \texttt{LICENSE} (MIT)
+\end{itemize}
+
+\section{Version Control}
+
+\begin{itemize}
+    \item[✓] Git repository initialized on both \texttt{main} and \texttt{implementation/base-jax}
+    \item[✓] Bootstrap commit tagged as \texttt{impl/v2.0.0-Bootstrap}
+    \item[✓] Specification frozen at \texttt{spec/v1.0.0}
+    \item[✓] Clean git history with meaningful commits
+\end{itemize}
+
+\chapter{Next Phase (Phase 1: Foundations)}
+
+Bootstrap establishes the foundation. Phase 1 will implement:
+
+\begin{itemize}
+    \item \texttt{api/types.py}: Immutable dataclasses (PredictorConfig, MarketObservation, PredictionResult)
+    \item \texttt{api/prng.py}: JAX PRNG management for determinism
+    \item \texttt{api/validation.py}: Input/output domain validation
+    \item \texttt{api/schemas.py}: Pydantic models for serialization
+    \item \texttt{api/config.py}: ConfigManager singleton with config.toml injection
+    \item \texttt{tests/conftest.py}: 10 reusable pytest fixtures
+\end{itemize}
+
+All Phase 1 code will be 100\% English, follow Clean Architecture constraints, and pass pre-commit quality gates.
+
+\end{document}
