@@ -14,7 +14,7 @@ from enum import Enum
 from typing import Any, Dict, Optional
 
 import jax.numpy as jnp
-from jaxtyping import Float, ArrayLike
+from jaxtyping import Float, Array
 from pydantic import BaseModel, Field, validator
 
 
@@ -40,15 +40,15 @@ class MarketObservationSchema(BaseModel):
     Includes temporal and domain validation.
     
     Attributes:
-        price: Market price at observation time (positive)
+        price: Market price at observation time (positive, shape [1])
         timestamp_utc: UTC timestamp (ISO 8601)
         regime_tag: Optional market regime identifier (e.g., "bullish", "choppy")
         volatility_proxy: Optional realized volatility estimate for kernel tuning
     """
-    price: Float[ArrayLike, ""]
+    price: Float[Array, "1"]
     timestamp_utc: datetime = Field(description="Observation time (UTC)")
     regime_tag: Optional[str] = Field(default=None, description="Market regime label")
-    volatility_proxy: Optional[Float[ArrayLike, ""]] = Field(
+    volatility_proxy: Optional[Float[Array, "1"]] = Field(
         default=None,
         description="Realized volatility estimate for Sinkhorn coupling"
     )

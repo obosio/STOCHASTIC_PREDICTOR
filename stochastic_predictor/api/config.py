@@ -152,37 +152,73 @@ class PredictorConfigInjector:
         """
         Create a PredictorConfig instance from config.toml.
         
+        Maps all fields from config.toml to PredictorConfig dataclass,
+        ensuring single source of truth for algorithmic configuration.
+        
         Imports PredictorConfig here to avoid circular imports.
         
         Returns:
-            Configured PredictorConfig instance
+            Configured PredictorConfig instance with all fields populated
         """
         from .types import PredictorConfig
         
         cfg_dict = {
-            "cusum_grace_period": self.config_manager.get(
-                "orchestration", "cusum_grace_period", 20
+            # Snapshot Versioning
+            "schema_version": self.config_manager.get(
+                "meta", "schema_version", "1.0"
             ),
-            "cusum_threshold": self.config_manager.get(
-                "orchestration", "cusum_threshold", 5.0
+            
+            # JKO Orchestrator (Optimal Transport)
+            "epsilon": self.config_manager.get(
+                "orchestration", "epsilon", 1e-3
             ),
-            "entropy_window": self.config_manager.get(
-                "orchestration", "entropy_window", 100
+            "learning_rate": self.config_manager.get(
+                "orchestration", "learning_rate", 0.01
             ),
-            "sinkhorn_epsilon_0": self.config_manager.get(
-                "orchestration", "sinkhorn_epsilon_0", 0.1
+            
+            # Kernel D (Log-Signatures)
+            "log_sig_depth": self.config_manager.get(
+                "kernels", "log_sig_depth", 3
             ),
-            "sinkhorn_alpha": self.config_manager.get(
-                "orchestration", "sinkhorn_alpha", 0.5
+            
+            # Kernel A (WTMM + Fokker-Planck)
+            "wtmm_buffer_size": self.config_manager.get(
+                "kernels", "wtmm_buffer_size", 128
             ),
-            "stiffness_low": self.config_manager.get(
-                "kernels", "stiffness_low", 100
+            "besov_cone_c": self.config_manager.get(
+                "kernels", "besov_cone_c", 1.5
             ),
-            "stiffness_high": self.config_manager.get(
-                "kernels", "stiffness_high", 1000
+            
+            # Circuit Breaker (Holder Singularity)
+            "holder_threshold": self.config_manager.get(
+                "orchestration", "holder_threshold", 0.4
             ),
-            "sde_dt": self.config_manager.get(
-                "kernels", "sde_dt", 0.01
+            
+            # CUSUM (Regime Change Detection)
+            "cusum_h": self.config_manager.get(
+                "orchestration", "cusum_h", 5.0
+            ),
+            "cusum_k": self.config_manager.get(
+                "orchestration", "cusum_k", 0.5
+            ),
+            "grace_period_steps": self.config_manager.get(
+                "orchestration", "grace_period_steps", 20
+            ),
+            
+            # Volatility Monitoring (EWMA)
+            "volatility_alpha": self.config_manager.get(
+                "orchestration", "volatility_alpha", 0.1
+            ),
+            
+            # Latency and Anti-Aliasing Policies
+            "staleness_ttl_ns": self.config_manager.get(
+                "core", "staleness_ttl_ns", 500_000_000
+            ),
+            "besov_nyquist_interval_ns": self.config_manager.get(
+                "kernels", "besov_nyquist_interval_ns", 100_000_000
+            ),
+            "inference_recovery_hysteresis": self.config_manager.get(
+                "orchestration", "inference_recovery_hysteresis", 0.8
             ),
         }
         return PredictorConfig(**cfg_dict)
