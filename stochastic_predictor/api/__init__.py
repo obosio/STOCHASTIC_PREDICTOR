@@ -69,6 +69,25 @@ from stochastic_predictor.api.config import (
     PredictorConfigInjector,
 )
 
+from stochastic_predictor.api.warmup import (
+    warmup_all_kernels,
+    warmup_kernel_a,
+    warmup_kernel_b,
+    warmup_kernel_c,
+    warmup_kernel_d,
+    warmup_with_retry,
+)
+
+from stochastic_predictor.api.state_buffer import (
+    update_signal_history,
+    update_residual_buffer,
+    batch_update_signal_history,
+    update_cusum_statistics,
+    update_ema_variance,
+    atomic_state_update,
+    reset_cusum_statistics,
+)
+
 # Consolidated public exports
 __all__ = [
     # Types
@@ -112,4 +131,19 @@ __all__ = [
     "ConfigManager",
     "get_config",
     "PredictorConfigInjector",
+    # Warmup (JIT Pre-compilation)
+    "warmup_all_kernels",
+    "warmup_kernel_a",
+    "warmup_kernel_b",
+    "warmup_kernel_c",
+    "warmup_kernel_d",
+    "warmup_with_retry",
+    # State Buffer Management (Zero-Copy)
+    "update_signal_history",
+    "update_residual_buffer",
+    "batch_update_signal_history",
+    "update_cusum_statistics",
+    "update_ema_variance",
+    "atomic_state_update",
+    "reset_cusum_statistics",
 ]
