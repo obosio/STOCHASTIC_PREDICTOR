@@ -673,4 +673,677 @@ Measure latency jitter using \texttt{time.perf\_counter\_ns()} and degrade if ji
 
 Strict version pinning is mandatory. Any update must be tested for bit-exact parity and documented. Use exact versions in \texttt{requirements.txt} and \texttt{environment.yml}, never open ranges.
 
+\section{Meta-Optimization API (Bayesian Hyperparameter Tuning)}
+
+To support the autonomous Level 4 operation defined in \texttt{Stochastic\_Predictor\_Implementation.tex} (tiered meta-optimization), the API must expose contracts for persistent, resumable Bayesian optimization.
+
+\subsection{BayesianMetaOptimizer Class}
+
+The \texttt{BayesianMetaOptimizer} encapsulates the Tree-structured Parzen Estimator (TPE) logic for both Fast Tuning and Deep Tuning regimes.
+
+\begin{lstlisting}[language=Python]
+from typing import Callable, Dict, Any, Optional
+from dataclasses import dataclass
+import pickle
+import hashlib
+from pathlib import Path
+
+@dataclass(frozen=True)
+class SearchSpace:
+    """Defines hyperparameter search space with constraints."""
+    name: str
+    param_type: str  # "float", "int", "categorical", "log_uniform"
+    range: tuple[Any, Any]  # (min, max) or list of choices
+    locked: bool = False  # Immutable parameters (security/io sections)
+    constraint: Optional[str] = None  # "must be power of 2", etc.
+
+class BayesianMetaOptimizer:
+    """
+    Resumable Bayesian optimization using TPE algorithm.
+    Supports checkpointing for long-running Deep Tuning campaigns.
+    """
+    
+    def __init__(
+        self,
+        search_space: Dict[str, SearchSpace],
+        objective_fn: Callable[[Dict[str, Any]], float],
+        study_name: str,
+        max_iterations: int,
+        tier: str = "fast"  # "fast" or "deep"
+    ):
+        """
+        Initialize optimizer with search space and objective function.
+        
+        Args:
+            search_space: Dictionary of parameter names to SearchSpace definitions
+            objective_fn: Walk-forward validation function returning MAPE
+            study_name: Unique identifier for this optimization campaign
+            max_iterations: Budget (50 for Fast, 500 for Deep)
+            tier: Optimization tier ("fast" or "deep")
+        
+        Raises:
+            ValueError: If search_space contains locked parameters
+        """
+        self.search_space = self._validate_search_space(search_space)
+        self.objective_fn = objective_fn
+        self.study_name = study_name
+        self.max_iterations = max_iterations
+        self.tier = tier
+        
+        # Internal TPE state (optuna.Study or similar)
+        self._study = None
+        self._best_params = None
+        self._best_value = float('inf')
+        self._iteration = 0
+        self._checkpoint_counter = 0
+    
+    def _validate_search_space(self, space: Dict[str, SearchSpace]) -> Dict[str, SearchSpace]:
+        """Verify no locked parameters in search space."""
+        locked_params = [name for name, spec in space.items() if spec.locked]
+        if locked_params:
+            raise ValueError(
+                f"Cannot optimize locked parameters: {locked_params}. "
+                f"Remove from search space or set locked=False."
+            )
+        return space
+    
+    def optimize(
+        self,
+        checkpoint_interval: int = 10,
+        early_stopping_patience: int = 50
+    ) -> Dict[str, Any]:
+        """
+        Execute Bayesian optimization with automatic checkpointing.
+        
+        Args:
+            checkpoint_interval: Emit checkpoint every N trials
+            early_stopping_patience: Stop if no improvement for N trials
+        
+        Returns:
+            Best hyperparameter configuration found
+        
+        Note:
+            This method blocks until completion or early stopping.
+            For long-running Deep Tuning, consider running in separate process.
+        """
+        no_improvement_count = 0
+        
+        for i in range(self._iteration, self.max_iterations):
+            # Sample next candidate from TPE surrogate
+            candidate = self._suggest_next_candidate()
+            
+            # Evaluate via walk-forward validation (expensive!)
+            objective_value = self.objective_fn(candidate)
+            
+            # Update TPE model
+            self._report_trial(candidate, objective_value)
+            
+            # Track best result
+            if objective_value < self._best_value:
+                self._best_value = objective_value
+                self._best_params = candidate
+                no_improvement_count = 0
+                # Checkpoint immediately on improvement
+                self.save_study(f"io/snapshots/{self.study_name}_best.pkl")
+            else:
+                no_improvement_count += 1
+            
+            self._iteration = i + 1
+            
+            # Periodic checkpointing
+            if (i + 1) % checkpoint_interval == 0:
+                checkpoint_path = f"io/snapshots/{self.study_name}_iter{i+1}.pkl"
+                self.save_study(checkpoint_path)
+            
+            # Early stopping
+            if no_improvement_count >= early_stopping_patience:
+                print(f"Early stopping: No improvement for {early_stopping_patience} trials")
+                break
+        
+        return self._best_params
+    
+    def save_study(self, path: str) -> None:
+        """
+        Serialize TPE study state to disk for resumability.
+        
+        Implementation must guarantee atomic write via temporary file + os.replace().
+        Includes SHA-256 hash for integrity verification on load.
+        
+        Args:
+            path: Target checkpoint file path (e.g., "io/snapshots/study.pkl")
+        
+        Protocol:
+            1. Serialize study state to temporary file
+            2. Compute SHA-256 hash of serialized data
+            3. Atomically replace target file (POSIX os.replace)
+            4. Store hash in metadata sidecar file
+        
+        Note:
+            This operation is I/O-bound and may block for 100-500ms.
+            For production systems running live prediction, execute in
+            separate thread or process to avoid blocking telemetry collection.
+        
+        Example:
+            >>> optimizer.save_study("checkpoints/deep_tuning_iter250.pkl")
+        """
+        path_obj = Path(path)
+        path_obj.parent.mkdir(parents=True, exist_ok=True)
+        
+        # Prepare checkpoint payload
+        checkpoint_data = {
+            'study_name': self.study_name,
+            'search_space': self.search_space,
+            'tier': self.tier,
+            'iteration': self._iteration,
+            'best_params': self._best_params,
+            'best_value': self._best_value,
+            'trial_history': self._study.trials if self._study else [],
+            'parzen_estimators': self._study._storage if self._study else None,
+            'rng_state': self._get_rng_state(),
+            'timestamp': time.time_ns()
+        }
+        
+        # Serialize to temporary file (atomic write protocol)
+        tmp_path = path_obj.with_suffix('.tmp')
+        with open(tmp_path, 'wb') as f:
+            serialized = pickle.dumps(checkpoint_data, protocol=pickle.HIGHEST_PROTOCOL)
+            f.write(serialized)
+            f.flush()
+            os.fsync(f.fileno())  # Force kernel buffer flush
+        
+        # Compute integrity hash
+        with open(tmp_path, 'rb') as f:
+            hash_value = hashlib.sha256(f.read()).hexdigest()
+        
+        # Atomic replacement (POSIX guarantee)
+        os.replace(tmp_path, path)
+        
+        # Store hash in sidecar
+        hash_path = path_obj.with_suffix('.pkl.sha256')
+        with open(hash_path, 'w') as f:
+            f.write(f"{hash_value}  {path_obj.name}\n")
+    
+    def load_study(self, path: str) -> None:
+        """
+        Deserialize TPE study state from checkpoint.
+        
+        Verifies SHA-256 hash before loading to detect corruption.
+        Reconstructs Parzen estimators and random state for exact resumption.
+        
+        Args:
+            path: Checkpoint file path
+        
+        Raises:
+            IntegrityError: If SHA-256 verification fails
+            FileNotFoundError: If checkpoint or hash file missing
+            ValueError: If checkpoint schema version incompatible
+        
+        Protocol:
+            1. Verify SHA-256 hash matches expected value
+            2. Deserialize checkpoint data
+            3. Reconstruct TPE study object
+            4. Restore RNG state for deterministic sampling
+            5. Validate search space matches current configuration
+        
+        Note:
+            After successful load, optimizer continues from iteration N+1.
+            No re-evaluation of previous trials occurs (warm start).
+        
+        Example:
+            >>> optimizer = BayesianMetaOptimizer(...)
+            >>> optimizer.load_study("checkpoints/deep_tuning_iter250.pkl")
+            >>> optimizer.optimize()  # Resumes from iteration 251
+        """
+        path_obj = Path(path)
+        hash_path = path_obj.with_suffix('.pkl.sha256')
+        
+        # Verify integrity
+        if not hash_path.exists():
+            raise FileNotFoundError(f"Hash file missing: {hash_path}")
+        
+        with open(hash_path, 'r') as f:
+            expected_hash = f.read().strip().split()[0]
+        
+        with open(path, 'rb') as f:
+            actual_hash = hashlib.sha256(f.read()).hexdigest()
+        
+        if actual_hash != expected_hash:
+            raise IntegrityError(
+                f"Checkpoint corrupted: hash mismatch. "
+                f"Expected {expected_hash}, got {actual_hash}"
+            )
+        
+        # Deserialize
+        with open(path, 'rb') as f:
+            checkpoint_data = pickle.load(f)
+        
+        # Validate schema
+        if checkpoint_data['study_name'] != self.study_name:
+            raise ValueError(
+                f"Study name mismatch: checkpoint is for '{checkpoint_data['study_name']}', "
+                f"but optimizer is '{self.study_name}'"
+            )
+        
+        # Restore state
+        self._iteration = checkpoint_data['iteration']
+        self._best_params = checkpoint_data['best_params']
+        self._best_value = checkpoint_data['best_value']
+        
+        # Reconstruct TPE study (replay trials)
+        self._study = self._create_study()
+        for trial_data in checkpoint_data['trial_history']:
+            self._study.add_trial(trial_data)
+        
+        # Restore RNG state for deterministic continuation
+        self._restore_rng_state(checkpoint_data['rng_state'])
+        
+        print(f"Resumed from iteration {self._iteration}, best value: {self._best_value:.6f}")
+
+\end{lstlisting}
+
+\subsection{OptimizationResult Schema (Pydantic)}
+
+The result of a meta-optimization campaign must be exportable to \texttt{config.toml} using the atomic mutation protocol.
+
+\begin{lstlisting}[language=Python]
+from pydantic import BaseModel, validator
+from typing import Dict, Any, Optional
+import toml
+import os
+import time
+
+class OptimizationResult(BaseModel):
+    """
+    Immutable result of Bayesian optimization campaign.
+    Includes export capability for atomic config mutation.
+    """
+    study_name: str
+    tier: str  # "fast" or "deep"
+    best_params: Dict[str, Any]
+    best_objective: float
+    total_iterations: int
+    early_stopped: bool
+    convergence_delta: float  # Improvement over last N trials
+    timestamp_utc: str
+    
+    @validator('tier')
+    def validate_tier(cls, v):
+        if v not in ['fast', 'deep']:
+            raise ValueError(f"Invalid tier: {v}. Must be 'fast' or 'deep'")
+        return v
+    
+    def export_to_toml(
+        self,
+        path: str = "config.toml",
+        backup: bool = True,
+        validate: bool = True
+    ) -> None:
+        """
+        Export optimized parameters to config.toml using atomic mutation protocol.
+        
+        Implements the Configuration Mutation Protocol specified in
+        Stochastic_Predictor_IO.tex §3.3.
+        
+        Args:
+            path: Target config file path (default: "config.toml")
+            backup: Create timestamped backup before mutation (default: True)
+            validate: Validate merged config against schema (default: True)
+        
+        Protocol:
+            1. Validate new parameters against schema (ranges, types, constraints)
+            2. Create immutable backup (config.toml.bak + timestamped archive)
+            3. Write to temporary file (config.toml.tmp)
+            4. Fsync to guarantee durability
+            5. Atomic replacement via os.replace()
+            6. Log mutation to audit trail (io/mutations.log)
+        
+        Locked Subsections (Never Modified):
+            - [io]: snapshot_path, telemetry_buffer_maxlen, credentials_vault_path
+            - [security]: telemetry_hash_interval_steps, snapshot_integrity_hash_algorithm
+            - [core]: float_precision, jax_platform (partial lock)
+            - [meta_optimization]: max_deep_tuning_iterations, checkpoint_path
+        
+        Raises:
+            ConfigMutationError: If validation fails or locked parameter modified
+            IOError: If atomic write fails (disk full, permissions, etc.)
+        
+        Note:
+            This operation blocks for ~50-200ms due to fsync requirement.
+            For production systems, execute in separate thread/process.
+        
+        Example:
+            >>> result = optimizer.optimize()
+            >>> opt_result = OptimizationResult(
+            ...     study_name="deep_tuning_2026",
+            ...     tier="deep",
+            ...     best_params=result,
+            ...     best_objective=0.0234,
+            ...     ...
+            ... )
+            >>> # Non-blocking export in separate thread
+            >>> import threading
+            >>> export_thread = threading.Thread(
+            ...     target=opt_result.export_to_toml,
+            ...     kwargs={'backup': True, 'validate': True}
+            ... )
+            >>> export_thread.start()
+        """
+        path_obj = Path(path)
+        if not path_obj.exists():
+            raise FileNotFoundError(f"Config file not found: {path}")
+        
+        # Phase 1: Load and merge
+        current_config = toml.load(path)
+        merged_config = self._merge_with_validation(current_config, validate)
+        
+        # Phase 2: Backup
+        if backup:
+            timestamp = time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime())
+            backup_timestamped = path_obj.with_suffix(f'.bak.{timestamp}')
+            backup_latest = path_obj.with_suffix('.bak')
+            
+            import shutil
+            shutil.copy2(path, backup_timestamped)
+            shutil.copy2(path, backup_latest)
+        
+        # Phase 3: Atomic write via temporary file
+        tmp_path = path_obj.with_suffix('.tmp')
+        
+        # Prevent concurrent mutations
+        if tmp_path.exists():
+            raise IOError(
+                f"Concurrent mutation detected: {tmp_path} exists. "
+                f"Another optimizer may be writing. Aborting."
+            )
+        
+        with open(tmp_path, 'w') as f:
+            toml.dump(merged_config, f)
+            f.flush()
+            os.fsync(f.fileno())  # CRITICAL: Force kernel buffer flush
+        
+        # Phase 4: Atomic replacement (POSIX guarantee)
+        os.replace(tmp_path, path)
+        
+        # Phase 5: Audit logging
+        delta = self._compute_delta(current_config, merged_config)
+        self._log_mutation(delta, timestamp if backup else time.strftime("%Y-%m-%dT%H:%M:%SZ"))
+    
+    def _merge_with_validation(
+        self,
+        current_config: Dict[str, Any],
+        validate: bool
+    ) -> Dict[str, Any]:
+        """
+        Merge optimized parameters into current config with validation.
+        
+        Prevents modification of locked subsections.
+        Validates ranges and constraints.
+        """
+        merged = current_config.copy()
+        
+        # Determine target subsection based on tier
+        target_section = "sensitivity" if self.tier == "fast" else "structural"
+        
+        if target_section not in merged:
+            merged[target_section] = {}
+        
+        for param_name, param_value in self.best_params.items():
+            # Check if parameter is in locked subsection
+            if self._is_locked_parameter(param_name):
+                raise ConfigMutationError(
+                    f"Attempted to modify locked parameter: {param_name}. "
+                    f"This violates invariant protection rules."
+                )
+            
+            merged[target_section][param_name] = param_value
+        
+        if validate:
+            self._validate_config(merged)
+        
+        return merged
+    
+    def _is_locked_parameter(self, param_name: str) -> bool:
+        """Check if parameter belongs to locked subsection."""
+        locked_params = {
+            'snapshot_path', 'telemetry_buffer_maxlen', 'credentials_vault_path',
+            'telemetry_hash_interval_steps', 'snapshot_integrity_hash_algorithm',
+            'float_precision', 'jax_platform',
+            'max_deep_tuning_iterations', 'checkpoint_path'
+        }
+        return param_name in locked_params
+    
+    def _validate_config(self, config: Dict[str, Any]) -> None:
+        """Validate merged config against schema."""
+        # Implementation: Check ranges, types, constraints
+        # Raise ConfigMutationError if validation fails
+        pass
+    
+    def _compute_delta(
+        self,
+        old_config: Dict[str, Any],
+        new_config: Dict[str, Any]
+    ) -> Dict[str, Any]:
+        """Compute parameter delta for audit logging."""
+        delta = {}
+        # Compare configs and extract changes
+        return delta
+    
+    def _log_mutation(self, delta: Dict[str, Any], timestamp: str) -> None:
+        """Append mutation record to audit trail."""
+        log_path = Path("io/mutations.log")
+        log_path.parent.mkdir(parents=True, exist_ok=True)
+        
+        with open(log_path, 'a') as f:
+            f.write(f"[{timestamp}] MUTATION_SUCCESS\n")
+            f.write(f"  Trigger: {self.tier.capitalize()}Tuning_{self.study_name}\n")
+            f.write(f"  Best_Objective: {self.best_objective:.6f}\n")
+            f.write(f"  Delta:\n")
+            for param, change in delta.items():
+                f.write(f"    - {param}: {change}\n")
+            f.write("\n")
+
+class ConfigMutationError(Exception):
+    """Raised when config mutation violates invariant protection rules."""
+    pass
+
+class IntegrityError(Exception):
+    """Raised when checkpoint integrity verification fails."""
+    pass
+\end{lstlisting}
+
+\subsection{Non-Blocking I/O Execution Pattern}
+
+Meta-optimization I/O operations (checkpoint save/load, TOML export) are blocking by nature due to \texttt{fsync()} requirements. To prevent interference with live prediction and telemetry collection, these operations must execute in separate threads or processes.
+
+\begin{lstlisting}[language=Python]
+import threading
+import queue
+from concurrent.futures import ThreadPoolExecutor
+
+class AsyncMetaOptimizer:
+    """
+    Wrapper for BayesianMetaOptimizer with non-blocking I/O.
+    Checkpoints and config exports execute in background threads.
+    """
+    
+    def __init__(self, optimizer: BayesianMetaOptimizer):
+        self.optimizer = optimizer
+        self._io_executor = ThreadPoolExecutor(max_workers=2, thread_name_prefix="meta_io")
+        self._checkpoint_queue = queue.Queue(maxsize=5)
+    
+    def save_study_async(self, path: str) -> None:
+        """
+        Non-blocking checkpoint save.
+        Submits to thread pool and returns immediately.
+        
+        Note:
+            If checkpoint queue is full (5 pending), oldest is dropped (backpressure).
+        """
+        if self._checkpoint_queue.full():
+            # Drop oldest pending checkpoint to prevent memory buildup
+            try:
+                self._checkpoint_queue.get_nowait()
+            except queue.Empty:
+                pass
+        
+        future = self._io_executor.submit(self.optimizer.save_study, path)
+        self._checkpoint_queue.put(future)
+    
+    def export_config_async(
+        self,
+        result: OptimizationResult,
+        path: str = "config.toml"
+    ) -> None:
+        """
+        Non-blocking config export.
+        Returns immediately, actual write happens in background.
+        
+        WARNING:
+            The config file mutation happens asynchronously.
+            Do not restart the predictor until export completes.
+            Use wait_for_io_completion() to block until done.
+        """
+        self._io_executor.submit(result.export_to_toml, path=path, backup=True)
+    
+    def wait_for_io_completion(self, timeout_seconds: float = 60.0) -> bool:
+        """
+        Block until all pending I/O operations complete.
+        
+        Args:
+            timeout_seconds: Maximum wait time
+        
+        Returns:
+            True if all operations completed, False if timeout
+        
+        Use Case:
+            Before restarting predictor after config mutation:
+            >>> async_opt.export_config_async(result)
+            >>> if async_opt.wait_for_io_completion(timeout_seconds=30):
+            >>>     predictor.reload_config()  # Safe to reload
+        """
+        deadline = time.time() + timeout_seconds
+        
+        while not self._checkpoint_queue.empty():
+            remaining = deadline - time.time()
+            if remaining <= 0:
+                return False
+            
+            try:
+                future = self._checkpoint_queue.get(timeout=remaining)
+                future.result(timeout=remaining)  # Wait for completion
+            except queue.Empty:
+                break
+            except Exception as e:
+                print(f"I/O operation failed: {e}")
+                return False
+        
+        # Wait for executor to finish all tasks
+        self._io_executor.shutdown(wait=True, cancel_futures=False)
+        return True
+
+# Example usage in production
+if __name__ == "__main__":
+    # Setup optimizer
+    search_space = {
+        'cusum_k': SearchSpace('cusum_k', 'float', (0.3, 1.5)),
+        'dgm_width_size': SearchSpace('dgm_width_size', 'int', (32, 256)),
+        # ... more parameters
+    }
+    
+    optimizer = BayesianMetaOptimizer(
+        search_space=search_space,
+        objective_fn=walk_forward_validation,
+        study_name="deep_tuning_2026_Q1",
+        max_iterations=500,
+        tier="deep"
+    )
+    
+    # Wrap for non-blocking I/O
+    async_optimizer = AsyncMetaOptimizer(optimizer)
+    
+    # Attempt resume from checkpoint
+    checkpoint_path = "io/snapshots/deep_tuning_2026_Q1_iter250.pkl"
+    if Path(checkpoint_path).exists():
+        optimizer.load_study(checkpoint_path)  # Blocking load is OK (one-time startup)
+    
+    # Run optimization with non-blocking checkpoints
+    for i in range(optimizer._iteration, optimizer.max_iterations):
+        candidate = optimizer._suggest_next_candidate()
+        objective = walk_forward_validation(candidate)
+        optimizer._report_trial(candidate, objective)
+        
+        if (i + 1) % 10 == 0:
+            # Non-blocking checkpoint (doesn't interrupt optimization loop)
+            checkpoint = f"io/snapshots/deep_tuning_2026_Q1_iter{i+1}.pkl"
+            async_optimizer.save_study_async(checkpoint)
+    
+    # Export results to config.toml (non-blocking)
+    result = OptimizationResult(
+        study_name="deep_tuning_2026_Q1",
+        tier="deep",
+        best_params=optimizer._best_params,
+        best_objective=optimizer._best_value,
+        total_iterations=optimizer._iteration,
+        early_stopped=False,
+        convergence_delta=0.0001,
+        timestamp_utc=time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime())
+    )
+    async_optimizer.export_config_async(result)
+    
+    # Wait for all I/O to complete before exiting
+    if async_optimizer.wait_for_io_completion(timeout_seconds=60):
+        print("All I/O operations completed successfully")
+    else:
+        print("WARNING: Some I/O operations timed out")
+\end{lstlisting}
+
+\subsection{Integration with Prediction Pipeline}
+
+Meta-optimization runs offline (batch mode) separate from live prediction. However, config mutations can occur during production operation. The predictor must detect config changes and reload safely.
+
+\begin{lstlisting}[language=Python]
+class ConfigReloadablePredictor(UniversalPredictor):
+    """
+    UniversalPredictor with hot-reload capability for config mutations.
+    """
+    
+    def __init__(self, config_path: str = "config.toml"):
+        self.config_path = config_path
+        self._config_mtime = os.path.getmtime(config_path)
+        
+        config = self._load_config(config_path)
+        super().__init__(config)
+    
+    def check_and_reload_config(self) -> bool:
+        """
+        Check if config.toml has been modified and reload if necessary.
+        
+        Returns:
+            True if config was reloaded, False if unchanged
+        
+        Note:
+            Reloading config triggers full state reinitialization.
+            Call this only during safe windows (e.g., market closed, low traffic).
+        """
+        current_mtime = os.path.getmtime(self.config_path)
+        
+        if current_mtime > self._config_mtime:
+            print(f"Config file modified. Reloading from {self.config_path}")
+            new_config = self._load_config(self.config_path)
+            
+            # Reinitialize with new config
+            self.config = new_config
+            self._state = self._initialize_state()
+            self._jit_update = jax.jit(self._core_update_step)
+            
+            self._config_mtime = current_mtime
+            return True
+        
+        return False
+\end{lstlisting}
+
+\section{Dependency Pinning}
+
+Strict version pinning is mandatory. Any update must be tested for bit-exact parity and documented. Use exact versions in \texttt{requirements.txt} and \texttt{environment.yml}, never open ranges.
+
 \end{document}
