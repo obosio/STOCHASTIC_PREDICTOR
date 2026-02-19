@@ -638,6 +638,84 @@ def train_dgm_with_entropy_monitoring(model, optimizer,
 
 \chapter{Módulo 3: Orquestador JKO (Jordan-Kinderlehrer-Otto)}
 
+\section{Optimización del Grafo Computacional: Truncamiento de Gradientes en SIA y CUSUM}
+
+\textbf{Problema:} El Orquestador optimiza los pesos $\rho$ mediante diferenciación automática (autograd). Sin embargo, los módulos SIA (State Identification Algorithm) y CUSUM (Algoritmo de Detección de Cambio) son procesos de \textbf{diagnóstico}, no de predicción:
+
+\begin{itemize}
+    \item \textbf{SIA}: Estima el exponente de Hölder $H(t)$ usando la Transformada Wavelet Continua (CWT) y el esquema WTMM (Wavelet Transform Modulus Maxima). Estos son cálculos de diagnóstico del carácter rugoso/suave de la serie temporal pasada.
+    
+    \item \textbf{CUSUM}: Detecta cambios de régimen mediante análisis de residuos históricos y curtosis empírica. Produce un indicador booleano de alarma, no parámetros entrenables.
+\end{itemize}
+
+\textbf{Riesgo de Rendimiento:} Si no se truncan los gradientes en $H(t)$ y $\text{alarm}(t)$, el compilador XLA de JAX intentará retropropagar el error a través de:
+
+\begin{enumerate}
+    \item Convoluciones de wavelet (multitud de escalas)
+    \item Cálculo del cuarto momento para curtosis
+    \item Sistemas de buffers circulares (operaciones con índices)
+\end{enumerate}
+
+Esto causa:
+\begin{itemize}
+    \item \textbf{Explosion de VRAM}: El grafo JIT acumula operaciones intermedias de decenas de transformadas wavelet
+    \item \textbf{Compilación lenta}: XLA debe trazar todas las dependencias
+    \item \textbf{Sin beneficio matemático}: Los pesos $\rho_i$ del orquestador \textbf{no pueden alterar} la rugosidad histórica del mercado. La rugosidad es un estado externo observado, no un parámetro del modelo.
+\end{itemize}
+
+\textbf{Solución: Truncamiento Explícito con \texttt{jax.lax.stop\_gradient()}}
+
+Envolver explícitamente las salidas de SIA y CUSUM detiene la retropropagación:
+
+\begin{lstlisting}[language=Python]
+import jax
+import jax.lax
+
+# En el metodo step() del Orquestador:
+
+# 1. Salida de SIA: Exponente de Hölder (diagnóstico, no entrenable)
+raw_holder = self.sia.estimate_holder_exponent(self.signal_buffer)
+meta_state_h = jax.lax.stop_gradient(raw_holder)
+
+# 2. Salida de CUSUM: Detección de cambio (diagnóstico, no entrenable)
+raw_alarm, raw_kurtosis = self._check_regime_change_with_kurtosis(last_error)
+regime_changed = jax.lax.stop_gradient(raw_alarm)
+kurtosis = jax.lax.stop_gradient(raw_kurtosis)
+\end{lstlisting}
+
+\textbf{Justificación Teórica:}
+
+Desde la perspectiva de control óptimo (Hamilton-Jacobi-Bellman):
+
+$$
+\frac{\partial V}{\partial \rho_i} = \frac{\partial}{\partial \rho_i} \mathbb{E}_{t+1} \left[ \text{Loss}(y_{t+1}, \hat{y}_{t+1}(\rho)) \right]
+$$
+
+Donde $\hat{y}_{t+1}$ depende de $H(t)$ y $\text{alarm}(t)$. Pero $H(t)$ y $\text{alarm}(t)$ son \textbf{funcionales de la trayectoria pasada}, \textbf{independientes de $\rho$}:
+
+$$
+H(t) = H[\{x_s : s \leq t\}] \quad \text{(no depende de } \rho \text{)}
+$$
+
+$$
+\text{alarm}(t) = \text{CUSUM}[\{e_s : s \leq t\}] \quad \text{(no depende de } \rho \text{)}
+$$
+
+Por lo tanto:
+
+$$
+\frac{\partial H}{\partial \rho_i} = 0, \quad \frac{\partial \text{alarm}}{\partial \rho_i} = 0
+$$
+
+El truncamiento con \texttt{stop\_gradient} fuerza esta relación matemáticamente en el grafo de JAX, evitando cálculos innecesarios de derivadas que sabemos que son cero.
+
+\textbf{Ahorro Computacional Esperado:}
+\begin{itemize}
+    \item Reducción de VRAM: $30\%$--$50\%$ (menos nodos intermedios en el grafo)
+    \item Tiempo de compilación JIT: $20\%$--$40\%$ más rápido
+    \item Tiempo de ejecución de backward pass: $50\%$ ó más (sin retropropagar a través de wavelets)
+\end{itemize}
+
 \section{Sinkhorn Estabilizado en Log-Domain con OTT-JAX}
 Implementación numéricamente robusta del algoritmo de transporte óptimo entrópico.
 
@@ -1115,10 +1193,16 @@ class UniversalPredictor:
 \textbf{Ejemplo de Uso e Interpretacion de Curtosis:}
 
 \begin{lstlisting}[language=Python]
-# En el metodo step() del PredictionEngine, reemplazar:
+# En el metodo step() del PredictionEngine, usar la version con curtosis adaptativa
+# reemplazar:
 # regime_changed = self._check_regime_change(last_error)
 # por:
-regime_changed, kurtosis, h_adaptive = self._check_regime_change_with_kurtosis(last_error)
+raw_alarm, kurtosis_raw, h_adaptive = self._check_regime_change_with_kurtosis(last_error)
+
+# OPTIMIZACION: Truncar salidas de CUSUM con stop_gradient
+regime_changed = jax.lax.stop_gradient(raw_alarm)
+kurtosis = jax.lax.stop_gradient(kurtosis_raw)
+h_adaptive = jax.lax.stop_gradient(h_adaptive)
 
 # Logueo de telemetria
 if kurtosis > 5.0:
@@ -1163,8 +1247,17 @@ if kurtosis > 20.0:
         # 1. Identificacion (Singularidad Holderiana)
         # Siempre pasamos el buffer COMPLETO de tamano fijo a la funcion JIT.
         # WTMM calculara sobre todo el buffer con el parametro de Besov ajustado.
+        # 
+        # OPTIMIZACION: Truncar explicitamente el grafo con stop_gradient porque
+        # el exponente de Hölder es un DIAGNOSTICO del estado historio, no un 
+        # parametro entrenable. Los pesos del orquestador (rho) no pueden cambiar
+        # la rugosidad del pasado.
         
-        meta_state_h = self.sia.estimate_holder_exponent(self.signal_buffer, besov_c=self.besov_c)
+        raw_holder = self.sia.estimate_holder_exponent(self.signal_buffer, besov_c=self.besov_c)
+        meta_state_h = jax.lax.stop_gradient(raw_holder)
+        
+        # Guardar para telemetria (reusar en step_with_telemetry sin recalcular)
+        self.last_holder = float(meta_state_h[0]) if hasattr(meta_state_h, '__len__') else float(meta_state_h)
         
         # Logica condicional fuera de JAX puro (o con where) para el warm-up
         if self.buffer_idx < self.min_buffer_size:
@@ -1187,8 +1280,13 @@ if kurtosis > 20.0:
              last_error = jnp.zeros_like(new_data)
         
         # Validacion dimensional: CUSUM internamente reduce a escalar
-        # Retorna un booleano unico (True/False)
-        regime_changed = self._check_regime_change(last_error)
+        # Retorna un booleano unico (True/False) y diagnosticos adicionales
+        # 
+        # OPTIMIZACION: Truncar CUSUM y kurtosis con stop_gradient porque son
+        # DIAGNOSTICOS del estado actual del residuo, no parametros entrenables.
+        # El cambio de regimen es externo; los pesos (rho) no pueden alterarlo.
+        raw_alarm = self._check_regime_change(last_error)
+        regime_changed = jax.lax.stop_gradient(raw_alarm)
         
         # 2. Circuit Breaker (Robustez)
         loss_type = 'mse' # Default
@@ -1541,9 +1639,14 @@ class UniversalPredictorWithTelemetry(UniversalPredictor):
         # Calcular energia libre (funcional de Wasserstein)
         free_energy = -jnp.sum(self.prev_weights * jnp.log(self.prev_weights + 1e-10))
         
+        # NOTA: El expediente de Hölder ya fue calculado en self.step() con stop_gradient
+        # aplicado. Para la telemetria, reutilizamos ese valor (guardado en self.last_holder).
+        # Evitamos recalcular el WTMM aquí (sería redundante e innecesario).
+        last_holder = getattr(self, 'last_holder', 0.5)
+        
         # Loguear estado
         telemetry = self.telemetry_logger.log_state(
-            holder=float(self.sia.estimate_holder_exponent(self.signal_buffer)[0]),
+            holder=float(last_holder),
             cusum_g_plus=float(self.cusum_state['g_plus']),
             cusum_h=float(getattr(self, 'last_h_adaptive', self.cusum_state['threshold'])),
             kurtosis=kurtosis,
