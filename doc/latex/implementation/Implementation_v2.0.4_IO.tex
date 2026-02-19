@@ -63,6 +63,8 @@ Phase 4 covers:
     \item \textbf{Telemetry Buffering}: Non-blocking emission of telemetry snapshots
     \item \textbf{Deterministic Logging}: Hash-based parity checks for CPU/GPU validation
     \item \textbf{Snapshot Strategy}: Atomic persistence of predictor state
+    \item \textbf{Ingestion and Validation}: Input filtering, staleness policy, frozen signal detection
+    \item \textbf{Security Enforcement}: Credential injection and secret exclusion
 \end{itemize}
 
 \section{Design Principles}
@@ -72,6 +74,39 @@ Phase 4 covers:
     \item \textbf{Determinism}: Logs capture reproducible hashes instead of raw state dumps
     \item \textbf{Security}: No raw signals or secrets in logs
     \item \textbf{Configurability}: Logging intervals and destinations injected via config
+    \item \textbf{Integrity}: Snapshots and parity logs are hash-verified
+\end{itemize}
+
+\chapter{Ingestion and Validation}
+
+\section{Catastrophic Outlier Filter}
+
+Input validation must reject catastrophic outliers when $|y_t| > 20\sigma$ relative to historical normalization. In this case, the system must preserve inertial state and emit a critical alert without advancing the transport update.
+
+\begin{itemize}
+    \item Reject observation and keep current state unchanged.
+    \item Emit a critical alert for audit visibility.
+    \item Do not update JKO/Sinkhorn weights for the rejected step.
+\end{itemize}
+
+\section{Frozen Signal Alarm}
+
+If the exact same value is observed for $N_{freeze} \geq 5$ consecutive steps, emit a \texttt{FrozenSignalAlarmEvent}. This invalidates the multifractal spectrum and requires:
+
+\begin{itemize}
+    \item Freeze the topological branch (Kernel D).
+    \item Switch to degraded inference mode.
+    \item Continue monitoring until signal variation resumes.
+\end{itemize}
+
+\section{Staleness Policy (TTL)}
+
+Every observation must carry a timestamp for TTL evaluation. If the target delay exceeds $\Delta_{max}$, the JKO update must be suspended immediately.
+
+\begin{itemize}
+    \item Compute staleness as $\Delta_t = t_{now} - t_{obs}$.
+    \item If $\Delta_t > \Delta_{max}$, skip the transport update.
+    \item Preserve state and record a staleness warning event.
 \end{itemize}
 
 \chapter{Telemetry Abstraction}
@@ -86,6 +121,10 @@ The JKO orchestrator should emit a \texttt{TelemetryBuffer} at the end of each s
     \item The consumer is responsible for serialization and persistence.
 \end{itemize}
 
+\section{No Compute Stalls}
+
+JAX compute threads must never block on I/O. Telemetry buffers must be non-blocking and consumed by a separate process or thread outside the JAX execution path.
+
 \chapter{Deterministic Logging}
 
 \section{Hash-Based Parity Checks}
@@ -98,6 +137,10 @@ For hardware parity audits, the logger records SHA-256 hashes of the weight vect
     \item Logs are append-only and immutable.
 \end{itemize}
 
+\section{Audit Hashes}
+
+Parity audits must log SHA-256 hashes of $\rho$ and OT cost at configured intervals. Hash input must be derived from canonical float64 serialization to ensure reproducibility across CPU and GPU.
+
 \chapter{Snapshot Strategy}
 
 \section{Atomic Persistence}
@@ -109,12 +152,52 @@ Snapshots must be persisted atomically to prevent partial writes. The IO layer i
     \item Coordinating snapshot cadence with telemetry output.
 \end{itemize}
 
+\section{Binary Serialization}
+
+Text formats (JSON, XML) are prohibited for critical snapshots due to latency and ambiguity. Use dense binary formats such as Protocol Buffers or MessagePack.
+
+\begin{itemize}
+    \item Encode all fields deterministically.
+    \item Preserve float64 for numerical fidelity.
+\end{itemize}
+
+\section{Integrity Verification}
+
+Each snapshot $\Sigma_t$ must include a hash footer (SHA-256 or CRC32c). The load routine must verify the hash before injecting state into memory.
+
+\begin{itemize}
+    \item Fail closed if hash verification fails.
+    \item Log integrity failures at critical severity.
+\end{itemize}
+
+\section{Atomic Write Protocol}
+
+To avoid partial writes, persist snapshots to a temporary file and then atomically rename to the target path. The rename step must be the only visible operation to consumers.
+
+\begin{itemize}
+    \item Use a unique temporary filename per snapshot.
+    \item Ensure the target file is replaced atomically.
+\end{itemize}
+
+\chapter{Security Policies}
+
+\section{Credential Injection}
+
+Tokens and API keys must not appear in source code. Credentials must be injected at runtime via environment variables or .env files.
+
+\section{Version Control Exclusion}
+
+The repository must exclude .env files and credential directories via .gitignore. Secrets must never be committed.
+
 \chapter{Compliance Checklist}
 
 \begin{itemize}
     \item \textbf{No Compute Stalls}: All logging is asynchronous
+    \item \textbf{Binary Format}: Protocol Buffers or MessagePack for snapshots
+    \item \textbf{Atomic Snapshots}: Write-then-rename protocol
     \item \textbf{Deterministic Hashing}: SHA-256 on $\rho$ and OT cost
     \item \textbf{Security}: No raw signals, VRAM dumps, or secrets
+    \item \textbf{Integrity}: Snapshot hashes verified before load
     \item \textbf{Config-Driven}: Intervals and destinations are injected
 \end{itemize}
 

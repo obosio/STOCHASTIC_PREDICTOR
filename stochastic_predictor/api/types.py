@@ -87,6 +87,12 @@ class PredictorConfig:
     data_feed_max_retries: int = 3        # Maximum retry attempts
     snapshot_atomic_fsync: bool = True      # Force fsync for atomicity
     snapshot_compression: str = "none"      # Compression: "none", "gzip", "brotli"
+    snapshot_format: str = "msgpack"        # Serialization: "msgpack" or "protobuf"
+    snapshot_hash_algorithm: str = "sha256" # Hash: "sha256" or "crc32c"
+    telemetry_hash_interval_steps: int = 1  # Emit parity hashes every N steps
+    frozen_signal_min_steps: int = 5        # N_freeze: consecutive equal values
+    frozen_signal_recovery_ratio: float = 0.1  # Ratio vs historical variance
+    frozen_signal_recovery_steps: int = 2   # Consecutive recovery confirmations
     
     # Latency and Anti-Aliasing Policies
     staleness_ttl_ns: int = 500_000_000         # TTL: 500ms (degraded mode)
@@ -216,6 +222,18 @@ class PredictorConfig:
             f"data_feed_max_retries must be >= 0, got {self.data_feed_max_retries}"
         assert self.snapshot_compression in {"none", "gzip", "brotli"}, \
             f"snapshot_compression must be 'none', 'gzip', or 'brotli', got '{self.snapshot_compression}'"
+        assert self.snapshot_format in {"msgpack", "protobuf"}, \
+            f"snapshot_format must be 'msgpack' or 'protobuf', got '{self.snapshot_format}'"
+        assert self.snapshot_hash_algorithm in {"sha256", "crc32c"}, \
+            f"snapshot_hash_algorithm must be 'sha256' or 'crc32c', got '{self.snapshot_hash_algorithm}'"
+        assert self.telemetry_hash_interval_steps > 0, \
+            f"telemetry_hash_interval_steps must be > 0, got {self.telemetry_hash_interval_steps}"
+        assert self.frozen_signal_min_steps >= 5, \
+            f"frozen_signal_min_steps must be >= 5, got {self.frozen_signal_min_steps}"
+        assert self.frozen_signal_recovery_ratio > 0, \
+            f"frozen_signal_recovery_ratio must be > 0, got {self.frozen_signal_recovery_ratio}"
+        assert self.frozen_signal_recovery_steps > 0, \
+            f"frozen_signal_recovery_steps must be > 0, got {self.frozen_signal_recovery_steps}"
         
         # TTL/Nyquist coherence
         assert self.staleness_ttl_ns > 0 and self.besov_nyquist_interval_ns > 0, \

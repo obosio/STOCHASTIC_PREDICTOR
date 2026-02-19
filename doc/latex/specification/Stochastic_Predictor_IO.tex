@@ -285,4 +285,18 @@ Binary serialization formats (e.g., Protocol Buffers, MessagePack) are required 
     \item \textbf{Pre-injection validation:} The restore routine $Load(\Sigma_t)$ must recompute and verify this hash \textit{before} injecting the state into operational memory. If validation fails, the snapshot must be discarded and the system must restart in cold-start mode (history reload).
 \end{itemize}
 
+\section{Telemetry and Deterministic Logging}
+
+\subsection{Non-Blocking Telemetry}
+Telemetry emission must be decoupled from JAX/XLA execution. Compute threads must never block on I/O. Telemetry buffers are enqueued in a non-blocking structure and consumed by a separate process or thread.
+
+\subsection{Parity Audit Hashes}
+For hardware parity validation, log SHA-256 hashes of the weight vector $\rho$ and the OT cost at configurable intervals. Hash inputs must use canonical float64 serialization to guarantee deterministic parity across CPU and GPU.
+
+\begin{itemize}
+    \item Hash interval is configuration-driven.
+    \item Logs are append-only and immutable.
+    \item No raw signals or secrets are emitted in telemetry.
+\end{itemize}
+
 \end{document}

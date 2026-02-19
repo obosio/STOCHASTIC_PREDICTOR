@@ -241,6 +241,12 @@ FIELD_TO_SECTION_MAP: Dict[str, str] = {
     "data_feed_max_retries": "io",
     "snapshot_atomic_fsync": "io",
     "snapshot_compression": "io",
+    "snapshot_format": "io",
+    "snapshot_hash_algorithm": "io",
+    "telemetry_hash_interval_steps": "io",
+    "frozen_signal_min_steps": "io",
+    "frozen_signal_recovery_ratio": "io",
+    "frozen_signal_recovery_steps": "io",
     
     # Core System Policies
     "staleness_ttl_ns": "core",

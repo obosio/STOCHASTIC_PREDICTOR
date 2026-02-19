@@ -114,9 +114,19 @@ kernel_b_spatial_range_factor = 0.5     # Spatial sampling range factor (±facto
 data_feed_timeout = 30  # seconds
 data_feed_max_retries = 3
 
+# Frozen signal policy
+frozen_signal_min_steps = 5
+frozen_signal_recovery_ratio = 0.1
+frozen_signal_recovery_steps = 2
+
 # Snapshot parameters
 snapshot_atomic_fsync = true
 snapshot_compression = "none"  # or "gzip", "brotli"
+snapshot_format = "msgpack"  # or "protobuf"
+snapshot_hash_algorithm = "sha256"  # or "crc32c"
+
+# Telemetry
+telemetry_hash_interval_steps = 1
 [validation]
 # Phase 5: Zero-Heuristics Validation Constraints
 # All hardcoded defaults have been eliminated and moved to config-driven parameters
