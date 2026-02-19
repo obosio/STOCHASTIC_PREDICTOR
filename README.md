@@ -1,301 +1,154 @@
 # Universal Stochastic Predictor (USP)
 
 ![License](https://img.shields.io/badge/license-MIT-blue.svg)
-![Status](https://img.shields.io/badge/status-Specification-blue.svg)
+![Status](https://img.shields.io/badge/status-Specification%20Only-blue.svg)
 
 ## 📋 Descripción
 
-**Especificación matemática y algorítmica completa** de un sistema de predicción estocástica universal capaz de operar sobre procesos dinámicos cuya ley de probabilidad subyacente es desconocida *a priori*. El proyecto integra teoría de procesos estocásticos, análisis multifractal, ecuaciones diferenciales estocásticas y transporte óptimo en un framework unificado.
+**Especificación matemática y algorítmica completa** de un sistema de predicción estocástica universal capaz de operar sobre procesos dinámicos cuya ley de probabilidad subyacente es desconocida *a priori*.
 
-> ⚠️ **Estado del Proyecto**: Este repositorio contiene **únicamente especificaciones técnicas completas** (7 documentos LaTeX, 3000+ líneas, 1.73 MB PDFs). **No incluye código de implementación**.
+Este repositorio contiene **únicamente la especificación técnica** (7 documentos LaTeX, 3000+ líneas, 1.73 MB PDFs de especificación rigurosa), **sin código de implementación**.
 
-## 🎯 Características Principales
+## 🎯 Características Principales del Sistema Especificado
 
 ### Arquitectura Multinúcleo
 
-El sistema se estructura en tres fases operativas:
-
-1. **Motor de Identificación (SIA)**: Caracterización topológica del proceso mediante:
-   - Análisis multifractal (WTMM - Wavelet Transform Modulus Maxima)
-   - Detección de estacionariedad y ergodicidad
-   - Estimación de exponentes de Hölder
-   - Cálculo de entropía de transferencia
+1. **Motor de Identificación (SIA)**: Caracterización topológica del proceso mediante WTMM, detección de estacionariedad, estimación de exponentes de Hölder, cálculo de entropía.
 
 2. **Núcleos de Predicción Especializados**:
-   - **Rama A (Hilbert)**: Proyecciones en espacios de Hilbert reproducibles (RKHS)
-   - **Rama B (Markov/Fokker-Planck)**: Procesos markovianos y ecuaciones de Fokker-Planck
-   - **Rama C (Itô/Lévy)**: Integración de procesos con saltos y componentes de Lévy
-   - **Rama D (Rough Paths/Signature)**: Análisis topológico mediante teoría de signatures
+   - **Rama A (Hilbert)**: RKHS
+   - **Rama B (Fokker-Planck)**: DGM/Neural ODEs
+   - **Rama C (Itô/Lévy)**: Ecuaciones diferenciales estocásticas diferenciables
+   - **Rama D (Signatures)**: Análisis topológico de rough paths
 
-3. **Orquestador Adaptativo**:
-   - Fusión óptima mediante transporte de Wasserstein
-   - Esquema JKO (Jordan-Kinderlehrer-Otto)
-   - Detección de cambio de régimen (CUSUM)
-
-### Fundamento Matemático
-
-El sistema opera sobre un espacio de probabilidad completo $(\Omega, \mathcal{F}, P)$ con filtración $\{\mathcal{F}_t\}_{t \geq 0}$. El problema central es encontrar el operador de predicción óptimo:
-
-$$\hat{X}_{t+h} = \underset{Z \in L^2(\mathcal{F}_t)}{\text{argmin}} \, \mathbb{E}\left[ \| X_{t+h} - Z \|^2 \right] = \mathbb{E}[X_{t+h} \mid \mathcal{F}_t]$$
+3. **Orquestador Adaptativo**: Transporte de Wasserstein con esquema JKO, detección de cambios CUSUM.
 
 ## 🛠️ Stack Tecnológico Especificado
 
-### Herramientas de Documentación
+### Golden Master (Dependency Pinning Obligatorio)
 
-- **LuaLaTeX**: Motor de compilación LaTeX con soporte Unicode nativo
-- **Bash Script**: `doc/compile.sh` con detección inteligente de cambios
-  - Compila solo documentos modificados (ahorro de tiempo)
-  - Modo `--force` para fuerza recompilación completa
-  - Reporting de errores LaTeX integrado
-  - Dos pasadas automáticas para actualizar índices
+```
+JAX          == 0.4.20
+Equinox      == 0.11.2
+Diffrax      == 0.4.1
+Signax       == 0.1.4
+OTT-JAX      == 0.4.5
+PyWavelets   == 1.4.1
+Python       == 3.10.12
+```
 
-### Stack Python Especificado (Grabado en Piedra)
+**Restricción crítica**: Versiones congeladas con `==`. Prohibido `>=` o `-U`. Ver [Python.tex §2.1](doc/Predictor_Estocastico_Python.tex).
 
-La especificación define y justifica rigurosamente el siguiente stack para implementación futura:
+### Arquitectura de 5 Capas Obligatoria
 
-- **JAX 0.4.20**: Motor XLA con diferenciación automática y vectorización (capa fundamental)
-- **Equinox 0.11.2**: Framework neuronal pythonico para Ramas B y C (DGM, Neural ODEs)
-- **Diffrax 0.4.1**: Solver diferenciable de SDEs/ODEs para Rama C
-- **Signax 0.1.4**: Cálculo de log-signatures en GPU para Rama D
-- **PyWavelets 1.4.1**: Transformada wavelet continua para SIA (WTMM)
-- **OTT-JAX 0.4.5**: Transporte óptimo diferenciable para Orquestador JKO
-
-> ⚠️ **Golden Master (Mandatory Pinning)**: Todas las versiones DEBEN fijarse con `==` en requirements.txt. **Prohibido** usar operadores dinámicos (`>=`, `-U`). Ver [Python.tex §2.1](doc/Predictor_Estocastico_Python.tex) para justificación.
-
-> 📘 **Justificación completa**: Ver [Python.tex §1](doc/Predictor_Estocastico_Python.tex) (~250 líneas) con análisis técnico y alternativas descartadas.
-
-### Arquitectura de Implementación (5 Capas - Clean Architecture)
-
-La estructura de directorios OBLIGATORIA sigue patrón Clean Architecture en 5 capas:
+Para futuras implementaciones:
 
 ```
 stochastic_predictor/
-├── api/                    # Capa de Exposición: Façade público, config, load shedding
-├── core/                   # Capa de Orquestación: JKO, Sinkhorn, entropy monitoring
-├── kernels/                # Capa de Motores XLA: Núcleos A,B,C,D (SIA, DGM, Itô, Signatures)
-├── io/                     # Capa de I/O Física: Snapshots atómicos, gestión de canales
-└── tests/                  # Capa de Validación (externa): Tests independientes de implementación
+├── api/          # Façade, config, load shedding
+├── core/         # JKO, Sinkhorn, monitoring
+├── kernels/      # Motores XLA (A,B,C,D)
+├── io/           # I/O física, snapshots atómicos
+└── tests/        # Validación externa
 ```
 
-**Restricción**: Toda implementación DEBE respetar estas 5 capas. Mezclar responsabilidades o crear capas adicionales viola el contrato de especificación. Ver [Python.tex §2](doc/Predictor_Estocastico_Python.tex) para detalles.
+Ver [Python.tex §2](doc/Predictor_Estocastico_Python.tex).
 
-### Políticas de Seguridad en I/O
+### Políticas de Seguridad
 
-#### Prohibición Explícita de Hardcoding de Credenciales
+- **Prohibido**: Credenciales hardcoded
+- **Obligatorio**: Inyección de variables de entorno (`.env`)
+- **Regla `.gitignore`**: `.env`, `secrets/`, `*.log`
 
-- ❌ **Prohibido**: API keys, tokens, secrets de bases de datos directamente en código
-- ✅ **Requerido**: Inyección de variables de entorno mediante archivos `.env`
+Ver [IO.tex §2.2](doc/Predictor_Estocastico_IO.tex).
+
+### Validación de Entorno CI/CD
+
+Antes de pytest, validar Golden Master:
 
 ```bash
-# .env (NUNCA commitear a git)
-API_KEY_MARKET_FEED=sk_live_xxxxxxxxxxxxx
-DB_PASSWORD=p@ssw0rd_secure_123
-```
-
-```python
-# Correcto: leer desde entorno
-import os
-api_key = os.getenv("API_KEY_MARKET_FEED")
-if not api_key:
-    raise ValueError("API_KEY_MARKET_FEED no configurada")
-```
-
-#### Reglas Obligatorias de `.gitignore`
-
-```
-# Archivos de secretos
-.env
-.env.local
-.env.*.local
-secrets/
-credentials/
-
-# Logs con potencial data sensible
-*.log
-logs/
-```
-
-Ver [IO.tex §2.2](doc/Predictor_Estocastico_IO.tex) para política completa de credentials.
-
-### Validación de Entorno en CI/CD (Pre-Test)
-
-**Requisito Mandatorio**: Antes de ejecutar pytest, CI/CD DEBE validar que el entorno virtual coincida exactamente con el Golden Master:
-
-```bash
-# Script de validación (ejecutar previo a pytest)
-#!/bin/bash
 EXPECTED_JAX=$(grep "^jax==" requirements.txt | cut -d'=' -f3)
 ACTUAL_JAX=$(python -c "import jax; print(jax.__version__)")
-
-if [[ "$EXPECTED_JAX" != "$ACTUAL_JAX" ]]; then
-  echo "❌ Versión JAX diverge: esperado $EXPECTED_JAX, encontrado $ACTUAL_JAX"
-  exit 1
-fi
-echo "✓ Entorno validado - Proceder con pytest"
+[[ "$EXPECTED_JAX" == "$ACTUAL_JAX" ]] || exit 1
 ```
 
-**Fail-Fast**: Si el entorno diverge del Golden Master, la pipeline CI/CD DEBE fallar antes de ejecutar tests. Esto previene falsos negativos y garantiza reproducibilidad. Ver [Tests_Python.tex §1.1](doc/Predictor_Estocastico_Tests_Python.tex) para detalles.
+Ver [Tests_Python.tex §1.1](doc/Predictor_Estocastico_Tests_Python.tex).
 
 ## 📚 Documentación
 
-El proyecto incluye documentación técnica completa en LaTeX con especificaciones e implementaciones:
+7 documentos LaTeX compilados a PDFs en `doc/pdf/`:
 
-- **`Predictor_Estocastico_Teoria.tex`**: Fundamentación matemática, arquitectura y teoría (500+ líneas, transición dinámica SDE)
-- **`Predictor_Estocastico_Implementacion.tex`**: Guía algorítmica con volatilidad acoplada en Sinkhorn (800+ líneas)
-- **`Predictor_Estocastico_Python.tex`**: Implementación Python/JAX con truncamiento de gradientes (1700+ líneas)
-- **`Predictor_Estocastico_API_Python.tex`**: Especificación de la API con período de gracia CUSUM (685+ líneas)
-- **`Predictor_Estocastico_IO.tex`**: Interfaz de entrada/salida del sistema
-- **`Predictor_Estocastico_Tests_Python.tex`**: Suite de tests y validaciones
-- **`Predictor_Estocastico_Pruebas.tex`**: Pruebas adicionales y casos especiales
+| Documento | Líneas | Contenido |
+|-----------|--------|----------|
+| Teoria.tex | 500+ | Fundamentación matemática, procesos estocásticos, transporte óptimo |
+| Implementacion.tex | 800+ | Algoritmos, dinámica de Sinkhorn acoplada a volatilidad |
+| Python.tex | 1700+ | Stack JAX/Python, arquitectura 5 capas, especificaciones técnicas |
+| API_Python.tex | 685+ | API de alto nivel, período de gracia CUSUM |
+| IO.tex | 292+ | Interfaz I/O, políticas de seguridad |
+| Tests_Python.tex | 1623+ | Suite de tests, validación CI/CD, entorno |
+| Pruebas.tex | 400+ | Casos de prueba adicionales |
 
-**PDFs compilados**: 7 documentos (1.73 MB total) disponibles en `doc/pdf/` con índices y referencias sincronizadas.
-
-### Compilación de Documentos
+### Compilación
 
 ```bash
-# Mostrar ayuda (opción por defecto sin argumentos)
-cd doc && ./compile.sh
+cd doc
 
-# Compilar solo documentos con cambios
+# Mostrar opciones
+./compile.sh
+
+# Compilar documentos modificados
 ./compile.sh --all
 
-# Forzar recompilación de todos
+# Forzar recompilación total
 ./compile.sh --all --force
 
-# Compilar un documento específico
+# Compilar documento específico
 ./compile.sh Predictor_Estocastico_Python
 
-# Limpiar artefactos de compilación
+# Limpiar artefactos
 ./compile.sh clean
 ```
 
-El script utiliza **detección inteligente de cambios** basada en timestamps para evitar compilaciones innecesarias.
+## 🚀 Estado Actual
 
-## 🚀 Estado del Proyecto
+**FASE: Especificación Técnica Completa (Diamond Level)**
 
-### 📂 Estructura Actual (Febrero 18, 2026)
+✅ Disponible:
+- 7 documentos LaTeX especificación exhaustiva
+- 1.73 MB PDFs compilados con índices y referencias
+- Stack tecnológico justificado y especificado
+- Arquitectura Clean Archit (5 capas) definida
+- Políticas de seguridad integradas
+- Procedimientos CI/CD pre-test especificados
 
-**Fase de Re-construcción**: La estructura de código Python está siendo recreada desde cero basándose en especificaciones completas.
+❌ No incluido:
+- Código de implementación
+- Tests ejecutables
+- Entorno virtual pre-configurado
 
-✅ **Disponible**:
+Este repositorio es el **punto de partida** para que equipos de desarrollo implementen el sistema basándose en especificación rigurosa.
 
-- Especificaciones detalladas (7 documentos LaTeX, 1.73 MB PDFs)
-- Build system optimizado (compile.sh con inteligencia de cambios)
-- Entorno Python configurado (Python 3.10+, todas las dependencias JAX)
-- Stack tecnológico validado
+## 🔬 Conceptos Clave Especificados
 
-🔄 **En construcción**:
+- **Análisis Multifractal (WTMM)**: Detección de singularidades locales
+- **Transporte Óptimo Adaptativo**: Regularización dinámica acoplada a volatilidad
+- **Esquemas SDE Dinámicos**: Transición automática Euler → implícito según rigidez
+- **Truncamiento de Gradientes**: Optimización XLA para SIA/CUSUM (30-50% VRAM)
+- **Período de Gracia CUSUM**: Refractario post-cambio de régimen (10-60 pasos)
+- **Rough Paths Theory**: Signatures para procesos con H ≤ 1/2
+- **Circuit Breaker**: Protección cuando H < H_min, activa Rama D
 
-- Módulos `stochastic_predictor/` (vacíos, listos para implementación)
-- Suite de tests `tests/` (vacía, lista para agregarse)
+Ver documentos LaTeX para derivaciones completas y pseudocódigo.
 
-### � Avances Recientes (Febrero 2026)
+## 🤝 Contribuciones
 
-**Arquitectura mejorada con algoritmos robustos**:
+Este repositorio es especificación. Contribuciones enfocadas en:
 
-- ✨ Transición dinámica de esquemas SDE (explícito ↔ implícito según rigidez)
-- ✨ Dinámica de Sinkhorn acoplada a volatilidad (regularización adaptativa)
-- ✨ Período de gracia CUSUM para evitar cascadas de falsas alarmas
-- ✨ Optimización del grafo XLA con `stop_gradient` (ahorro: 30-50% VRAM)
-- ✨ Script de compilación con detección inteligente de cambios
+- **Mejoras a especificación**: Correcciones, aclaraciones, extensiones matemáticas
+- **Revisión técnica**: Validación de algoritmos, detección de inconsistencias
+- **Uso futuro**: Base para implementaciones en JAX, otros lenguajes, etc.
 
-**Documentación completa**: 7 PDFs (1.73 MB) con especificaciones matemáticas e implementación.
-
-### �📖 Fase Actual: Especificación y Arquitectura Avanzada
-
-El proyecto está en fase de **especificación detallada de arquitectura** con implementaciones de algoritmos clave ya documentadas.
-
-#### ✅ Completado en Documentación
-
-- [x] Arquitectura multinúcleo especificada (4 ramas de predicción)
-- [x] Fundamentación matemática completa (teoría de procesos estocásticos, óptimo transporte, rough paths)
-- [x] Algoritmo SIA (System Identification Archive) especificado
-- [x] Núcleo B (Fokker-Planck, DGM) documentado
-- [x] Núcleo C (Itô/Lévy) con **transición dinámica de esquemas SDE** (Euler explícito ↔ implícito)
-- [x] Núcleo D (Signatures) especificado
-- [x] Orquestador JKO con **dinámica de Sinkhorn acoplada a volatilidad**
-- [x] Sistema CUSUM con **período de gracia (refractario)** post-cambio de régimen
-- [x] Optimización del grafo computacional con **JAX stop_gradient**
-- [x] Suite de tests para validación de módulos
-
-#### 🔄 En Progreso: Implementación
-
-- [ ] Motor de identificación (SIA/WTMM) - inicio prioritario
-- [ ] Kernels A, B, C, D - según roadmap
-- [ ] Orquestador adaptativo (JKO/Sinkhorn) con volatilidad acoplada
-- [ ] Sistema de detección de régimen (CUSUM) con período de gracia
-- [ ] API de alto nivel para inferencia
-- [ ] Benchmarks y ejemplos con datos sintéticos/reales
-
-#### 📋 Características Algorítmicas Documentadas
-
-| Componente | Estado | Documento |
-| --- | --- | --- |
-| Stop Gradient Optimization | ✅ Documentado | Python.tex §3.1 |
-| Dinámica Sinkhorn Volátil | ✅ Documentado | Implementacion.tex §2.4 |
-| Período de Gracia CUSUM | ✅ Documentado | API_Python.tex §3.2 |
-| Esquemas SDE Dinámicos | ✅ Documentado | Teoria.tex §2.3.3 |
-| Detección Adaptativa CUSUM | ✅ Documentado | Teoria.tex §6.2 |
-| Stack Equinox/Diffrax | ✅ Grabado en piedra | Python.tex §1 |
-
-## 📖 Conceptos Clave
-
-### Análisis Multifractal
-
-Caracterización de singularidades locales mediante wavelets y estimación del espectro de singularidades $D(h)$ usando técnicas de WTMM (Wavelet Transform Modulus Maxima).
-
-### Transporte Óptimo Adaptativo
-
-Actualización de distribuciones de probabilidad mediante el esquema JKO con **regulación dinámica de entropía acoplada a volatilidad**:
-
-$$\varepsilon_t = \max(\varepsilon_{\min}, \varepsilon_0 \cdot (1 + \alpha \cdot \sigma_t))$$
-
-Donde $\sigma_t$ es volatilidad estimada mediante EMA. Esta formulación garantiza suavidad del paisaje de optimización durante crisis de mercado.
-
-### Esquemas de Discretización Dinámica para SDEs
-
-En la Rama C (Itô/Lévy), **transición automática** entre esquemas numéricos según rigidez (stiffness):
-
-- **Bajo stiffness** ($S_t < 100$): Euler-Maruyama explícito (rápido)
-- **Medio stiffness**: Esquema híbrido interpolado
-- **Alto stiffness** ($S_t > 1000$): Método implícito trapezial (robusto)
-
-Métrica: $S_t = \max(\text{ratio de valores propios}, |d\log\sigma/dt| \cdot \Delta t)$
-
-### Truncamiento de Gradientes en Diagnósticos
-
-Optimización del grafo computacional JAX mediante `stop_gradient` para outputs no-entrenable (SIA, CUSUM):
-
-$$\frac{\partial H}{\partial \rho} = 0, \quad \frac{\partial \text{alarm}}{\partial \rho} = 0$$
-
-Ahorro esperado: **30-50% VRAM, 20-40% tiempo JIT, 50%+ backward pass**.
-
-### Período de Gracia (Refractario) en CUSUM
-
-Mecanismo de silenciamiento temporal post-cambio de régimen para evitar cascadas de falsas alarmas:
-
-$$\text{alarm}_t = \left\{ \begin{array}{ll} \text{False} & \text{si } t - t_{\text{change}} < \tau_g \\ G^+ > h_t & \text{si no} \end{array} \right.$$
-
-Parámetro: $\tau_g \in [10, 60]$ pasos según volatilidad del mercado.
-
-### Rough Paths Theory
-
-Integração robusta mediante cálculo de signatures para procesos con baja regularidad de Hölder ($H \leq 1/2$).
-
-### Circuit Breaker
-
-Mecanismo de protección que suspende operaciones cuando $H < H_{\min}$, fuerza Rama D (signatures) y activa pérdida de Huber robusta.
-
-## 🔬 Aplicaciones Especificadas
-
-La especificación está diseñada para:
-
-- Predicción de series temporales financieras de alta frecuencia
-- Análisis de procesos físicos con componentes estocásticos
-- Sistemas con cambios de régimen no anticipados
-- Procesos con memoria larga y dependencias complejas
-
-> 📐 **Nivel de detalle**: Las especificaciones incluyen pseudocódigo Python completo, análisis de complejidad computacional, y estrategias de optimización GPU/XLA listas para traducción directa a código.
+Consulta [CONTRIBUTING.md](CONTRIBUTING.md) antes de contribuir.
 
 ## 👥 Autores
 
@@ -303,27 +156,13 @@ Consorcio de Desarrollo de Meta-Predicción Adaptativa
 
 ## 📄 Licencia
 
-[MIT License](LICENSE) - Pendiente de añadir
-
-## 🤝 Contribuciones
-
-Este repositorio contiene **especificaciones técnicas completas** sin implementación. Posibles contribuciones:
-
-- 📝 **Mejoras a la especificación**: Correcciones, aclaraciones, extensiones matemáticas
-- 🔍 **Revisión técnica**: Validación de algoritmos, detección de inconsistencias
-- 🚀 **Implementación futura**: Uso de estas especificaciones como base para proyectos derivados
-
-Por favor, consulta [CONTRIBUTING.md](CONTRIBUTING.md) antes de contribuir.
-
-## 📧 Contacto
-
-Para preguntas o colaboraciones, por favor abre un issue en este repositorio.
+[MIT License](LICENSE)
 
 ## 🙏 Agradecimientos
 
-Esta especificación integra metodologías de múltiples áreas de las matemáticas aplicadas y la computación científica. Agradecemos a la comunidad de desarrolladores de JAX, Equinox, Diffrax, Signax, PyWavelets y OTT-JAX, cuyas herramientas fueron seleccionadas como base del stack tecnológico especificado.
+Especificación integra JAX, Equinox, Diffrax, Signax, PyWavelets, OTT-JAX.
 
 ---
 
 📐 **Nivel Diamante**: Especificación matemática rigurosa lista para implementación  
-⚡ Stack especificado: JAX + Equinox + Diffrax + Signax + OTT-JAX
+⚡ Stack especificado: JAX 0.4.20 + Equinox 0.11.2 + Diffrax 0.4.1 + Signax 0.1.4 + OTT-JAX 0.4.5

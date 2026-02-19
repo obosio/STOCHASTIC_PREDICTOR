@@ -2,101 +2,127 @@
 
 ¡Gracias por tu interés en contribuir al proyecto Universal Stochastic Predictor (USP)!
 
+## ⚠️ Alcance de Contribuciones
+
+Este repositorio contiene **únicamente la especificación técnica** (documentos LaTeX). Las contribuciones deben enfocarse en **mejorar, clarificar y extender la especificación**, no en implementar código.
+
 ## 🚀 Cómo Contribuir
 
-### Reportar Issues
+### Reportar Problemas en la Especificación
 
-- Usa el sistema de issues de GitHub para reportar bugs o sugerir features
-- Describe claramente el problema o la sugerencia
-- Incluye pasos para reproducir el bug si es aplicable
-- Menciona tu entorno (versión de Python, JAX, sistema operativo)
+- **Issues**: Usa el sistema de issues de GitHub para:
+  - ❌ Errores matemáticos
+  - ❌ Inconsistencias entre secciones (ej: referencia a variables no definidas)
+  - ❌ Ambigüedades o claridades faltantes
+  - ❌ Algoritmos que requieren aclaración
+  
+- **Formato**: Incluye siempre el archivo y sección específica (ej: `Python.tex §3.2`)
+
+### Sugerir Mejoras a la Especificación
+
+- Extensiones algorítmicas justificadas matemáticamente
+- Alternativas descartadas con análisis comparativo
+- Casos de uso adicionales
+- Análisis de complejidad computacional mejorado
 
 ### Proceso de Pull Request
 
 1. **Fork** el repositorio
-2. **Crea una rama** para tu feature (`git checkout -b feature/AmazingFeature`)
-3. **Commit** tus cambios (`git commit -m 'Add some AmazingFeature'`)
-4. **Push** a la rama (`git push origin feature/AmazingFeature`)
-5. **Abre un Pull Request**
+2. **Crea una rama** con nombre descriptivo (`fix/typo-sde` o `enhance/sinkhorn-analysis`)
+3. **Edita archivos `.tex`** en el directorio `doc/`
+4. **Compila locally** con `./doc/compile.sh` para verificar LaTeX válido
+5. **Commit** con mensaje descriptivo:
 
-### Estándares de Código
+   ```
+   docs: Corrige notación de matriz en Python.tex §2.1
+   docs: Amplía análisis WTMM en Teoria.tex §3.3
+   docs: Aclara período de gracia CUSUM en API_Python.tex
+   ```
 
-#### Python
+6. **Push** y abre un Pull Request con descripción clara de cambios
 
-- Sigue [PEP 8](https://pep8.org/)
-- Usa type hints (tipado estático con `jaxtyping`)
-- Documenta funciones con docstrings estilo Google
-- Mantén las funciones puras cuando sea posible (JAX requirement)
+### Estándares de Especificación
 
-#### Documentación
+#### LaTeX/Documentación
 
-- La documentación técnica se escribe en LaTeX
-- Los comentarios de código deben ser claros y en español o inglés
-- Actualiza el README si añades nuevas funcionalidades
+- ✅ Usar comandos LaTeX consistentes con documentos existentes
+- ✅ Mantener estructura de secciones coherente
+- ✅ Incluir referencias cruzadas (`\ref{}`, `\cite{}`)
+- ✅ Definir notación matemática antes de usarla
+- ✅ Incluir ejemplos o pseudocódigo cuando sea posible
+- ✅ Traducir a español si estás en doc español; a inglés si en doc inglés
+- ✅ Line length ≤ 100 caracteres para mantener legibilidad en git diffs
 
-### Testing
+#### Notación Matemática
 
-- Todos los PRs deben incluir tests unitarios
-- Usa `pytest` para los tests
-- Asegúrate de que todos los tests pasen antes de hacer el PR
-
-### Estructura de Commits
-
-Usa mensajes de commit descriptivos:
-
-```text
-feat: Implementa núcleo de predicción tipo A (RKHS)
-fix: Corrige bug en estimación WTMM
-docs: Actualiza documentación de API
-test: Añade tests para orquestador JKO
-```
+- ✅ Use \textbf{} para énfasis
+- ✅ Definir espacios ($\mathbb{R}$, $L^2(\Omega)$, $\mathcal{H}$) al introducirlos
+- ✅ Usar subíndices consistentes (ej: siempre $X_t$, nunca $X(t)$)
+- ✅ Incluir dimensiones cuando sea crítico
 
 ## 📋 Áreas de Contribución
 
-### Prioridad Alta
+### Especificación Base (Prioridad Alta)
 
-- [ ] Implementación del motor SIA/WTMM
-- [ ] Desarrollo de núcleos de predicción
-- [ ] Sistema de tests y benchmarks
+- Errores en derivaciones matemáticas
+- Inconsistencias de notación
+- Referencias cruzadas rotas
+- Pseudocódigo que necesita aclaración
 
-### Prioridad Media
+### Extensiones Propuestas (Prioridad Media)
 
-- [ ] Optimizaciones de rendimiento
-- [ ] Documentación adicional
-- [ ] Visualizaciones y dashboards
+- Nuevos kernels de predicción (justificación matemática)
+- Alternativas de orquestación adaptativa
+- Análisis comparativo con métodos existentes
+- Casos de uso especializados
 
-### Prioridad Baja
+### Mejoras Documentales (Prioridad Baja)
 
-- [ ] Integraciones con otras librerías
-- [ ] Soporte para nuevos backends
+- Diagramas o visualizaciones conceptuales
+- Índice mejorado
+- Ejemplo adicional de pseudocódigo
+- Apéndices con derivaciones detalladas
 
 ## 🤝 Código de Conducta
 
 ### Nuestro Compromiso
 
-- Mantener un ambiente acogedor e inclusivo
-- Respetar diferentes puntos de vista y experiencias
-- Aceptar críticas constructivas con gracia
-- Enfocarse en lo mejor para la comunidad
+- Ambiente acogedor e inclusivo basado en rigor intelectual
+- Respetar diferentes perspectivas matemáticas y de ingeniería
+- Aceptar críticas técnicas constructivas
+- Enfocarse en calidad e integridad de la especificación
 
 ### Comportamiento Esperado
 
-- Usar lenguaje acogedor e inclusivo
-- Respetar diferentes puntos de vista
-- Aceptar críticas constructivas
-- Mostrar empatía hacia otros miembros
+- Usar lenguaje técnico preciso
+- Respetar puntos de vista alternativos con justificación
+- Aceptar críticas de especificación sin ego
+- Mostrar empatía hacia otros revisores
 
 ### Comportamiento Inaceptable
 
-- Lenguaje o imágenes sexualizadas
-- Trolling, insultos o ataques personales
-- Acoso público o privado
-- Publicar información privada de otros sin permiso
+- Ataques ad hominem a autores o contribuidores
+- Rechazo de cambios válidos sin justificación técnica
+- Lenguaje discriminatorio o acoso
+- Publicar información privada sin permiso
 
-## 📞 Contacto
+## 📝 Proceso de Revisión
 
-Si tienes preguntas sobre cómo contribuir, abre un issue con la etiqueta `question`.
+1. **Sintaxis LaTeX**: El CI automáticamente verifica que la especificación compile
+2. **Revisión técnica**: Mantenedores verifican consistencia matemática
+3. **Completitud**: ¿Están claros los cambios? ¿Se actualizan referencias cruzadas?
+4. **Merge**: Una vez aprobado, se fusiona a `main`
+
+## 📱 Contacto
+
+- **Issues**: Para reportes de especificación específicos
+- **Discussions**: Para debates generales sobre arquitectura o algoritmos
+- **Email**: Contacta a mantainers si tienes preguntas previas
 
 ## 🙏 Reconocimientos
 
-Todos los contribuidores serán reconocidos en el proyecto. ¡Gracias por ayudar a mejorar USP!
+Todos los contribuidores a la especificación serán reconocidos en el archivo [CHANGELOG.md](CHANGELOG.md) y en los commits relevantes.
+
+---
+
+Gracias por ayudar a refinar y mejorar la especificación del Predictor Estocástico Universal. 🚀
