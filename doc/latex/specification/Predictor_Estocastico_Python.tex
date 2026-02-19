@@ -73,7 +73,7 @@ Para equilibrar expresividad matemática y eficiencia computacional (C++/CUDA ba
 
 \textbf{Decisión de Diseño:} JAX es \textit{obligatorio} porque el Orquestador JKO requiere gradientes de Wasserstein (cálculo variacional) y las Ramas B/C requieren backpropagation a través de ecuaciones diferenciales.
 
-\subsection{Equinox 0.11.3: Framework Neuronal Pythonico}
+\subsection{Equinox 0.11.2: Framework Neuronal Pythonico}
 
 \textbf{Equinox} es el framework de redes neuronales para Rama B (Deep Galerkin Method) y Rama C (Neural ODEs). Seleccionado por:
 
@@ -294,7 +294,7 @@ grad_signature = jax.grad(signature_loss)(path, target, depth)
 \textbf{Componente} & \textbf{Librería} & \textbf{Versión} & \textbf{Rol} \\
 \hline
 Computación base & JAX & 0.4.20 & XLA, AD, vmap, jit \\
-Redes neuronales & Equinox & 0.11.3 & DGM (Rama B), parametrización \\
+Redes neuronales & Equinox & 0.11.2 & DGM (Rama B), parametrización \\
 Solvers SDE/ODE & Diffrax & 0.4.1 & Neural ODEs (Rama C) \\
 Signatures & Signax & 0.1.4 & Log-signatures (Rama D) \\
 Transporte Óptimo & OTT-JAX & 0.4.5 & Orquestador JKO \\

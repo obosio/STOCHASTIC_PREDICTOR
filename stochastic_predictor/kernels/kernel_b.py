@@ -191,9 +191,10 @@ def loss_hjb(
         hess_fn = jax.hessian(v_fn, argnums=1)
         v_xx = hess_fn(t, x)
         
-        # Drift-diffusion equation Hamiltonian
-        # H = mu*X*V_X + 0.5*sigma^2*X^2*V_XX
-        X = x[0]  # Process value (first coordinate)
+        # Hamiltonian operator (general drift-diffusion form)
+        # H = r*X*V_X + 0.5*σ²*X²*V_XX
+        # where r is drift coefficient, σ is dispersion coefficient
+        X = x[0]  # Process magnitude (first coordinate)
         
         hamiltonian = (
             config.kernel_b_r * X * v_x[0]
@@ -274,12 +275,13 @@ def kernel_b_predict(
     
     value = model(t, x)
     
-    # Prediction: Simple drift-diffusion forecast
+    # Prediction: Drift-diffusion forecast
     # In full DGM, this would use optimal control policy derived from V
-    # For now, use drift-diffusion: E[X_{t+h}] = X_t * exp(mu*h)
+    # For now, use exponential drift: E[X_{t+h}] = X_t * exp(r*h)
+    # where r is drift rate parameter from config
     prediction = current_state * jnp.exp(config.kernel_b_r * config.kernel_b_horizon)
     
-    # Confidence: Diffusion term σ*X*√h
+    # Confidence: Dispersion term σ*X*√h
     confidence = config.kernel_b_sigma * current_state * jnp.sqrt(config.kernel_b_horizon)
     
     # Compute entropy for mode collapse detection

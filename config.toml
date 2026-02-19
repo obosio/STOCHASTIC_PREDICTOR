@@ -52,22 +52,37 @@ holder_threshold = 0.4  # Holder exponent critical threshold
 inference_recovery_hysteresis = 0.8
 
 [kernels]
-# Kernel D (Log-Signatures)
-log_sig_depth = 3  # Truncation depth for signature transform
+# Kernel D (Path Signatures - Rough Paths Theory)
+log_sig_depth = 3                       # Truncation depth for signature transform (legacy field)
+kernel_d_depth = 3                      # Log-signature truncation depth (L)
+kernel_d_alpha = 0.1                    # Signature extrapolation scaling factor
+kernel_d_confidence_scale = 0.1         # Scaling factor for signature-based confidence
 
-# Kernel A (WTMM + Fokker-Planck)
-wtmm_buffer_size = 128  # Sliding memory buffer
-besov_cone_c = 1.5  # Besov cone of influence
-besov_nyquist_interval_ns = 100_000_000  # Nyquist interval (100ms)
+# Base/Validation Parameters
+base_min_signal_length = 32             # Minimum required signal length
+signal_normalization_method = "zscore"  # Normalization method: 'zscore' or 'minmax'
 
-# Kernel C (SDE Integration)
+# Kernel A (RKHS - Reproducing Kernel Hilbert Space)
+wtmm_buffer_size = 128                  # Sliding memory buffer
+besov_cone_c = 1.5                      # Besov cone of influence
+besov_nyquist_interval_ns = 100_000_000 # Nyquist interval (100ms)
+kernel_a_bandwidth = 0.1                # Gaussian kernel bandwidth (smoothness)
+kernel_a_embedding_dim = 5              # Time-delay embedding dimension (Takens)
+kernel_a_min_variance = 1e-10           # Minimum variance clipping (numerical stability)
+kernel_ridge_lambda = 1e-6              # Ridge regularization parameter
+
+# Kernel C (SDE Integration - Levy Process)
 # SDE scheme switching stiffness thresholds (Rama C, see doc/Predictor_Estocastico_Teoria.tex §2.3.3)
-stiffness_low = 100  # Below: use explicit Euler-Maruyama
-stiffness_high = 1000  # Above: use implicit trapezial
-
-# Integration parameters
-sde_dt = 0.01  # Time step
-sde_numel_integrations = 100
+stiffness_low = 100                     # Below: use explicit Euler-Maruyama
+stiffness_high = 1000                   # Above: use implicit trapezial
+sde_dt = 0.01                           # Time step
+sde_numel_integrations = 100            # Number of integration steps
+sde_diffusion_sigma = 0.2               # Diffusion coefficient (Levy process volatility)
+kernel_c_mu = 0.0                       # Drift (mean reversion rate)
+kernel_c_alpha = 1.8                    # Stability parameter (1 < alpha <= 2)
+kernel_c_beta = 0.0                     # Skewness parameter (-1 <= beta <= 1)
+kernel_c_horizon = 1.0                  # Prediction horizon (integration time)
+kernel_c_dt0 = 0.01                     # Initial time step (adaptive stepping)
 
 # Phase 6: SDE Solver Hyperparameters (Zero-Heuristics - Kernel C)
 sde_brownian_tree_tol = 1e-3                # Brownian tree tolerance
@@ -77,11 +92,14 @@ sde_pid_dtmin = 1e-5                        # Minimum time step
 sde_pid_dtmax = 0.1                         # Maximum time step
 sde_solver_type = "heun"                    # Solver type: "euler" or "heun"
 
-# Phase 6: Kernel B Hyperparameters (Zero-Heuristics)
-kernel_b_spatial_samples = 100              # Number of spatial sample points for entropy computation
-
-# Phase 6: Kernel D Hyperparameters (Zero-Heuristics)
-kernel_d_confidence_scale = 0.1             # Scaling factor for signature-based confidence
+# Kernel B (DGM - Deep Galerkin Method for HJB PDE)
+dgm_width_size = 64                     # Hidden layer width for DGM network
+dgm_depth = 4                           # Number of hidden layers
+dgm_entropy_num_bins = 50               # Histogram bins for entropy monitoring
+kernel_b_r = 0.05                       # Drift rate parameter (HJB Hamiltonian)
+kernel_b_sigma = 0.2                    # Dispersion coefficient (HJB diffusion term)
+kernel_b_horizon = 1.0                  # Prediction horizon (integration time)
+kernel_b_spatial_samples = 100          # Number of spatial sample points for entropy computation
 
 [io]
 # Data feed parameters (domain-agnostic: applies to any external data source)
@@ -117,3 +135,5 @@ validation_beta_stable_max = 1.0            # Max beta (skewness parameter)
 
 # Array sanitization policies
 sanitize_replace_nan_value = 0.0            # Default NaN replacement value
+# sanitize_replace_inf_value = null         # Replacement for Inf (null = preserve Inf)
+# sanitize_clip_range = null                # Tuple [min, max] for clipping (null = no clipping)

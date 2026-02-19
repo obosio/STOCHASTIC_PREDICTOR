@@ -75,7 +75,7 @@ def diffusion_levy(
     
     References:
         - Teoria.tex §2.3.3: Diffusion Coefficient
-        - Implementacion.tex §3.3.1: Volatility Structure
+        - Implementacion.tex §3.3.1: Diffusion Structure
     """
     mu, alpha, beta, sigma = args  # sigma from config, not hardcoded
     
