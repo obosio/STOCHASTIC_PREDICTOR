@@ -274,6 +274,9 @@ FIELD_TO_SECTION_MAP: Dict[str, str] = {
     # Entropy Monitoring
     "entropy_window": "orchestration",
     "entropy_threshold": "orchestration",
+    "entropy_gamma_min": "orchestration",
+    "entropy_gamma_max": "orchestration",
+    "entropy_gamma_default": "orchestration",
     
     # Kernel Parameters
     "log_sig_depth": "kernels",
@@ -313,6 +316,7 @@ FIELD_TO_SECTION_MAP: Dict[str, str] = {
     "cusum_h": "orchestration",
     "cusum_k": "orchestration",
     "grace_period_steps": "orchestration",
+    "residual_window_size": "orchestration",
     "volatility_alpha": "orchestration",
     "inference_recovery_hysteresis": "orchestration",
     
@@ -387,6 +391,7 @@ FIELD_TO_SECTION_MAP: Dict[str, str] = {
     "snapshot_format": "io",
     "snapshot_hash_algorithm": "io",
     "telemetry_hash_interval_steps": "io",
+    "telemetry_buffer_capacity": "io",
     "frozen_signal_min_steps": "io",
     "frozen_signal_recovery_ratio": "io",
     "frozen_signal_recovery_steps": "io",
@@ -406,7 +411,7 @@ class PredictorConfigInjector:
     Example:
         >>> injector = PredictorConfigInjector()
         >>> cfg = injector.create_config()
-        >>> assert cfg.cusum_grace_period == 20  # or env override
+        >>> assert cfg.grace_period_steps == 20  # or env override
     """
     
     def __init__(self):

@@ -107,7 +107,7 @@ sinkhorn_alpha: float = 0.5        # Volatility coupling coefficient
 \subsubsection{Entropy Monitoring}
 \begin{lstlisting}[language=Python]
 entropy_window: int = 100          # Sliding window size
-entropy_threshold: float = 0.8     # Deprecated (use entropy_gamma_*)
+entropy_threshold: float = 0.8     # Legacy threshold (superseded by entropy_gamma_*)
 entropy_gamma_min: float = 0.5     # Crisis mode (lenient)
 entropy_gamma_max: float = 1.0     # Low-vol mode (strict)
 entropy_gamma_default: float = 0.8 # Normal regime
@@ -239,7 +239,7 @@ class PredictionResult:
 
 \section{Immutability Guarantees}
 
-All dataclasses use \texttt{frozen=True} to enable:
+All public API dataclasses use \texttt{frozen=True} to enable:
 \begin{itemize}
     \item JAX JIT cache key hashing
     \item Thread-safe configuration sharing
@@ -298,9 +298,6 @@ FIELD_TO_SECTION_MAP = {
     "sinkhorn_max_iter": "orchestration",
     "entropy_window": "orchestration",
     "entropy_threshold": "orchestration",
-    "entropy_gamma_min": "orchestration",
-    "entropy_gamma_max": "orchestration",
-    "entropy_gamma_default": "orchestration",
     "mode_collapse_min_threshold": "orchestration",
     "mode_collapse_window_ratio": "orchestration",
     # Kernels (excerpt)
@@ -809,7 +806,7 @@ def verify_determinism(seed: int = 42, n_trials: int = 3) -> bool:
 
 \chapter{Schema Definitions (schemas.py)}
 
-\section{Pydantic v2 Models}
+\section{Pydantic Models}
 
 \texttt{schemas.py} defines API contracts with strict type enforcement:
 
@@ -827,18 +824,37 @@ class ProcessStateSchema(BaseModel):
     )
 \end{lstlisting}
 
+\subsection{OperatingMode}
+
+\begin{lstlisting}[language=Python]
+class OperatingMode(str, Enum):
+    INFERENCE = "inference"
+    CALIBRATION = "calibration"
+    DIAGNOSTIC = "diagnostic"
+\end{lstlisting}
+
+\subsection{KernelOutputSchema}
+
+\begin{lstlisting}[language=Python]
+class KernelOutputSchema(BaseModel):
+    """Kernel output contract."""
+    probability_density: Float[ArrayLike, "n_targets"]
+    kernel_id: str = Field(description="Kernel identifier (A|B|C|D)")
+    computation_time_us: float = Field(gt=0, description="Execution time in microseconds")
+    numerics_flags: Dict[str, bool] = Field(default_factory=dict)
+\end{lstlisting}
+
 \subsection{PredictionResultSchema}
 
 \begin{lstlisting}[language=Python]
 class PredictionResultSchema(BaseModel):
     """API contract for predictions."""
-    predicted_price: float = Field(..., gt=0)
-    confidence_interval_lower: float
-    confidence_interval_upper: float
-    predicted_volatility: float = Field(..., ge=0)
-    kernel_consensus: float = Field(..., ge=0, le=1)
-    entropy_diagnostic: float = Field(..., ge=0)
-    cusum_alert: bool
+    reference_prediction: Float[ArrayLike, ""]
+    confidence_lower: Float[ArrayLike, ""]
+    confidence_upper: Float[ArrayLike, ""]
+    operating_mode: OperatingMode
+    telemetry: Optional[TelemetryDataSchema] = Field(default=None)
+    request_id: Optional[str] = Field(default=None, description="Request trace ID")
 \end{lstlisting}
 
 \subsection{TelemetryDataSchema}
@@ -846,10 +862,25 @@ class PredictionResultSchema(BaseModel):
 \begin{lstlisting}[language=Python]
 class TelemetryDataSchema(BaseModel):
     """Diagnostic telemetry."""
-    prediction_latency_ms: float
-    kernel_latency_ms: Dict[str, float]
-    memory_usage_mb: float
-    entropy_value: float
+    step_index: int = Field(ge=0, description="Prediction step counter")
+    jax_device: str = Field(description="JAX device identifier")
+    cusum_statistic: Optional[float] = Field(default=None)
+    entropy_estimate: Optional[float] = Field(default=None)
+    sinkhorn_epsilon: Optional[float] = Field(default=None)
+    kernel_outputs: Dict[str, KernelOutputSchema] = Field(default_factory=dict)
+    timestamp_utc: datetime = Field(default_factory=datetime.utcnow)
+\end{lstlisting}
+
+\subsection{HealthCheckResponseSchema}
+
+\begin{lstlisting}[language=Python]
+class HealthCheckResponseSchema(BaseModel):
+    """Health check response."""
+    status: str = Field(description="Health status")
+    version: str = Field(description="Implementation version")
+    jax_config: Dict[str, Any] = Field(description="JAX configuration snapshot")
+    uptime_seconds: float = Field(ge=0)
+    last_inference_timestamp: Optional[datetime] = Field(default=None)
 \end{lstlisting}
 
 \section{Validation Features}
@@ -857,8 +888,8 @@ class TelemetryDataSchema(BaseModel):
 All schemas enforce:
 \begin{itemize}
     \item Field constraints: \texttt{gt}, \texttt{ge}, \texttt{le}, \texttt{lt}
-    \item Type strictness: No implicit coercion
-    \item Custom validators: \texttt{@field\_validator} for domain logic
+    \item Type validation via Pydantic
+    \item Custom validators: \texttt{@validator} for domain logic
 \end{itemize}
 
 \chapter{Code Quality Metrics}
@@ -871,13 +902,13 @@ All schemas enforce:
 \hline
 Module & LOC \\
 \hline
-types.py & 347 \\
-config.py & 220 \\
-validation.py & 467 \\
-prng.py & 305 \\
-schemas.py & 330 \\
+types.py & 549 \\
+config.py & 502 \\
+validation.py & 662 \\
+prng.py & 304 \\
+schemas.py & 196 \\
 \hline
-\textbf{Total API Layer} & \textbf{1,669} \\
+\textbf{Total API Layer} & \textbf{2,213} \\
 \hline
 \end{tabular}
 \end{table}
@@ -888,10 +919,10 @@ schemas.py & 330 \\
     \item ✓ 100\% English code (no Spanish identifiers)
     \item ✓ Full type hints with dimensional consistency
     \item ✓ No hardcoded hyperparameters (zero-heuristics policy)
-    \item ✓ All config fields mapped via \texttt{FIELD\_TO\_SECTION\_MAP}
-    \item ✓ Immutable frozen dataclasses for thread-safety
+    \item ✓ \texttt{FIELD\_TO\_SECTION\_MAP} drives config injection and must stay complete
+    \item ✓ Immutable frozen public API dataclasses for thread-safety
     \item ✓ Environment variable overrides (\texttt{USP\_SECTION\_\_KEY})
-    \item ✓ Pydantic v2 strict validation
+    \item ✓ Pydantic validation with custom \texttt{@validator} hooks
 \end{itemize}
 
 
@@ -909,18 +940,24 @@ JAX's JIT compilation occurs on first function call, introducing 100-500ms laten
 
 \begin{lstlisting}[language=Python]
 from stochastic_predictor.api.warmup import warmup_all_kernels
-from stochastic_predictor.api.config import get_config
+from stochastic_predictor.api.config import PredictorConfigInjector
 
 # During service initialization (e.g., FastAPI @app.on_event("startup"))
-config = get_config()
+config = PredictorConfigInjector().create_config()
 timings = warmup_all_kernels(config, verbose=True)
 # Output:
 # 🔥 JIT Warm-up: Pre-compiling kernels...
 #   ⏳ Kernel A (RKHS Ridge)... ✓ 142.3 ms
 #   ⏳ Kernel B (DGM PDE)... ✓ 287.6 ms
 #   ⏳ Kernel C (SDE Integration)... ✓ 215.4 ms
-#   ⏳ Kernel D (Path Signatures)... ✓ 98.1 ms
-# ✅ Warm-up complete: 743.4 ms total
+#   ⏳ Kernel D (Path Signatures - baseline)... ✓ 98.1 ms
+#   ⏳ Kernel D (Load Shedding topologies)...
+# 🔥 Load Shedding Warmup: Pre-compiling Kernel D topologies...
+#   • M=2 (emergency): 234.5 ms ✓
+#   • M=3 (normal): 456.7 ms ✓
+#   • M=5 (rich): 789.1 ms ✓
+# ✅ Load shedding ready: 1480.3 ms total
+# ✅ Warm-up complete: 2223.7 ms total
 
 # First real inference now has NO JIT overhead
 \end{lstlisting}
@@ -932,17 +969,18 @@ timings = warmup_all_kernels(config, verbose=True)
     \item \texttt{warmup\_kernel\_b(config, key)}: Pre-compile Kernel B (DGM PDE solver, entropy)
     \item \texttt{warmup\_kernel\_c(config, key)}: Pre-compile Kernel C (SDE integration, stiffness estimation)
     \item \texttt{warmup\_kernel\_d(config, key)}: Pre-compile Kernel D (path signatures, log-signature)
+    \item \texttt{warmup\_kernel\_d\_load\_shedding(config, key, verbose)}: Pre-compile Kernel D for emergency signature depths
     \item \texttt{warmup\_all\_kernels(config, key, verbose)}: Execute full warm-up pass
-    \item \texttt{warmup\_with\_retry(config, max\_retries)}: Automatic retry on transient failures
+    \item \texttt{warmup\_with\_retry(config, max\_retries, verbose)}: Automatic retry on transient failures
 \end{itemize}
 
 \subsection{Design Considerations}
 
 \begin{itemize}
-    \item \textbf{Dummy Signal}: Uses minimum length from \texttt{config.base\_min\_signal\_length}
+    \item \textbf{Dummy Signal}: Uses \texttt{config.warmup\_signal\_length}
     \item \textbf{Determinism}: Uses fixed PRNG seed (42) for reproducible compilation
     \item \texttt{jax.block\_until\_ready()}: Ensures asynchronous dispatch completes
-    \item \textbf{Timing}: Returns per-kernel compilation times for monitoring
+    \item \textbf{Timing}: Returns per-kernel compilation times; load-shedding timings are nested under \texttt{kernel\_d\_load\_shedding}
 \end{itemize}
 
 \subsection{Integration Example}
@@ -951,19 +989,21 @@ timings = warmup_all_kernels(config, verbose=True)
 # FastAPI production deployment
 from fastapi import FastAPI
 from stochastic_predictor.api.warmup import warmup_with_retry
-from stochastic_predictor.api.config import get_config
+from stochastic_predictor.api.config import PredictorConfigInjector
 
 app = FastAPI()
 
 @app.on_event("startup")
 async def startup_event():
     """Pre-compile all kernels before accepting requests."""
-    config = get_config()
+    config = PredictorConfigInjector().create_config()
     
     # Warm-up with automatic retry (handles transient GPU issues)
     try:
         timings = warmup_with_retry(config, max_retries=3, verbose=True)
-        print(f"Service ready. Total JIT compilation: {sum(timings.values()):.1f} ms")
+        total_ms = sum(v for v in timings.values() if isinstance(v, float))
+        total_ms += sum(timings["kernel_d_load_shedding"].values())
+        print(f"Service ready. Total JIT compilation: {total_ms:.1f} ms")
     except RuntimeError as e:
         print(f"CRITICAL: Warm-up failed: {e}")
         raise
@@ -971,12 +1011,9 @@ async def startup_event():
 # Now all inference endpoints have consistent latency (no JIT spikes)
 \end{lstlisting}
 
-
 \section{Zero-Copy State Buffer Management}
 
 \subsection{Motivation}
-
-\texttt{InternalState} contains rolling window buffers (\texttt{signal\_history}, \texttt{residual\_buffer}) updated on every inference. Naive Python list concatenation or NumPy array copying incurs:
 
 \begin{itemize}
     \item Full memory allocation (O(N) per update)
@@ -1121,10 +1158,10 @@ The \texttt{data\_feed\_timeout} parameter in \texttt{config.toml} must be adjus
 
 \begin{lstlisting}[language=Python]
 from stochastic_predictor.api.warmup import profile_warmup_and_recommend_timeout
-from stochastic_predictor.api.config import get_config
+from stochastic_predictor.api.config import PredictorConfigInjector
 
 # Execute during deployment setup
-config = get_config()
+config = PredictorConfigInjector().create_config()
 profile = profile_warmup_and_recommend_timeout(config, verbose=True)
 
 # Output example (slow GPU):
@@ -1134,11 +1171,17 @@ profile = profile_warmup_and_recommend_timeout(config, verbose=True)
 #   ⏳ Kernel A (RKHS Ridge)... ✓ 312.5 ms
 #   ⏳ Kernel B (DGM PDE)... ✓ 588.3 ms  <- Slowest kernel
 #   ⏳ Kernel C (SDE Integration)... ✓ 421.7 ms
-#   ⏳ Kernel D (Path Signatures)... ✓ 198.1 ms
-# ✅ Warm-up complete: 1520.6 ms total
+#   ⏳ Kernel D (Path Signatures - baseline)... ✓ 198.1 ms
+#   ⏳ Kernel D (Load Shedding topologies)...
+# 🔥 Load Shedding Warmup: Pre-compiling Kernel D topologies...
+#   • M=2 (emergency): 150.4 ms ✓
+#   • M=3 (normal): 210.2 ms ✓
+#   • M=5 (rich): 320.5 ms ✓
+# ✅ Load shedding ready: 681.1 ms total
+# ✅ Warm-up complete: 2201.7 ms total
 # 
 # 📊 Profiling Summary:
-#   • Total warm-up time: 1520.6 ms
+#   • Total warm-up time: 2201.7 ms
 #   • Max kernel time: 588.3 ms (kernel_b)
 #   • Hardware tier: MEDIUM (mid-tier GPU)
 # 
@@ -1187,10 +1230,10 @@ COPY config.toml /app/config.toml
 # Profile hardware and adjust config
 RUN python3 -c "
 from stochastic_predictor.api.warmup import profile_warmup_and_recommend_timeout
-from stochastic_predictor.api.config import get_config
+from stochastic_predictor.api.config import PredictorConfigInjector
 import toml
 
-config = get_config()
+config = PredictorConfigInjector().create_config()
 profile = profile_warmup_and_recommend_timeout(config, verbose=True)
 timeout = profile['recommended_timeout']
 
@@ -1670,7 +1713,7 @@ Phase 1 establishes production-ready API foundations:
     \item \textbf{Configuration}: TOML-driven, environment-overridable, automated field mapping
     \item \textbf{Validation}: Domain-agnostic, config-driven, zero hardcoded defaults
     \item \textbf{PRNG}: JAX-native threefry2x32 with reproducibility guarantees
-    \item \textbf{Schemas}: Pydantic v2 with strict type enforcement
+    \item \textbf{Schemas}: Pydantic validation with custom validators
     \item \textbf{State Management}: V-CRIT-1 kurtosis-adaptive CUSUM with grace period
 \end{itemize}
 

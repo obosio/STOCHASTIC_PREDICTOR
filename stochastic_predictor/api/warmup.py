@@ -15,8 +15,8 @@ References:
 
 Usage:
     >>> from stochastic_predictor.api.warmup import warmup_all_kernels
-    >>> from stochastic_predictor.api.config import get_config
-    >>> config = get_config()
+    >>> from stochastic_predictor.api.config import PredictorConfigInjector
+    >>> config = PredictorConfigInjector().create_config()
     >>> warmup_all_kernels(config)  # Pre-compile all kernels
     >>> # Now first real inference will have no JIT overhead
 """
@@ -210,9 +210,9 @@ def warmup_kernel_d_load_shedding(
     
     Example:
         >>> from stochastic_predictor.api.warmup import warmup_kernel_d_load_shedding
-        >>> from stochastic_predictor.api.config import get_config
+        >>> from stochastic_predictor.api.config import PredictorConfigInjector
         >>> from stochastic_predictor.api.prng import initialize_jax_prng
-        >>> config = get_config()
+        >>> config = PredictorConfigInjector().create_config()
         >>> key = initialize_jax_prng(seed=42)
         >>> timings = warmup_kernel_d_load_shedding(config, key, verbose=True)
         🔥 Load Shedding Warmup: Pre-compiling Kernel D topologies...
@@ -265,7 +265,7 @@ def warmup_all_kernels(
     config: PredictorConfig,
     key: Optional[PRNGKeyArray] = None,
     verbose: bool = True
-) -> dict[str, float]:
+) -> dict[str, float | dict[int, float]]:
     """
     Execute warm-up pass for all kernels.
     
@@ -278,14 +278,17 @@ def warmup_all_kernels(
         verbose: Print warm-up progress
     
     Returns:
-        Dictionary mapping kernel names to compilation times (ms)
+        Dictionary mapping kernel names to compilation times (ms).
+        Includes "kernel_d_load_shedding" as a depth -> ms mapping.
     
     Example:
-        >>> from stochastic_predictor.api.config import get_config
+        >>> from stochastic_predictor.api.config import PredictorConfigInjector
         >>> from stochastic_predictor.api.warmup import warmup_all_kernels
-        >>> config = get_config()
+        >>> config = PredictorConfigInjector().create_config()
         >>> timings = warmup_all_kernels(config)
-        >>> print(f"Total warm-up: {sum(timings.values()):.1f} ms")
+        >>> total_ms = sum(v for v in timings.values() if isinstance(v, float))
+        >>> total_ms += sum(timings["kernel_d_load_shedding"].values())
+        >>> print(f"Total warm-up: {total_ms:.1f} ms")
     
     References:
         - Stochastic_Predictor_Implementation.tex §6.2: Production Deployment Checklist
@@ -350,7 +353,7 @@ def warmup_with_retry(
     config: PredictorConfig,
     max_retries: int = 3,
     verbose: bool = True
-) -> dict[str, float]:
+) -> dict[str, float | dict[int, float]]:
     """
     Warm-up with automatic retry on failure.
     
@@ -390,7 +393,7 @@ def warmup_with_retry(
 def profile_warmup_and_recommend_timeout(
     config: PredictorConfig,
     verbose: bool = True
-) -> dict[str, float | int]:
+) -> dict[str, float | int | dict[int, float]]:
     """
     Profile warm-up times and recommend data_feed_timeout adjustment.
     
@@ -414,6 +417,7 @@ def profile_warmup_and_recommend_timeout(
             "kernel_b": <ms>,
             "kernel_c": <ms>,
             "kernel_d": <ms>,
+            "kernel_d_load_shedding": {2: <ms>, 3: <ms>, 5: <ms>},
             "total": <ms>,
             "max_kernel": <ms>,
             "recommended_timeout": <seconds>
@@ -421,8 +425,8 @@ def profile_warmup_and_recommend_timeout(
     
     Example:
         >>> from stochastic_predictor.api.warmup import profile_warmup_and_recommend_timeout
-        >>> from stochastic_predictor.api.config import get_config
-        >>> config = get_config()
+        >>> from stochastic_predictor.api.config import PredictorConfigInjector
+        >>> config = PredictorConfigInjector().create_config()
         >>> profile = profile_warmup_and_recommend_timeout(config)
         >>> # Update config.toml [io] section:
         >>> # data_feed_timeout = <profile["recommended_timeout"]>
@@ -437,16 +441,20 @@ def profile_warmup_and_recommend_timeout(
     # Execute warm-up and measure
     timings = warmup_all_kernels(config, verbose=verbose)
     
-    # Compute statistics
-    total_time = sum(timings.values())
-    max_kernel_time = max(timings.values())
+    # Compute statistics (flatten nested timing dicts)
+    numeric_timings: dict[str, float] = {}
+    for kernel_name, kernel_time in timings.items():
+        if isinstance(kernel_time, dict):
+            for depth, depth_time in kernel_time.items():
+                numeric_timings[f"{kernel_name}_m{depth}"] = depth_time
+        else:
+            numeric_timings[kernel_name] = kernel_time
+
+    total_time = sum(numeric_timings.values())
+    max_kernel_time = max(numeric_timings.values())
     
     # Determine slowest kernel (for diagnostic purposes)
-    slowest_kernel = "kernel_a"
-    for kernel_name, kernel_time in timings.items():
-        if kernel_time == max_kernel_time:
-            slowest_kernel = kernel_name
-            break
+    slowest_kernel = max(numeric_timings, key=numeric_timings.get)
     
     # Recommendation logic based on max kernel compilation time
     if max_kernel_time > 500.0:
