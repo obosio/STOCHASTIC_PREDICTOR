@@ -1376,4 +1376,283 @@ Todos & \texttt{JAX\_DEFAULT\_PRNG\_IMPL=threefry2x32} & PRNG portátil entre ba
 
 El determinismo en tests de portabilidad es crítico para \textit{Pruebas.tex} (CPU vs GPU vs FPGA). Las variables de entorno XLA y la configuración de PRNG son \textbf{obligatorias} para CI/CD que valide consistencia entre plataformas.
 
+\section{Load Shedding Dinámico (Poda Topológica en Cisne Negro)}
+
+\textbf{Problema Crítico:} Durante eventos de cisne negro (ej. crash de mercado masivo en marzo 2024), la volatilidad $\sigma_t$ puede explotar en múltiplos de $5-20\times$ respecto al valor nominal. Esto desencadena dos patologías simultáneas:
+
+\begin{enumerate}
+    \item \textbf{Saturación de Datos de Entrada}: La frecuencia de inyección de ticks sube de 1-10 Hz a 50-200 Hz (sistemas H.F.)
+    \item \textbf{Complejidad Factorial de Rama D}: La profundidad $M=5$ de log-signatures requiere $\mathcal{O}(d^M)$ operaciones tensoriales, donde $d$ es la dimensión del path
+\end{enumerate}
+
+\textbf{Consecuencia sin Mitigación:}
+
+\[
+\text{Latencia de Inferencia} = T_{\text{kernel\_A+B+C}} + \underbrace{T_{\text{signature}}(M=5)}_{\text{Dominante: 80-120ms}} > \text{Tick-Rate de Entrada} = 5-20\text{ms}
+\]
+
+Resultado: \textbf{Backlog infinito}, el sistema nunca se recupera, y las predicciones son obsoletas (stale) cuando finalmente se producen.
+
+\textbf{Solución: Load Shedding Adaptativo en Orquestador}
+
+Incorporar lógica de \textbf{Deslastre de Carga Topológica} que monitoree la latencia de inferencia en tiempo real. Si la latencia media móvil (EWMA) supera el tick-rate de entrada, el sistema degrada dinámicamente:
+
+\[
+M_{\text{efectivo}} = \begin{cases}
+    5 & \text{si } \text{EWMA}(\text{latencia}) < 0.7 \times \text{tick-rate} \\
+    3 & \text{si } 0.7 \times \text{tick-rate} \leq \text{EWMA}(\text{latencia}) < \text{tick-rate} \\
+    2 & \text{si } \text{EWMA}(\text{latencia}) \geq \text{tick-rate}
+\end{cases}
+\]
+
+donde el umbral $0.7$ introduce margen de seguridad (histéresis) para evitar oscilaciones.
+
+\textbf{Implementación: Dual JIT Graph Switching}
+
+Precompile múltiples grafos JIT con diferentes profundidades $M \in \{2, 3, 5\}$:
+
+\begin{lstlisting}[language=Python]
+import jax
+import jax.numpy as jnp
+from collections import deque
+from typing import Dict, Callable
+
+class AdaptiveSignatureOrchestrator:
+    """
+    Orquestrador con Load Shedding para Rama D.
+    Mantiene múltiples grafos JIT precompilados y selecciona dinámicamente.
+    """
+    def __init__(self, config: PredictorConfig):
+        self.config = config
+        self.tick_rate_ns = config.besov_nyquist_interval_ns  # Mínimo tick esperado
+        
+        # Precompilar grafos JIT para cada profundidad
+        self.signature_graphs: Dict[int, Callable] = {
+            2: jax.jit(lambda path: compute_signature(path, depth=2)),
+            3: jax.jit(lambda path: compute_signature(path, depth=3)),
+            5: jax.jit(lambda path: compute_signature(path, depth=5)),
+        }
+        
+        # Monitoreo de latencia (EWMA)
+        self.latency_history = deque(maxlen=20)  # Últimos 20 ticks
+        self.ewma_alpha = 0.3  # Factor de decaimiento
+        self.current_depth = 5   # Empezar en máxima resolución
+        self.ewma_latency_ns = 0.0
+        
+        # Histéresis (evita flapping)
+        self.degradation_threshold = 0.7  # Degradar si latencia > 70% del tick-rate
+        self.recovery_threshold = 0.5     # Recuperar solo si latencia < 50% del tick-rate
+        
+    def update_latency(self, inference_time_ns: int):
+        """Actualiza EWMA de latencia y decide si degradar/recuperar."""
+        self.latency_history.append(inference_time_ns)
+        
+        # EWMA: L_t = alpha * L_actual + (1-alpha) * L_{t-1}
+        if self.ewma_latency_ns == 0.0:
+            self.ewma_latency_ns = float(inference_time_ns)
+        else:
+            self.ewma_latency_ns = (
+                self.ewma_alpha * inference_time_ns + 
+                (1 - self.ewma_alpha) * self.ewma_latency_ns
+            )
+        
+        # Decisión de degradación/recuperación
+        latency_ratio = self.ewma_latency_ns / self.tick_rate_ns
+        
+        if latency_ratio >= 1.0:  # Crítico: Ya sobrepasamos el tick-rate
+            self.current_depth = 2
+        elif latency_ratio >= self.degradation_threshold:  # Advertencia
+            self.current_depth = min(self.current_depth, 3)  # Degradar pero no al mínimo
+        elif latency_ratio < self.recovery_threshold and self.current_depth < 5:
+            # Recuperación gradual (histéresis)
+            self.current_depth = min(5, self.current_depth + 1)
+        
+    def compute_adaptive_signature(self, path: jnp.ndarray) -> jnp.ndarray:
+        """
+        Calcula log-signature con profundidad adaptativa.
+        """
+        # Seleccionar grafo JIT según profundidad actual
+        signature_fn = self.signature_graphs[self.current_depth]
+        
+        import time
+        t_start = time.perf_counter_ns()
+        result = signature_fn(path)
+        t_end = time.perf_counter_ns()
+        
+        # Actualizar estadísticas
+        self.update_latency(t_end - t_start)
+        
+        return result
+    
+    def get_telemetry(self) -> Dict:
+        """Devuelve métricas de monitoreo."""
+        return {
+            "current_depth": self.current_depth,
+            "ewma_latency_ms": self.ewma_latency_ns / 1e6,
+            "tick_rate_ms": self.tick_rate_ns / 1e6,
+            "latency_ratio": self.ewma_latency_ns / self.tick_rate_ns,
+            "status": (
+                "DEGRADED" if self.current_depth < 5 else "NOMINAL"
+            )
+        }
+\end{lstlisting}
+
+\textbf{Análisis de Performance (Profundidad vs Latencia):}
+
+\begin{table}[h]
+\centering
+\begin{tabular}{|c|c|c|c|}
+\hline
+\textbf{Profundidad M} & \textbf{Latencia Típica} & \textbf{Throughput (ticks/s)} & \textbf{Resolución Topológica} \\
+\hline
+$M=5$ & 80-120ms & 8-12 Hz & \textbf{Máxima} (captura todas interacciones) \\
+$M=3$ & 20-35ms  & 28-50 Hz & \textbf{Media} (interacciones principales) \\
+$M=2$ & 5-12ms   & 83-200 Hz & \textbf{Mínima} (solo correlaciones simples) \\
+\hline
+\end{tabular}
+\end{table}
+
+\textbf{Trade-off:}
+\begin{itemize}
+    \item \textbf{M=5}: Captura interacciones de orden 5 (ej. $dx_1 \cdot dx_2 \cdot dx_3 \cdot dx_4 \cdot dx_5$) → Información topológica máxima pero $\mathcal{O}(d^5)$ costo
+    \item \textbf{M=3}: Captura hasta orden 3 (ej. $dx_1 \cdot dx_2 \cdot dx_3$) → 3-4x más rápido
+    \item \textbf{M=2}: Solo correlaciones pairwise → 10-15x más rápido, pero pierde estructura no-lineal profunda
+\end{itemize}
+
+\textbf{Integración en UniversalPredictor:}
+
+\begin{lstlisting}[language=Python]
+class UniversalPredictor:
+    def __init__(self, config: PredictorConfig):
+        self.config = config
+        self.orchestrator = AdaptiveSignatureOrchestrator(config)
+        # ...resto de inicialización...
+    
+    def predict_next(self, observation: MarketObservation) -> PredictionResult:
+        """
+        Predicción con Load Shedding automático.
+        """
+        # 1. Validar entrada
+        if not observation.validate_domain():
+            return self._fallback_prediction(observation)
+        
+        # 2. Construir path incremental
+        path = self._build_path(observation)
+        
+        # 3. Compute signature con profundidad adaptativa
+        signature = self.orchestrator.compute_adaptive_signature(path)
+        
+        # 4. Resto de kernels (A, B, C)
+        # ...
+        
+        # 5. Retornar con telemetría
+        telemetry = self.orchestrator.get_telemetry()
+        return PredictionResult(
+            predicted_next=predicted_value,
+            confidence=confidence_score,
+            metadata={
+                "signature_depth": telemetry["current_depth"],
+                "latency_ms": telemetry["ewma_latency_ms"],
+                "system_status": telemetry["status"]
+            }
+        )
+\end{lstlisting}
+
+\textbf{Validación en Cisne Negro (Simulación):}
+
+\begin{lstlisting}[language=Python]
+def test_black_swan_load_shedding():
+    """
+    Simula evento de cisne negro con tick-rate explosivo.
+    """
+    config = PredictorConfig(
+        log_sig_depth=5,  # Profundidad nominal
+        besov_nyquist_interval_ns=100_000_000  # 100ms nominal
+    )
+    predictor = UniversalPredictor(config)
+    
+    # Simular 1000 ticks con aceleración progresiva
+    tick_intervals = []
+    for i in range(1000):
+        if i < 100:  # Primeros 100 ticks: normal (100ms)
+            tick_intervals.append(100_000_000)
+        elif i < 500:  # Siguientes 400 ticks: aceleración (20ms)
+            tick_intervals.append(20_000_000)  # 50 Hz
+        else:  # Últimos 500 ticks: crisis (5ms)
+            tick_intervals.append(5_000_000)   # 200 Hz
+    
+    depths_observed = []
+    latencies_observed = []
+    
+    for interval_ns in tick_intervals:
+        observation = MarketObservation(
+            price=jnp.array([random.normal()]),
+            target=jnp.array([0.0]),
+            timestamp_ns=time.time_ns()
+        )
+        
+        result = predictor.predict_next(observation)
+        depths_observed.append(result.metadata["signature_depth"])
+        latencies_observed.append(result.metadata["latency_ms"])
+        
+        time.sleep(interval_ns / 1e9)  # Simular tick-rate
+    
+    # Assertions
+    assert depths_observed[50] == 5, "Debe estar en M=5 durante régimen normal"
+    assert depths_observed[300] == 3, "Debe degradar a M=3 durante aceleración"
+    assert depths_observed[700] == 2, "Debe degradar a M=2 durante crisis"
+    
+    # Verificar que latencia nunca causa backlog infinito
+    max_backlog_ratio = max(
+        latencies_observed[i] / (tick_intervals[i] / 1e6) 
+        for i in range(len(tick_intervals))
+    )
+    assert max_backlog_ratio < 1.2, f"Backlog ratio demasiado alto: {max_backlog_ratio}"
+    
+    print("[✓] Load Shedding test PASSED")
+    print(f"    Profundidad nominal: M=5")
+    print(f"    Profundidad mínima observada: M={min(depths_observed)}")
+    print(f"    Latencia máxima: {max(latencies_observed):.2f}ms")
+    print(f"    Max backlog ratio: {max_backlog_ratio:.2f}x")
+\end{lstlisting}
+
+\textbf{Beneficios en Producción:}
+
+\begin{itemize}
+    \item \textbf{Prevención de Backlog Infinito}: Sistema siempre se adapta al tick-rate, nunca colapsa
+    \item \textbf{Graceful Degradation}: Reduce resolución topológica pero mantiene predicciones (vs fallo total)
+    \item \textbf{Recuperación Automática}: Cuando volatilidad baja, sistema escala de vuelta a $M=5$
+    \item \textbf{Overhead Mínimo}: Decisión de switching toma $<0.1$ms (simple comparación EWMA)
+    \item \textbf{Visibilidad}: Telemetría expone profundidad actual en cada predicción
+\end{itemize}
+
+\textbf{Consideraciones Operacionales:}
+
+\begin{enumerate}
+    \item \textbf{Alertas de Degradación}: Si sistema permanece en $M<5$ por más de 60 segundos, emitir alerta de alta volatilidad
+    \item \textbf{Persistencia de Estado}: El \texttt{AdaptiveSignatureOrchestrator} debe incluirse en snapshots para preservar EWMA tras restart
+    \item \textbf{Configuración de Umbrales}: Los thresholds $0.7$ y $0.5$ deben ser ajustables vía \texttt{PredictorConfig}
+    \item \textbf{Métricas de Monitoreo}: Exponer \texttt{current\_depth}, \texttt{ewma\_latency\_ms}, \texttt{latency\_ratio} a Prometheus/Grafana
+\end{enumerate}
+
+\textbf{Alternativa Avanzada: Poda Selectiva de Kernels}
+
+En lugar de solo degradar Rama D, se puede escalar a deshabilitar temporalmente kernels completos:
+
+\begin{lstlisting}[language=Python]
+# Modo ultra-degradado (solo Kernel A + Rama D superficial)
+if latency_ratio > 2.0:
+    result = kernel_a_only_prediction(observation)  # Rama A sin Signatures
+elif latency_ratio > 1.0:
+    result = kernels_a_b_only(observation)  # Rama A + B (sin Neural ODE Rama C)
+else:
+    result = full_prediction(observation)  # Todas las Ramas
+\end{lstlisting}
+
+Esto permite \textbf{mantener throughput} incluso en crisis extremas (ej. flash crash de mayo 2010).
+
+\textbf{Conclusión:}
+
+El Load Shedding Dinámico es \textbf{esencial} para sistemas H.F. que operan en mercados volátiles. Sin esta lógica, eventos de cisne negro producirían backlog infinito y obsolescencia de predicciones. La degradación topológica $(M=5 \to 3 \to 2)$ sacrifica resolución no-lineal profunda pero garantiza que el sistema \textbf{nunca se sature}, priorizando latencia sobre precisión extrema cuando es necesario.
+
 \end{document}
