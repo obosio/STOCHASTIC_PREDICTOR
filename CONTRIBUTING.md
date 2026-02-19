@@ -58,7 +58,6 @@ test: Añade tests para orquestador JKO
 - [ ] Implementación del motor SIA/WTMM
 - [ ] Desarrollo de núcleos de predicción
 - [ ] Sistema de tests y benchmarks
-- [ ] Ejemplos de uso
 
 ### Prioridad Media
 
