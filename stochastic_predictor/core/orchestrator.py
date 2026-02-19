@@ -12,7 +12,7 @@ import jax.numpy as jnp
 from jaxtyping import Array, Float
 
 from stochastic_predictor.api.state_buffer import atomic_state_update, reset_cusum_statistics
-from stochastic_predictor.api.types import InternalState, OperatingMode, PredictionResult, PredictorConfig
+from stochastic_predictor.api.types import InternalState, KernelType, OperatingMode, PredictionResult, PredictorConfig
 from stochastic_predictor.api.validation import validate_simplex
 from stochastic_predictor.core.fusion import FusionResult, fuse_kernel_outputs
 from stochastic_predictor.kernels import kernel_a_predict, kernel_b_predict, kernel_c_predict, kernel_d_predict
@@ -42,7 +42,7 @@ def initialize_state(
 
     signal_history = signal[-min_length:]
     residual_buffer = jnp.zeros_like(signal_history)
-    rho = jnp.full((4,), 1.0 / 4.0)
+    rho = jnp.full((KernelType.N_KERNELS,), 1.0 / KernelType.N_KERNELS)
 
     return InternalState(
         signal_history=signal_history,
@@ -69,7 +69,7 @@ def _run_kernels(
     config: PredictorConfig
 ) -> tuple[KernelOutput, KernelOutput, KernelOutput, KernelOutput]:
     """Execute kernels A-D with independent PRNG keys."""
-    key_a, key_b, key_c, key_d = jax.random.split(rng_key, 4)
+    key_a, key_b, key_c, key_d = jax.random.split(rng_key, KernelType.N_KERNELS)
     output_a = kernel_a_predict(signal, key_a, config)
     output_b = kernel_b_predict(signal, key_b, config)
     output_c = kernel_c_predict(signal, key_c, config)

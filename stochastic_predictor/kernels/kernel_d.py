@@ -87,8 +87,8 @@ def create_path_augmentation(
         - Python.tex §2.2.4: Path Construction
     """
     n = signal.shape[0]
-    time_coords = jnp.arange(n, dtype=jnp.float32)
-    path = jnp.stack([time_coords, signal], axis=1)
+    time_coords = jnp.arange(n, dtype=jnp.float64)
+    path = jnp.stack([time_coords, signal.astype(jnp.float64)], axis=1)
     return path
 
 

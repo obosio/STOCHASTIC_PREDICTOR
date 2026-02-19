@@ -22,7 +22,7 @@ class SinkhornResult:
     """Sinkhorn solver outputs for diagnostics and fusion."""
     transport_matrix: Float[Array, "n n"]
     reg_ot_cost: Float[Array, ""]
-    converged: bool
+    converged: Array
     epsilon: Float[Array, ""]
 
 
@@ -86,14 +86,16 @@ def volatility_coupled_sinkhorn(
 
     epsilon_final = compute_sinkhorn_epsilon(ema_variance, config)
     transport = jnp.exp((f_final[:, None] + g_final[None, :] - cost_matrix) / epsilon_final)
-    reg_ot_cost = jnp.sum(transport * cost_matrix)
+    safe_transport = jnp.maximum(transport, config.numerical_epsilon)
+    entropy_term = jnp.sum(safe_transport * (jnp.log(safe_transport) - 1.0))
+    reg_ot_cost = jnp.sum(transport * cost_matrix) + epsilon_final * entropy_term
 
     row_sums = jnp.sum(transport, axis=1)
     col_sums = jnp.sum(transport, axis=0)
     row_err = jnp.max(jnp.abs(row_sums - source_weights))
     col_err = jnp.max(jnp.abs(col_sums - target_weights))
     max_err = jnp.maximum(row_err, col_err)
-    converged = bool(max_err <= config.validation_simplex_atol)
+    converged = jnp.asarray(max_err <= config.validation_simplex_atol)
 
     return SinkhornResult(
         transport_matrix=transport,

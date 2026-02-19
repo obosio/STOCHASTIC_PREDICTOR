@@ -337,8 +337,8 @@ def kernel_b_predict(signal: Float[Array, "n"],
     
     # Solve PDE on spatial grid
     x_samples = jnp.linspace(
-        current_state * 0.5,
-        current_state * 1.5,
+        current_state * (1.0 - config.kernel_b_spatial_range_factor),
+        current_state * (1.0 + config.kernel_b_spatial_range_factor),
         config.kernel_b_spatial_samples  # From config (NOT hardcoded)
     )
     
@@ -355,6 +355,9 @@ def kernel_b_predict(signal: Float[Array, "n"],
         x_samples=x_samples,
         num\_bins=config.dgm_entropy_num_bins  # From config
     )
+
+    # Mode collapse check (config-driven threshold)
+    mode_collapse = entropy < config.entropy_threshold
     
     return KernelOutput(
         prediction=predictions[len(x_samples)//2],  # Center prediction
@@ -610,95 +613,32 @@ Truncated at depth $L$ to finite dimension.
 
 \begin{lstlisting}[language=Python]
 @jax.jit
-def compute_log_signature(signal: Float[Array, "n"],
-                         depth: int) -> Float[Array, "d_sig"]:
-    """
-    Compute log-signature (iterated path integrals).
-    
-    Args:
-        signal: (n,) time series
-        depth: Truncation depth (config.kernel_d_depth)
-    
-    Returns:
-        Log-signature features (d_sig,)
-    
-    Uses signax library for fast JIT-compilable computation.
-    """
-    # Increments
-    increments = jnp.diff(signal)
-    
-    # Recursive signature computation (depth L)
-    logsig = compute_log_signature_recursive(increments, depth)
-    
-    return logsig
+def create_path_augmentation(signal: Float[Array, "n"]) -> Float[Array, "n 2"]:
+    n = signal.shape[0]
+    time_coords = jnp.arange(n, dtype=jnp.float64)
+    return jnp.stack([time_coords, signal.astype(jnp.float64)], axis=1)
 
 
-def predict_from_signature(logsig: Float[Array, "d_sig"],
-                          last_value: float,
-                          alpha: float) -> tuple:
-    """
-    Extrapolate next value from signature features.
-    
-    Zero-Heuristics: alpha comes from config.kernel_d_alpha (NOT hardcoded)
-    
-    Args:
-        logsig: Log-signature features
-        last_value: Last observed value
-        alpha: Extrapolation coefficient from config
-    
-    Returns:
-        (prediction, confidence)
-    """
-    # Linear combination of signature features
-    weights = jnp.ones_like(logsig) / len(logsig)
-    trend = jnp.dot(weights, logsig)
-    
-    # Extrapolate with smoothing
-    prediction = last_value + alpha * trend
-    
-    # Confidence from signature norm
+@jax.jit
+def compute_log_signature(path: Float[Array, "n 2"], config) -> Float[Array, "d_sig"]:
+    path_batched = path[None, :, :]
+    logsig = signax.logsignature(path_batched, depth=config.kernel_d_depth)
+    return logsig[0]
+
+
+def predict_from_signature(logsig: Float[Array, "d_sig"], last_value: float, config) -> tuple:
     sig_norm = jnp.linalg.norm(logsig)
-    confidence = 1.0 / (1.0 + sig_norm)  # Higher norm = lower confidence
-    
+    prediction = last_value + config.kernel_d_alpha * sig_norm
+    confidence = config.kernel_d_confidence_scale * (config.kernel_d_confidence_base + sig_norm)
     return prediction, confidence
 
 
 @jax.jit
-def kernel_d_predict(signal: Float[Array, "n"],
-                    key: jax.random.PRNGKeyArray,
-                    config: PredictorConfig) -> KernelOutput:
-    """
-    Kernel D prediction via path signatures.
-    
-    Zero-Heuristics: All parameters from config (NOT hardcoded defaults)
-    
-    Config parameters:
-        - kernel_d_depth: Log-signature truncation depth (default: 3)
-        - kernel_d_alpha: Extrapolation scaling factor (default: 0.1)
-        - kernel_d_confidence_scale: Confidence scaling (default: 0.1)
-    """
-    signal_norm = normalize_signal(signal)
-    
-    # Compute log-signature with depth from config
-    logsig = compute_log_signature(signal_norm, depth=config.kernel_d_depth)
-    
-    # Predict next value via signature extrapolation
-    # CRITICAL: alpha MUST come from config (NOT hardcoded)
-    prediction, confidence = predict_from_signature(
-        logsig,
-        last_value=signal_norm[-1],
-        alpha=config.kernel_d_alpha  # From config
-    )
-    
-    # Scale confidence
-    scaled_confidence = config.kernel_d_confidence_scale * (1.0 + jnp.linalg.norm(logsig))
-    
-    return KernelOutput(
-        prediction=prediction,
-        confidence=scaled_confidence,
-        kernel_id="D",
-        diagnostics={}
-    )
+def kernel_d_predict(signal: Float[Array, "n"], key: jax.random.PRNGKeyArray, config: PredictorConfig) -> KernelOutput:
+    path = create_path_augmentation(signal)
+    logsig = compute_log_signature(path, config)
+    prediction, confidence = predict_from_signature(logsig, signal[-1], config)
+    return KernelOutput(prediction=prediction, confidence=confidence, kernel_id="D", diagnostics={})
 \end{lstlisting}
 
 \section{Configuration Parameters}

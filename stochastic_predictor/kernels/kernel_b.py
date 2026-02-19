@@ -336,8 +336,7 @@ def kernel_b_predict(
     entropy_dgm = compute_entropy_dgm(model, t, x_samples, config)
     
     # Check for mode collapse
-    # Threshold: entropy should be > 0.5 * log(100) ≈ 2.3 for healthy distribution
-    mode_collapse = entropy_dgm < 1.0
+    mode_collapse = entropy_dgm < config.entropy_threshold
     
     # Diagnostics
     diagnostics = {

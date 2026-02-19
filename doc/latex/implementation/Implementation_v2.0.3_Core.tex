@@ -119,14 +119,16 @@ def volatility_coupled_sinkhorn(source_weights, target_weights, cost_matrix, ema
 
     epsilon_final = compute_sinkhorn_epsilon(ema_variance, config)
     transport = jnp.exp((f_final[:, None] + g_final[None, :] - cost_matrix) / epsilon_final)
-    reg_ot_cost = jnp.sum(transport * cost_matrix)
+    safe_transport = jnp.maximum(transport, config.numerical_epsilon)
+    entropy_term = jnp.sum(safe_transport * (jnp.log(safe_transport) - 1.0))
+    reg_ot_cost = jnp.sum(transport * cost_matrix) + epsilon_final * entropy_term
     row_err = jnp.max(jnp.abs(jnp.sum(transport, axis=1) - source_weights))
     col_err = jnp.max(jnp.abs(jnp.sum(transport, axis=0) - target_weights))
     converged = jnp.maximum(row_err, col_err) <= config.validation_simplex_atol
     return SinkhornResult(
         transport_matrix=transport,
         reg_ot_cost=reg_ot_cost,
-        converged=bool(converged),
+        converged=jnp.asarray(converged),
         epsilon=jnp.asarray(epsilon_final),
     )
 \end{lstlisting}

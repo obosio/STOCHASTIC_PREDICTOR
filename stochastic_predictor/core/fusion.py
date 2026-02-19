@@ -8,7 +8,7 @@ from dataclasses import dataclass
 from typing import Iterable
 
 import jax.numpy as jnp
-from jaxtyping import Array, Float
+from jaxtyping import Array, Bool, Float
 
 from stochastic_predictor.api.types import PredictorConfig, PredictionResult
 from stochastic_predictor.api.validation import validate_simplex
@@ -26,7 +26,7 @@ class FusionResult:
     fused_prediction: Float[Array, ""]
     updated_weights: Float[Array, "4"]
     free_energy: Float[Array, ""]
-    sinkhorn_converged: bool
+    sinkhorn_converged: Bool[Array, ""]
     sinkhorn_epsilon: Float[Array, ""]
     sinkhorn_transport: Float[Array, "4 4"]
 
