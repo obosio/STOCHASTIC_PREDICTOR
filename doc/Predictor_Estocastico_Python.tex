@@ -2403,4 +2403,350 @@ for obs in live_market_data:
     \item \textbf{mode\_collapse\_warning}: DGM ha colapsado a solución trivial ($H_{DGM} < \gamma \cdot H[g]$ durante $>10$ pasos). Requiere re-entrenamiento de la red. Mientras tanto, reducir $\rho_B \to 0$.
 \end{itemize}
 
+\section{Anclaje Estricto de Dependencias (Dependency Pinning)}
+
+\textbf{Problema Crítico de Evolución del Ecosistema:}
+
+El ecosistema de JAX y sus dependencias científicas evoluciona a \textbf{velocidad vertiginosa}. Una actualización menor de librerías puede alterar sutilmente cómo el compilador XLA fusiona operaciones, reorganiza reducciones, o maneja precisión de punto flotante, \textbf{rompiendo nuestras garantías de consistencia bit-exact}.
+
+\textbf{Ejemplos de Cambios No-Triviales en Actualizaciones Menores:}
+
+\begin{itemize}
+    \item \textbf{JAX 0.4.19 → 0.4.20}: Cambio en orden de fusión de kernels en \texttt{jnp.einsum} afecta reducciones acumulativas en Rama D (Signatures)
+    
+    \item \textbf{OTT-JAX 0.4.4 → 0.4.5}: Modificación en algoritmo de Sinkhorn (número de iteraciones por defecto) altera convergencia del Orquestador JKO
+    
+    \item \textbf{cuDNN 8.8 → 8.9}: Cambio en TensorCore precision handling para \texttt{matmul} rompe paridad CPU/GPU en tests
+    
+    \item \textbf{Signax 0.1.3 → 0.1.4}: Refactorización interna de cálculo de log-signatures cambia representación de álgebra de Lie
+    
+    \item \textbf{Equinox 0.11.3 → 0.11.4}: Ajuste en inicialización de pesos de redes neuronales (Rama B DGM) cambia valores de predicción
+\end{itemize}
+
+\textbf{Consecuencia sin Anclaje:}
+
+\begin{enumerate}
+    \item \textbf{Tests de Regresión Fallan}: El código que pasaba tests hace 6 meses ahora falla con \texttt{AssertionError: max difference = 3.2e-4} (vs tolerancia 1e-7)
+    
+    \item \textbf{Snapshots Incompatibles}: Un predictor entrenado con JAX 0.4.19 no puede restaurarse correctamente en JAX 0.4.21 (estructura de pesos diferentes)
+    
+    \item \textbf{Resultados No-Reproducibles}: Papers científicos que citan resultados experimentales no pueden replicarse años después
+    
+    \item \textbf{Divergencia en Producción}: Actualizaciones automáticas de Docker base images rompen sistemas en producción sin previo aviso
+    
+    \item \textbf{Debugging Imposible}: Comparar logs de hace 3 meses es inútil si el entorno cambió
+\end{enumerate}
+
+\textbf{Solución: Dependency Pinning con Versiones Exactas}
+
+Definir archivos de entorno con \textbf{versiones congeladas} de todas las dependencias críticas. Esto garantiza que el código se comporte de manera \textit{matemáticamente idéntica} dentro de 5 años.
+
+\subsection{Archivo: requirements.txt (Pip)}
+
+\begin{lstlisting}[language=bash]
+# requirements.txt - Universal Predictor
+# Generado: 18 de febrero de 2026
+# Python: 3.10.12 (OBLIGATORIO, no usar 3.11+ por cambios en RNG)
+
+# ═══════════════════════════════════════
+# CORE DEPENDENCIES (JAX Stack)
+# ═══════════════════════════════════════
+jax==0.4.20
+jaxlib==0.4.20+cuda12.cudnn89  # CUDA 12.1, cuDNN 8.9
+
+# NOTA CRÍTICA: jaxlib debe coincidir EXACTAMENTE con versión CUDA/cuDNN del host
+# Alternativas según infraestructura:
+#   - CPU only: jaxlib==0.4.20
+#   - CUDA 11.8: jaxlib==0.4.20+cuda11.cudnn86
+#   - TPU: jaxlib==0.4.20+tpu
+
+# ═══════════════════════════════════════
+# SCIENTIFIC STACK (OT, Signatures, ODEs)
+# ═══════════════════════════════════════
+ott-jax==0.4.5           # Optimal Transport (Orquestador JKO)
+signax==0.1.4            # Log-Signatures (Rama D)
+equinox==0.11.3          # Neural ODEs (Rama C)
+diffrax==0.4.1           # SDE/ODE solvers (Rama C)
+
+# ═══════════════════════════════════════
+# NUMERICAL & TYPING
+# ═══════════════════════════════════════
+jaxtyping==0.2.25        # Type annotations (Float[Array, "n m"])
+numpy==1.24.3            # OBLIGATORIO: 1.24.x (1.25+ rompe compatibilidad dtype)
+scipy==1.11.4            # Funciones especiales (Besov wavelets)
+
+# ═══════════════════════════════════════
+# PERSISTENCE & SERIALIZATION
+# ═══════════════════════════════════════
+msgpack==1.0.7           # Snapshots binarios (más rápido que pickle)
+msgpack-numpy==0.4.8     # Serialización de arrays numpy
+
+# ═══════════════════════════════════════
+# MONITORING & LOGGING
+# ═══════════════════════════════════════
+prometheus-client==0.19.0  # Métricas (jitter, latencia, etc.)
+# pynvml==11.5.0           # GPU monitoring (opcional)
+
+# ═══════════════════════════════════════
+# TESTING & VALIDATION
+# ═══════════════════════════════════════
+pytest==7.4.3
+pytest-cov==4.1.0
+hypothesis==6.92.1       # Property-based testing
+
+# ═══════════════════════════════════════
+# HASH DE VERIFICACIÓN (SHA256)
+# ═══════════════════════════════════════
+# Ejecutar: pip freeze > requirements-freeze.txt
+# Verificar: sha256sum requirements-freeze.txt
+# Hash esperado (ejemplo): 
+#   a7f3b2c9d1e4f5g6h7i8j9k0l1m2n3o4p5q6r7s8t9u0v1w2x3y4z5
+\end{lstlisting}
+
+\subsection{Archivo: environment.yml (Conda/Mamba)}
+
+\begin{lstlisting}[language=bash]
+# environment.yml - Universal Predictor
+# Generado: 18 de febrero de 2026
+# Uso: conda env create -f environment.yml
+
+name: universal-predictor-v1.0
+channels:
+  - conda-forge
+  - nvidia  # Para CUDA/cuDNN
+  - defaults
+
+dependencies:
+  # ═══════════════════════════════════════
+  # PYTHON VERSION (CRITICAL)
+  # ═══════════════════════════════════════
+  - python=3.10.12  # NO usar 3.11+ (cambios en random.seed())
+  
+  # ═══════════════════════════════════════
+  # CUDA TOOLKIT (GPU ONLY)
+  # ═══════════════════════════════════════
+  - cudatoolkit=12.1.0
+  - cudnn=8.9.7.29
+  
+  # ═══════════════════════════════════════
+  # CORE DEPENDENCIES
+  # ═══════════════════════════════════════
+  - pip=23.3.1
+  - numpy=1.24.3
+  - scipy=1.11.4
+  
+  # ═══════════════════════════════════════
+  # PIP DEPENDENCIES (JAX stack no disponible en conda)
+  # ═══════════════════════════════════════
+  - pip:
+    - jax==0.4.20
+    - jaxlib==0.4.20+cuda12.cudnn89
+    - ott-jax==0.4.5
+    - signax==0.1.4
+    - equinox==0.11.3
+    - diffrax==0.4.1
+    - jaxtyping==0.2.25
+    - msgpack==1.0.7
+    - msgpack-numpy==0.4.8
+    - prometheus-client==0.19.0
+    - pytest==7.4.3
+    - pytest-cov==4.1.0
+    - hypothesis==6.92.1
+
+# ═══════════════════════════════════════
+# VERIFICACIÓN POST-INSTALACIÓN
+# ═══════════════════════════════════════
+# conda activate universal-predictor-v1.0
+# python -c "import jax; print(jax.__version__)"  # Debe ser 0.4.20
+# python -c "import jax; print(jax.devices())"    # Debe mostrar GPU
+# python -c "import ott; print(ott.__version__)"  # Debe ser 0.4.5
+\end{lstlisting}
+
+\subsection{Dockerfile con Versiones Ancladas}
+
+\begin{lstlisting}[language=bash]
+# Dockerfile - Universal Predictor
+# Imagen base: NVIDIA CUDA 12.1, cuDNN 8.9, Ubuntu 22.04
+FROM nvidia/cuda:12.1.0-cudnn8-runtime-ubuntu22.04
+
+# Metadatos
+LABEL maintainer="predictor-team@example.com"
+LABEL version="1.0.0"
+LABEL description="Universal Stochastic Predictor with pinned dependencies"
+
+# Variables de entorno (reproducibilidad)
+ENV DEBIAN_FRONTEND=noninteractive
+ENV PYTHONUNBUFFERED=1
+ENV PYTHONDONTWRITEBYTECODE=1
+ENV CUDA_VISIBLE_DEVICES=0
+
+# Instalar Python 3.10.12 EXACTO
+RUN apt-get update && apt-get install -y \
+    software-properties-common \
+    && add-apt-repository ppa:deadsnakes/ppa \
+    && apt-get update \
+    && apt-get install -y python3.10=3.10.12-1+jammy1 \
+    python3.10-dev \
+    python3.10-distutils \
+    git \
+    wget \
+    && rm -rf /var/lib/apt/lists/*
+
+# Anclar pip a versión específica
+RUN wget https://bootstrap.pypa.io/get-pip.py \
+    && python3.10 get-pip.py pip==23.3.1 \
+    && rm get-pip.py
+
+# Copiar requirements.txt con versiones congeladas
+COPY requirements.txt /app/requirements.txt
+WORKDIR /app
+
+# Instalar dependencias (sin actualizar nada)
+RUN pip install --no-cache-dir --no-deps -r requirements.txt
+
+# Verificar instalación
+RUN python3.10 -c "import jax; assert jax.__version__ == '0.4.20', 'JAX version mismatch'"
+RUN python3.10 -c "import ott; assert ott.__version__ == '0.4.5', 'OTT version mismatch'"
+RUN python3.10 -c "import signax; assert signax.__version__ == '0.1.4', 'Signax version mismatch'"
+
+# Copiar código del predictor
+COPY stochastic_predictor/ /app/stochastic_predictor/
+COPY tests/ /app/tests/
+
+# Health check
+HEALTHCHECK --interval=30s --timeout=10s --start-period=5s --retries=3 \
+    CMD python3.10 -c "import jax; jax.devices()"
+
+# Comando por defecto
+CMD ["python3.10", "-m", "stochastic_predictor.main"]
+\end{lstlisting}
+
+\subsection{Protocolo de Actualización Controlada}
+
+Si eventualmente se requiere actualizar dependencias (ej. parche de seguridad en JAX), seguir protocolo estricto:
+
+\begin{enumerate}
+    \item \textbf{Crear Rama de Testing}: \texttt{git checkout -b deps/jax-0.4.21-evaluation}
+    
+    \item \textbf{Actualizar SOLO la Dependencia Candidata}:
+    \begin{lstlisting}[language=bash]
+# requirements-test.txt
+jax==0.4.21  # <-- Solo esta línea cambia
+jaxlib==0.4.21+cuda12.cudnn89
+# Resto idéntico a requirements.txt
+    \end{lstlisting}
+    
+    \item \textbf{Ejecutar Suite Completa de Tests}:
+    \begin{lstlisting}[language=bash]
+pytest tests/ --cov=stochastic_predictor --cov-report=html -v
+    \end{lstlisting}
+    
+    \item \textbf{Validar Consistencia Bit-Exact}:
+    \begin{lstlisting}[language=Python]
+# tests/test_version_migration.py
+def test_jax_0_4_21_compatibility():
+    """Valida que JAX 0.4.21 produce resultados idénticos a 0.4.20"""
+    # Cargar snapshot de referencia (generado con JAX 0.4.20)
+    reference = load_snapshot("tests/fixtures/reference_jax_0.4.20.pkl")
+    
+    # Ejecutar con nueva versión
+    predictor = UniversalPredictor(config)
+    result = predictor.predict_next(reference.observation)
+    
+    # Comparación bit-exact
+    assert jnp.allclose(
+        result.predicted_next,
+        reference.predicted_next,
+        atol=1e-14,  # Tolerancia máxima para float64
+        rtol=1e-13
+    ), "JAX 0.4.21 produce resultados diferentes a 0.4.20"
+    \end{lstlisting}
+    
+    \item \textbf{Benchmark de Performance}:
+    \begin{lstlisting}[language=bash]
+python benchmarks/latency_comparison.py \
+    --old-env requirements.txt \
+    --new-env requirements-test.txt \
+    --iterations 1000
+    \end{lstlisting}
+    
+    \item \textbf{Validación en Staging} (30 días mínimo):
+    \begin{itemize}
+        \item Desplegar versión nueva en ambiente de staging
+        \item Comparar métricas de producción vs staging (lado a lado)
+        \item Monitorear jitter, latencia P99, violaciones de SLA
+    \end{itemize}
+    
+    \item \textbf{Aprobación por Comité Técnico}:
+    \begin{itemize}
+        \item Revisar diff de resultados de tests
+        \item Aprobar cambios de performance (si degradan <5\%)
+        \item Documentar breaking changes (si existen)
+    \end{itemize}
+    
+    \item \textbf{Merge a Main con Tag de Versión}:
+    \begin{lstlisting}[language=bash]
+git merge deps/jax-0.4.21-evaluation
+git tag -a v1.1.0-jax-0.4.21 -m "Upgrade JAX 0.4.20 -> 0.4.21"
+git push origin v1.1.0-jax-0.4.21
+    \end{lstlisting}
+\end{enumerate}
+
+\textbf{Casos Donde NO Actualizar:}
+
+\begin{itemize}
+    \item \textbf{Nueva versión rompe tests}: Si algún test falla, \textit{rechazar actualización}
+    \item \textbf{Performance degrada >5\%}: Si latencia P99 aumenta, \textit{rechazar}
+    \item \textbf{Resultados divergen >1e-6}: Si predicciones cambian fuera de tolerancia, \textit{rechazar}
+    \item \textbf{No hay parche de seguridad crítico}: Si solo son "nuevas features", \textit{no actualizar}
+\end{itemize}
+
+\textbf{Justificación Matemática del Anclaje:}
+
+Un predictor estocástico entrenado con Orquestador JKO converge a:
+
+\[
+\rho^*_{t+1} = \arg\min_{\rho \in \mathcal{P}(\mathbb{R}^d)} \left\{ \mathcal{E}(\rho) + \frac{1}{2\tau} W_2^2(\rho, \rho_t) \right\}
+\]
+
+donde $W_2$ es la distancia de Wasserstein (calculada por OTT-JAX via Sinkhorn). Si OTT-JAX cambia:
+
+\begin{itemize}
+    \item \textbf{Número de iteraciones de Sinkhorn}: $\rho^*$ converge a punto diferente
+    \item \textbf{Regularización entrópica $\epsilon$}: Gradientes del Orquestador cambian
+    \item \textbf{Inicialización de dual variables}: Trayectoria de optimización diverge
+\end{itemize}
+
+Similarmente, las log-signatures de Rama D dependen de:
+
+\[
+\text{Sig}(X)_{1,t} = X_t - X_1 + \frac{1}{2} \int_1^t (X_s - X_1) \otimes dX_s + \ldots
+\]
+
+Si Signax cambia el cálculo de la integral de Stratonovich, la representación en álgebra de Lie cambia, y los pesos del Orquestador entrenados previamente quedan obsoletos.
+
+\textbf{Conclusión:}
+
+El \textbf{Anclaje Estricto de Dependencias} NO es opcional. Es la \textit{capa base} sobre la cual se ejecuta todo el sistema. Sin versiones congeladas:
+
+\begin{itemize}
+    \item Tests de regresión son inútiles (fallan aleatoriamente)
+    \item Snapshots de producción se corrompen entre actualizaciones
+    \item Debugging es imposible (entorno cambia sin control)
+    \item Papers científicos no son reproducibles
+    \item Compliance regulatorio falla (finanzas requieren auditoría de código)
+\end{itemize}
+
+Con anclaje estricto:
+
+\begin{itemize}
+    \item Código de hoy funciona idénticamente en 5 años
+    \item Tests de bit-exact parity pasan consistentemente
+    \item Snapshots son compatibles a través del tiempo
+    \item Actualizaciones son controladas, validadas, y documentadas
+    \item Auditorías pueden replicar resultados históricos exactos
+\end{itemize}
+
+El overhead de mantener \texttt{requirements.txt} congelado es \textit{cero} comparado con el \textit{riesgo catastrófico} de dependencias flotantes.
+
 \end{document}
