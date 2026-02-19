@@ -90,6 +90,7 @@ class PredictorConfig:
     snapshot_format: str = "msgpack"        # Serialization: "msgpack" or "protobuf"
     snapshot_hash_algorithm: str = "sha256" # Hash: "sha256" or "crc32c"
     telemetry_hash_interval_steps: int = 1  # Emit parity hashes every N steps
+    telemetry_buffer_capacity: int = 1024   # Max capacity of telemetry buffer (zero-heuristics injection)
     frozen_signal_min_steps: int = 5        # N_freeze: consecutive equal values
     frozen_signal_recovery_ratio: float = 0.1  # Ratio vs historical variance
     frozen_signal_recovery_steps: int = 2   # Consecutive recovery confirmations

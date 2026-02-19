@@ -15,7 +15,12 @@ class TelemetryRecord:
 
 
 class TelemetryBuffer:
-    def __init__(self, capacity: int = 1024) -> None:
+    """Thread-safe telemetry ring buffer with explicit capacity injection.
+    
+    Design: Capacity must be injected from PredictorConfig to comply with
+    the zero-heuristics policy (no implicit buffer defaults).
+    """
+    def __init__(self, capacity: int) -> None:
         self._buffer: Deque[TelemetryRecord] = deque(maxlen=capacity)
         self._lock = threading.Lock()
 

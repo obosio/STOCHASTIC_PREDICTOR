@@ -127,6 +127,8 @@ snapshot_hash_algorithm = "sha256"  # or "crc32c"
 
 # Telemetry
 telemetry_hash_interval_steps = 1
+telemetry_buffer_capacity = 1024  # Maximum capacity of telemetry buffer (zero-heuristics injection)
+
 [validation]
 # Phase 5: Zero-Heuristics Validation Constraints
 # All hardcoded defaults have been eliminated and moved to config-driven parameters

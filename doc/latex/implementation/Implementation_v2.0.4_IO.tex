@@ -148,7 +148,12 @@ The JKO orchestrator should emit a \texttt{TelemetryBuffer} at the end of each s
 
 \subsection{Implementation Notes}
 
-The telemetry buffer is a bounded, thread-safe queue. Parity hashes are emitted on a configurable interval and derived from canonical float64 serialization.
+The telemetry buffer is a bounded, thread-safe queue. Buffer capacity is explicitly injected from \texttt{PredictorConfig.telemetry\_buffer\_capacity} to eliminate implicit defaults (zero-heuristics policy). Parity hashes are emitted on a configurable interval and derived from canonical float64 serialization.
+
+\begin{lstlisting}[language=Python]
+# Instantiation pattern (capacity injected from config)
+buffer = TelemetryBuffer(capacity=config.telemetry_buffer_capacity)
+\end{lstlisting}
 
 \section{No Compute Stalls}
 
@@ -311,6 +316,7 @@ This ensures clarity and maintainability.
     \item \textbf{Module Coverage}: IO helpers implemented for validation, telemetry, snapshots, and credentials
     \item \textbf{Orchestrator Integration}: IO ingestion gate integrated into \texttt{orchestrate\_step()}
     \item \textbf{PRNG Constants}: Named constants replace magic numbers
+    \item \textbf{Buffer Capacity Injection}: TelemetryBuffer capacity injected from config (zero-heuristics policy)
 \end{itemize}
 
 \chapter{Phase 4 Summary}
