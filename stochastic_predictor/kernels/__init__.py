@@ -29,3 +29,77 @@ Expected module structure:
   - kernel_d.py: Signatures kernel (Signax)
   - base.py: Base classes and utilities
 """
+
+from .base import (
+    KernelOutput,
+    PredictionKernel,
+    apply_stop_gradient_to_diagnostics,
+    validate_kernel_input,
+    compute_signal_statistics,
+    normalize_signal
+)
+
+from .kernel_a import (
+    kernel_a_predict,
+    gaussian_kernel,
+    compute_gram_matrix,
+    kernel_ridge_regression,
+    create_embedding
+)
+
+from .kernel_b import (
+    DGM_HJB_Solver,
+    kernel_b_predict,
+    compute_entropy_dgm,
+    loss_hjb
+)
+
+from .kernel_c import (
+    kernel_c_predict,
+    solve_sde,
+    drift_levy_stable,
+    diffusion_levy
+)
+
+from .kernel_d import (
+    kernel_d_predict,
+    compute_log_signature,
+    create_path_augmentation,
+    predict_from_signature
+)
+
+__all__ = [
+    # Base
+    "KernelOutput",
+    "PredictionKernel",
+    "apply_stop_gradient_to_diagnostics",
+    "validate_kernel_input",
+    "compute_signal_statistics",
+    "normalize_signal",
+    
+    # Kernel A (RKHS)
+    "kernel_a_predict",
+    "gaussian_kernel",
+    "compute_gram_matrix",
+    "kernel_ridge_regression",
+    "create_embedding",
+    
+    # Kernel B (DGM)
+    "DGM_HJB_Solver",
+    "kernel_b_predict",
+    "compute_entropy_dgm",
+    "loss_hjb",
+    
+    # Kernel C (SDE)
+    "kernel_c_predict",
+    "solve_sde",
+    "drift_levy_stable",
+    "diffusion_levy",
+    
+    # Kernel D (Signatures)
+    "kernel_d_predict",
+    "compute_log_signature",
+    "create_path_augmentation",
+    "predict_from_signature",
+]
+
