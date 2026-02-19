@@ -229,6 +229,12 @@ def update_cusum_statistics(
     
     With grace period logic to suppress false positives post-alarm.
     
+    CRITICAL GRADIENT ISOLATION:
+    All statistical accumulators (CUSUM, kurtosis, variance) are wrapped with
+    stop_gradient() to prevent gradient leakage during meta-optimization loops
+    (jax.lax.scan, jax.vmap). This ensures VRAM efficiency and prevents
+    catastrophic memory exhaustion when tuning hyperparameters.
+    
     Args:
         residual: Current prediction residual / standardized error
         state: Current internal state
@@ -243,8 +249,11 @@ def update_cusum_statistics(
     References:
         - Implementation.tex §2.3, Algorithm 2.2: CUSUM with Kurtosis
         - Implementation.tex §2.5: Grace Period Logic (V-CRIT-3)
+        - Implementation.tex §2.0.0: FP64 precision policy for immutability
     """
-    # Get current state components
+    # Get current state components with gradient isolation (VRAM protection)
+    # CRITICAL: stop_gradient ensures these accumulators do not participate in
+    # autodiff when orchestrator is nested in optimization loops (jax.lax.scan)
     residual = lax.stop_gradient(residual)
     cusum_g_plus = lax.stop_gradient(state.cusum_g_plus)
     cusum_g_minus = lax.stop_gradient(state.cusum_g_minus)
@@ -254,18 +263,19 @@ def update_cusum_statistics(
     # 1. Update rolling residual window
     new_state = update_residual_window(state, residual)
     
-    # 2. Compute kurtosis from updated window
+    # 2. Compute kurtosis from updated window (stop_gradient applied)
     kurtosis = compute_rolling_kurtosis(new_state.residual_window)
     
     # 3. Compute adaptive threshold with kurtosis adjustment
     # h_t = k · σ_t · (1 + ln(κ_t / 3))
-    # Apply stop_gradient to prevent backprop contamination (VRAM constraint)
+    # CRITICAL: stop_gradient prevents backprop through threshold computation,
+    # ensuring CUSUM statistics remain diagnostic-only (no gradient contamination)
     h_t = jax.lax.stop_gradient(
         config.cusum_k * sigma_t * 
         (1.0 + jnp.log(jnp.maximum(kurtosis, 3.0) / 3.0))
     )
     
-    # 4. CUSUM update equations
+    # 4. CUSUM update equations (standard CUSUM recursion)
     g_plus_new = jnp.maximum(0.0, cusum_g_plus + residual - config.cusum_k)
     g_minus_new = jnp.maximum(0.0, cusum_g_minus - residual - config.cusum_k)
     
@@ -274,11 +284,11 @@ def update_cusum_statistics(
     in_grace_period = grace_counter > 0
     should_alarm = alarm & ~in_grace_period
     
-    # 6. CUSUM reset if alarm
-    final_g_plus = jnp.where(should_alarm, 0.0, g_plus_new)
-    final_g_minus = jnp.where(should_alarm, 0.0, g_minus_new)
+    # 6. CUSUM reset if alarm (stop_gradient applied to prevent gradient flow)
+    final_g_plus = lax.stop_gradient(jnp.where(should_alarm, 0.0, g_plus_new))
+    final_g_minus = lax.stop_gradient(jnp.where(should_alarm, 0.0, g_minus_new))
     
-    # 7. Update grace counter
+    # 7. Update grace counter (diagnostic, no gradients)
     new_grace_counter = jnp.where(
         should_alarm,
         config.grace_period_steps,
@@ -286,6 +296,7 @@ def update_cusum_statistics(
     )
     
     # 8. Return updated state with all components (including adaptive_h_t)
+    # All stateful components are gradient-isolated for VRAM efficiency
     final_state = replace(
         new_state,
         cusum_g_plus=final_g_plus,

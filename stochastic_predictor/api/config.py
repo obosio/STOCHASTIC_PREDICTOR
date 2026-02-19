@@ -33,7 +33,48 @@ if TYPE_CHECKING:
 # ═══════════════════════════════════════════════════════════════════════════
 # Enable 64-bit precision for Malliavin calculus, Signature computations,
 # and deterministic reproducibility across CPU/GPU/FPGA backends.
+# CRITICAL: This must execute at import time, before any JAX operations.
 jax.config.update("jax_enable_x64", True)
+
+
+def verify_xla_precision() -> None:
+    """
+    Audit internal XLA compilation target to ensure FP64 is active.
+    
+    Guarantees immutability of algorithmic signatures (Kernel D log-signatures)
+    and prevents silent truncation in Malliavin calculus operations.
+    
+    Raises:
+        RuntimeError: If JAX FP64 enforcement failed (catastrophic failure mode)
+    
+    References:
+        - Stochastic_Predictor_Implementation.tex §2.0.0 (Bootstrap FP64 policy)
+        - config.toml [core] float_precision = 64
+    
+    Example:
+        >>> verify_xla_precision()  # Raises if FP64 not active
+        >>> # Proceed with kernel operations
+    """
+    test_array = jax.numpy.array([1.0], dtype=jax.numpy.float64)
+    
+    if test_array.dtype != jax.numpy.float64:
+        raise RuntimeError(
+            "CRITICAL: JAX FP64 enforcement failed. "
+            "Log-signature truncation will suffer from catastrophic cancellation. "
+            "Verify that jax.config.update('jax_enable_x64', True) executed before XLA tracing. "
+            "This may indicate a JAX version incompatibility or environment configuration issue."
+        )
+    
+    # Verify dtype attribute is correctly set
+    if str(test_array.dtype) != "float64":
+        raise RuntimeError(
+            f"CRITICAL: JAX dtype inspection failed. Expected 'float64', got '{test_array.dtype}'. "
+            f"XLA backend may be misconfigured or downgrading precision silently."
+        )
+
+
+# Execute FP64 verification immediately at module import
+verify_xla_precision()
 
 
 class ConfigManager:
