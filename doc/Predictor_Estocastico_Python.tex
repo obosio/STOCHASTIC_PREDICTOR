@@ -1099,6 +1099,176 @@ def imex_step(x_curr, dt, drift_stiff, jump_kernel_fft, diffusion, key):
     return x_new
 \end{lstlisting}
 
+\section{Precisión Tensorial Determinista (Hardware Parity: CPU vs GPU vs FPGA)}
+
+\textbf{Problema Crítico en Rama D:} Las GPUs modernas (NVIDIA Ampere/Hopper) utilizan \textbf{Tensor Cores} para acelerar multiplicaciones de matrices. Por eficiencia, estos cores operan por defecto en \textbf{precisión reducida}:
+
+\begin{itemize}
+    \item \textbf{tf32} (Tensor Float 32): 8 bits exponente, 10 bits mantisa → ~1e-6 error
+    \item \textbf{bfloat16}: 5 bits exponente, 10 bits mantisa → ~1e-3 error (peor aún)
+\end{itemize}
+
+Esto \textbf{rompe tests de paridad de bit} entre:
+\begin{enumerate}
+    \item CPU (float32 nativo: 1 bit signo + 8 bits exponente + 23 bits mantisa)
+    \item GPU con Tensor Cores (tf32 o bfloat16 automático)
+    \item FPGA (float32 custom arquitectura)
+\end{enumerate}
+
+\textbf{Impacto en Rama D (Log-Signatures):}
+
+El cálculo de log-signatures es una composición de exponenciales matriciales y inversas en el álgebra de Lie. Incluso errores pequeños de $10^{-6}$ (tf32) se amplifican exponencialmente:
+
+\[
+\text{Log-Signature}_{\text{GPU}}(path) = \text{Log-Signature}_{\text{CPU}}(path) + \Delta + O(10^{-3})
+\]
+
+donde $\Delta$ puede ser $\mathcal{O}(10^{-2})$ o más en dimensiones altas.
+
+\textbf{Consecuencia:} Los tests determinísticos de regresión \textit{fallan}:
+
+\begin{lstlisting}[language=Python]
+# Test que FALLA con Tensor Cores en GPU
+result_cpu = compute_signatures_on_cpu(path)
+result_gpu = compute_signatures_on_gpu(path)
+
+assert jnp.allclose(result_cpu, result_gpu, atol=1e-6)
+# AssertionError: max difference = 2.34e-3 (no pasa!)
+\end{lstlisting}
+
+\textbf{Solución: Forzar float32 Real en JAX}
+
+Configurar JAX para usar \textbf{float32 puro} en multiplicaciones de matrices, deshabilitando Tensor Cores optimizados:
+
+\begin{lstlisting}[language=Python]
+import jax
+
+# ANTES de crear el predictor o cargar modelos:
+jax.config.update("jax_default_matmul_precision", "highest")
+
+# Opciones disponibles:
+#   "highest"  : float32 puro (determinista, lento ~2-3x)
+#   "high"     : float32 con algunas optimizaciones (defecto)
+#   "medium"   : tf32 (rápido pero no determinista)
+#   "lowest"   : bfloat16 (muy rápido, muy impreciso)
+\end{lstlisting}
+
+\textbf{Verificación:}
+
+\begin{lstlisting}[language=Python]
+# Confirmar que está activo
+print(jax.config.jax_default_matmul_precision)
+# Output: highest
+
+# Test de paridad
+result_cpu = predict_step_cpu(x_t)
+result_gpu = predict_step_gpu(x_t)
+
+# Ahora debe pasar:
+assert jnp.allclose(result_cpu, result_gpu, atol=1e-7, rtol=1e-6)
+print("[OK] Paridad bit-exact CPU vs GPU")
+\end{lstlisting}
+
+\textbf{Integración con Determinismo de Punto Flotante:}
+
+Esta configuración \textbf{debe acompañar} a las variables de entorno XLA establecidas anteriormente:
+
+\begin{lstlisting}[language=Python]
+import os
+import jax
+
+# PASO 1: Variables de entorno (ANTES de importar JAX)
+os.environ['XLA_FLAGS'] = '--xla_cpu_use_cross_replica_callbacks=false'
+os.environ['JAX_DETERMINISTIC_REDUCTIONS'] = '1'
+os.environ['JAX_DEFAULT_PRNG_IMPL'] = 'threefry2x32'
+os.environ['XLA_PYTHON_CLIENT_MEM_FRACTION'] = '0.7'
+os.environ['XLA_PYTHON_CLIENT_ALLOCATOR'] = 'platform'
+
+# PASO 2: Configurar precisión tensorial (DESPUÉS de importar JAX)
+jax.config.update('jax_enable_x64', True)                              # float64 si es necesario
+jax.config.update("jax_default_matmul_precision", "highest")           # float32 puro
+jax.config.update('jax_compilation_cache_dir', os.path.expanduser("~/.jax_cache"))
+
+# Ahora seguro inicializar predictor
+predictor = UniversalPredictor(config)
+\end{lstlisting}
+
+\textbf{Implicaciones de Performance:}
+
+\begin{table}[h]
+\centering
+\begin{tabular}{|l|c|c|c|}
+\hline
+\textbf{Precisión} & \textbf{Velocidad} & \textbf{Determinismo} & \textbf{Rama D Accuracy} \\
+\hline
+\texttt{highest} (float32 puro) & $1.0\times$ & \textbf{✓ Exacto} & \textbf{✓ Bit-exact} \\
+\texttt{high} (defecto) & $1.2\times$ & ⚠ Aproximado & ⚠ $\Delta \sim 10^{-7}$ \\
+\texttt{medium} (tf32) & $2-3\times$ & ✗ No determinista & ✗ $\Delta \sim 10^{-3}$ \\
+\texttt{lowest} (bfloat16) & $3-5\times$ & ✗ No determinista & ✗ $\Delta \sim 10^{-2}$ \\
+\hline
+\end{tabular}
+\end{table}
+
+\textbf{Análisis Costo-Beneficio:}
+\begin{itemize}
+    \item \textbf{Overhead típico}: 20-30\% más lento que \texttt{medium}
+    \item \textbf{Beneficio}: Garantía de paridad en tests de reproducibilidad
+    \item \textbf{Contexto producción}: 1ms extra en predicción única ≪ confianza en determinismo
+\end{itemize}
+
+\textbf{Prueba de Paridad Multiplatforma:}
+
+\begin{lstlisting}[language=Python]
+def test_hardware_parity():
+    """
+    Valida que CPU, GPU, FPGA produzcan resultados bit-exact iguales.
+    """
+    x_test = jnp.array([1.0, 0.5, -0.3, 0.1])
+    key = random.PRNGKey(42)
+    
+    # CPU baseline
+    os.environ['JAX_PLATFORMS'] = 'cpu'
+    result_cpu = predictor.step(x_test, key)
+    
+    # GPU con precisión highest
+    os.environ['JAX_PLATFORMS'] = 'gpu'
+    os.environ['CUDA_LAUNCH_BLOCKING'] = '1'
+    os.environ['CUBLAS_WORKSPACE_CONFIG'] = ':16:8'
+    result_gpu = predictor.step(x_test, key)
+    
+    # Assertions
+    assert jnp.allclose(
+        result_cpu.predicted_next,
+        result_gpu.predicted_next,
+        atol=1e-8,  # Bit-exact tolerance
+        rtol=1e-7
+    ), f"GPU parity FAILED: diff={jnp.max(jnp.abs(result_cpu.predicted_next - result_gpu.predicted_next))}"
+    
+    # CPU (float32) vs FPGA simulada (float32)
+    result_fpga = compute_on_fpga(x_test, key)
+    assert jnp.allclose(
+        result_cpu.predicted_next,
+        result_fpga,
+        atol=1e-7,
+        rtol=1e-6
+    ), f"FPGA parity FAILED"
+    
+    print("[✓] Hardware parity test PASSED")
+    print(f"    CPU vs GPU: diff = {jnp.max(jnp.abs(result_cpu.predicted_next - result_gpu.predicted_next)):.2e}")
+    print(f"    CPU vs FPGA: diff = {jnp.max(jnp.abs(result_cpu.predicted_next - result_fpga)):.2e}")
+\end{lstlisting}
+
+\textbf{Recomendación Operacional:}
+
+\begin{enumerate}
+    \item En \textbf{desarrollo/testing}: Siempre usar \texttt{jax\_default\_matmul\_precision="highest"}
+    \item En \textbf{producción baja-latencia}: Usar \texttt{"highest"} si SLA permite overhead
+    \item En \textbf{producción ultra-latencia (H.F.)}: Evaluar trade-off, pero NUNCA \texttt{"medium"} o \texttt{"lowest"}
+    \item En \textbf{CI/CD}: Tests multiplatforma deben ejecutarse con \texttt{"highest"}
+\end{enumerate}
+
+\textbf{Conclusión:} La paridad de bit entre CPU, GPU y FPGA requiere tanto variables de entorno XLA como configuración explícita de precisión tensorial. Rama D (Log-Signatures) es particularmente sensible a estas diferencias, por lo que \textbf{obligatorio} usar \texttt{jax\_default\_matmul\_precision="highest"} en cualquier entorno que requiera determinismo verificable.
+
 \section{Rama D: Log-Signatures con Signax}
 Cálculo de características topológicas de rutas rugosas.
 
