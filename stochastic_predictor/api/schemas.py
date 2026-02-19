@@ -15,7 +15,7 @@ from typing import Any, Dict, Optional
 
 import jax.numpy as jnp
 from jaxtyping import Float, Array, ArrayLike
-from pydantic import BaseModel, Field, validator
+from pydantic import BaseModel, Field, field_validator
 
 
 class OperatingMode(str, Enum):
@@ -59,14 +59,16 @@ class ProcessStateSchema(BaseModel):
         use_enum_values = True
         arbitrary_types_allowed = True
     
-    @validator("magnitude")
+    @field_validator("magnitude", mode="after")
+    @classmethod
     def validate_magnitude_positive(cls, value):
         """Ensure magnitude is strictly positive."""
         if jnp.any(value <= 0):
             raise ValueError(f"Magnitude must be positive, got {value}")
         return value
     
-    @validator("dispersion_proxy")
+    @field_validator("dispersion_proxy", mode="after")
+    @classmethod
     def validate_dispersion_positive(cls, value):
         """Ensure dispersion proxy (if provided) is positive."""
         if value is not None and jnp.any(value <= 0):
@@ -98,7 +100,8 @@ class KernelOutputSchema(BaseModel):
     class Config:
         arbitrary_types_allowed = True
     
-    @validator("kernel_id")
+    @field_validator("kernel_id", mode="after")
+    @classmethod
     def validate_kernel_id(cls, value):
         """Ensure kernel_id is a valid kernel."""
         if value not in ("A", "B", "C", "D"):
@@ -158,11 +161,13 @@ class PredictionResultSchema(BaseModel):
     class Config:
         arbitrary_types_allowed = True
     
-    @validator("confidence_lower", always=True)
-    def validate_bounds(cls, value, values):
+    @field_validator("confidence_lower", mode="after")
+    @classmethod
+    def validate_bounds(cls, value, info):
         """Ensure confidence_lower <= reference_prediction <= confidence_upper."""
-        if "reference_prediction" in values:
-            ref_pred = values["reference_prediction"]
+        # In Pydantic V2, use info.data to access other field values
+        if "reference_prediction" in info.data:
+            ref_pred = info.data["reference_prediction"]
             if jnp.any(value > ref_pred):
                 raise ValueError(f"confidence_lower must be <= reference_prediction")
         return value
