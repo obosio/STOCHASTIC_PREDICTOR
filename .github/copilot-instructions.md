@@ -85,3 +85,52 @@ Maintain a technical, industrial-grade, and concise tone. Avoid conversational f
 6. Verify push successful and CI/CD passing
 
 Non-compliance with this sequence has caused project delays.
+
+## 9. README Updates Before Tagging (MANDATORY)
+**CRITICAL RULE**: ALL README.md files in the project structure MUST be updated BEFORE creating and pushing a new version tag.
+
+**When to Update READMEs:**
+- After completing a new Phase (Phase 1, Phase 2, etc.)
+- When adding new layers, modules, or public APIs
+- When updating version numbers or architecture diagrams
+- Before running `git tag` command
+
+**Files to Check/Update:**
+- `README.md` (root) - Overall project status, quick start, version table
+- `doc/README.md` - Documentation guide and structure
+- `stochastic_predictor/api/README.md` - API layer documentation (if created)
+- `stochastic_predictor/core/README.md` - Core layer documentation (if created)
+- `stochastic_predictor/kernels/README.md` - Kernels layer documentation (if created)
+- `stochastic_predictor/io/README.md` - I/O layer documentation (if created)
+- `tests/README.md` - Testing strategy and fixture guide (if created)
+
+**README Content Checklist:**
+- [ ] Current version/tag referenced
+- [ ] Phase status (Implementation vs Specification)
+- [ ] Layer description matches current implementation
+- [ ] Code examples are up-to-date
+- [ ] References to spec documents are correct
+- [ ] No broken links or typos
+- [ ] 100% English (no Spanish comments or descriptions)
+
+**Workflow Before Tagging:**
+```bash
+# 1. Update all relevant README files
+# 2. Review with get_errors() to ensure Markdown compliance
+get_errors()
+
+# 3. Stage README changes
+git add README.md doc/README.md stochastic_predictor/*/README.md
+
+# 4. Commit README updates
+git commit -m "docs: Update READMEs for vX.Y.Z-<Phase>"
+
+# 5. Only then create the tag
+git tag impl/vX.Y.Z-<PhaseName> -m "Implementation vX.Y.Z-<PhaseName>: <Description>"
+
+# 6. Push both commits and tags
+git push origin <branch>
+git push origin impl/vX.Y.Z-<PhaseName>
+```
+
+**Reference Standard**: Previous commits like cf46ff4 and 3976210 show proper README updates before tagging.
