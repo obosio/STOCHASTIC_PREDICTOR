@@ -1059,6 +1059,103 @@ def fuse_kernel_predictions(kernel_outputs: list[KernelOutput],
     return fused_prediction
 \end{lstlisting}
 
+\section{Mode Collapse Detection (V-MAJ-5)}
+
+\subsection{Purpose}
+
+Kernel B's entropy ($H_{\text{DGM}}$) measures the concentration of predicted probability distributions. Mode collapse—when predictions collapse to a narrow region—indicates loss of forecast diversity. V-MAJ-5 detects sustained mode collapse by accumulating consecutive low-entropy observations.
+
+\subsection{Algorithm}
+
+The orchestrator maintains a counter tracking consecutive steps with entropy below threshold:
+
+\begin{equation}
+c_t = \begin{cases}
+c_{t-1} + 1 & \text{if } H_{\text{DGM},t} < H_{\text{threshold}} \\
+0 & \text{otherwise}
+\end{cases}
+\end{equation}
+
+When $c_t \geq c_{\text{warning}}$ (default: 10 steps), a mode-collapse warning is emitted.
+
+\subsection{Implementation}
+
+\begin{lstlisting}[language=Python]
+# In orchestrate_step():
+
+# V-MAJ-5: Mode Collapse Detection (consecutive low-entropy steps)
+dgm_entropy_threshold = config.entropy_threshold
+low_entropy = float(updated_state.dgm_entropy) < dgm_entropy_threshold
+mode_collapse_counter = updated_state.mode_collapse_consecutive_steps
+
+if low_entropy:
+    mode_collapse_counter = mode_collapse_counter + 1
+else:
+    mode_collapse_counter = 0
+
+# Warning threshold: emit if counter exceeds configuration
+# Using entropy_window / 10 as heuristic (configurable in future)
+mode_collapse_warning_threshold = max(
+    10,
+    config.entropy_window // 10
+)
+mode_collapse_warning = bool(
+    mode_collapse_counter >= mode_collapse_warning_threshold
+)
+
+# Persist counter in state
+updated_state = replace(
+    updated_state,
+    mode_collapse_consecutive_steps=mode_collapse_counter
+)
+\end{lstlisting}
+
+\subsection{State Field}
+
+New field in \texttt{InternalState}:
+
+\begin{verbatim}
+mode_collapse_consecutive_steps: int = 0
+    - Counter for consecutive low-entropy observations
+    - Incremented when dgm_entropy < entropy_threshold
+    - Reset to zero on high-entropy observation
+    - Used to detect prolonged mode collapse (not transient)
+\end{verbatim}
+
+\subsection{Signal Flow}
+
+\begin{verbatim}
+orchestrate_step():
+  1. Kernel B computes dgm_entropy
+  2. Compare dgm_entropy < threshold
+    ├─ True: counter++
+    └─ False: counter = 0
+  3. Check if counter >= warning_threshold
+    ├─ True: mode_collapse_warning = True
+    └─ False: mode_collapse_warning = False
+  4. Persist counter to state
+  5. Return PredictionResult.mode_collapse_warning
+     └─> Logged in telemetry for alert/escalation
+\end{verbatim}
+
+\subsection{Benefits}
+
+\begin{itemize}
+    \item \textbf{Transient Robustness}: Single low-entropy step does not trigger alarm
+    \item \textbf{Sustained Collapse Detection}: Detects persistent mode limitation
+    \item \textbf{Kernel B Diagnostics}: Integrates second-order kernel feedback into orchestration
+    \item \textbf{Telemetry Trail}: Counter visible in metrics for debugging
+    \item \textbf{Circuit Breaker Ready}: Warning feeds into higher-level inference controls (V-MAJ-7 Degraded Mode Hysteresis)
+\end{itemize}
+
+\subsection{Integration with Other Violations}
+
+\begin{itemize}
+    \item \textbf{V-MAJ-1 (Entropy Threshold Adaptive)}: V-MAJ-1's $\gamma_t$ multiplier affects the effective threshold; V-MAJ-5 uses the resulting threshold
+    \item \textbf{V-MAJ-7 (Degraded Mode Hysteresis)}: Mode collapse warning can trigger hysteretic transition to degraded inference
+    \item \textbf{V-CRIT-1 (CUSUM Grace Period)}: Mode collapse warnings are independent of CUSUM alarms; both can drive circuit breaker
+\end{itemize}
+
 \section{Risk Detection}
 
 \begin{lstlisting}[language=Python]
