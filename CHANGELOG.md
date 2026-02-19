@@ -140,11 +140,11 @@ v2.1.0-RC1 resolves all critical XLA/JAX compilation violations, enforces Golden
 
 ### Breaking Changes
 
-**None** - All changes are backward-compatible at the Python API level. Type annotations updated for clarity but function signatures remain stable.
+None - All changes are backward-compatible at the Python API level. Type annotations updated for clarity but function signatures remain stable.
 
 ### Deprecations
 
-**None**
+None
 
 ### Migration Guide
 
