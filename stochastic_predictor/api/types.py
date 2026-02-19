@@ -72,6 +72,7 @@ class PredictorConfig:
     cusum_h: float = 5.0            # h: Drift threshold
     cusum_k: float = 0.5            # k: Slack (tolerance)
     grace_period_steps: int = 20    # Refractory period post-alarm
+    residual_window_size: int = 252 # Rolling window size for kurtosis (annual)
     
     # Volatility Monitoring (EWMA)
     volatility_alpha: float = 0.1   # α: Exponential decay
@@ -417,6 +418,7 @@ class InternalState:
     # History Buffers (rolling windows)
     signal_history: Float[Array, "N"]       # Last N signal magnitudes
     residual_buffer: Float[Array, "N"]      # Last N prediction errors
+    residual_window: Float[Array, "W"]      # Rolling window for kurtosis (252 steps)
     
     # Orchestrator Weights (simplex)
     rho: Float[Array, "4"]                  # [ρ_A, ρ_B, ρ_C, ρ_D]

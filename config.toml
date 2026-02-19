@@ -34,6 +34,7 @@ entropy_threshold = 0.8
 grace_period_steps = 20
 cusum_h = 5.0  # Drift threshold
 cusum_k = 0.5  # Slack tolerance
+residual_window_size = 252  # Annual rolling window for kurtosis computation
 
 # Volatility monitoring (EWMA)
 volatility_alpha = 0.1

@@ -152,43 +152,148 @@ def batch_update_signal_history(
 
 
 @jax.jit
-def update_cusum_statistics(
+def compute_rolling_kurtosis(
+    residual_window: Float[Array, "W"]
+) -> Float[Array, ""]:
+    """
+    Compute empirical kurtosis of rolling residuals.
+    
+    κ_t = (1/n) Σ(e_i - μ)^4 / σ^4
+    
+    Args:
+        residual_window: Rolling window of standardized residuals
+    
+    Returns:
+        Scalar kurtosis value bounded [1.0, 100.0]
+    
+    References:
+        - Implementation.tex §2.3: Algorithm 2.2 (CUSUM with Kurtosis)
+    """
+    n = residual_window.shape[0]
+    mean_res = jnp.mean(residual_window)
+    var_res = jnp.var(residual_window)
+    std_res = jnp.sqrt(jnp.maximum(var_res, 1e-10))
+    
+    # Fourth central moment
+    fourth_moment = jnp.mean((residual_window - mean_res)**4)
+    
+    # Kurtosis: μ4 / σ^4
+    kurtosis = fourth_moment / (std_res**4 + 1e-10)
+    
+    # Bound to avoid numerical explosion
+    return jnp.clip(kurtosis, 1.0, 100.0)
+
+
+@jax.jit
+def update_residual_window(
     state: InternalState,
-    new_residual: Float[Array, ""],
-    cusum_k: float
+    new_residual: Float[Array, ""]
 ) -> InternalState:
     """
-    Update CUSUM statistics (G+, G-) atomically.
+    Update residual_window with new residual (Zero-Copy rolling window).
     
-    CUSUM (Cumulative Sum) algorithm for change-point detection:
-    - G^+ tracks positive drift accumulation
-    - G^- tracks negative drift accumulation
+    Shifts window left and appends new value at the end.
     
     Args:
         state: Current internal state
-        new_residual: New prediction residual
-        cusum_k: CUSUM reference value (allowance parameter)
+        new_residual: New residual to append
     
     Returns:
-        New InternalState with updated CUSUM statistics
+        New InternalState with updated residual_window
     
     References:
-        - Teoria.tex §3.4: CUSUM Algorithm
-        - Python.tex §5.3: Degradation Detection
+        - API_Python.tex §3.2: Residual Window Management
     """
-    # CUSUM update equations
+    window = lax.stop_gradient(state.residual_window)
+    new_residual = lax.stop_gradient(new_residual)
+    W = window.shape[0]
+    
+    # Shift left: drop oldest, append new
+    shifted = lax.dynamic_slice(window, start_indices=(1,), slice_sizes=(W - 1,))
+    new_res_array = jnp.atleast_1d(new_residual)
+    updated_window = jnp.concatenate([shifted, new_res_array])
+    
+    return replace(state, residual_window=updated_window)
+
+
+@jax.jit
+def update_cusum_statistics(
+    residual: Float[Array, ""],
+    state: InternalState,
+    config
+) -> tuple[InternalState, bool, float]:
+    """
+    Update CUSUM statistics with kurtosis-adaptive threshold [V-CRIT-1 FIX].
+    
+    NEW: h_t = k · σ_t · (1 + ln(κ_t / 3))
+    
+    With grace period logic to suppress false positives post-alarm.
+    
+    Args:
+        residual: Current prediction residual / standardized error
+        state: Current internal state
+        config: PredictorConfig with cusum_k, grace_period_steps, etc.
+    
+    Returns:
+        Tuple: (updated_state, should_alarm, h_t)
+        - updated_state: State with CUSUM, kurtosis, grace counter updated
+        - should_alarm: True if alarm AND NOT in grace period
+        - h_t: Adaptive threshold value
+    
+    References:
+        - Implementation.tex §2.3, Algorithm 2.2: CUSUM with Kurtosis
+        - Implementation.tex §2.5: Grace Period Logic (V-CRIT-3)
+    """
+    # Get current state components
+    residual = lax.stop_gradient(residual)
     cusum_g_plus = lax.stop_gradient(state.cusum_g_plus)
     cusum_g_minus = lax.stop_gradient(state.cusum_g_minus)
-    new_residual = lax.stop_gradient(new_residual)
-
-    g_plus_new = jnp.maximum(0.0, cusum_g_plus + new_residual - cusum_k)
-    g_minus_new = jnp.maximum(0.0, cusum_g_minus - new_residual - cusum_k)
+    grace_counter = lax.stop_gradient(jnp.array(state.grace_counter, dtype=jnp.int32))
+    sigma_t = jnp.sqrt(jnp.maximum(state.ema_variance, 1e-10))
     
-    return replace(
-        state,
-        cusum_g_plus=g_plus_new,
-        cusum_g_minus=g_minus_new
+    # 1. Update rolling residual window
+    new_state = update_residual_window(state, residual)
+    
+    # 2. Compute kurtosis from updated window
+    kurtosis = compute_rolling_kurtosis(new_state.residual_window)
+    
+    # 3. Compute adaptive threshold with kurtosis adjustment
+    # h_t = k · σ_t · (1 + ln(κ_t / 3))
+    h_t = (config.cusum_k * sigma_t * 
+           (1.0 + jnp.log(jnp.maximum(kurtosis, 3.0) / 3.0)))
+    
+    # 4. CUSUM update equations
+    g_plus_new = jnp.maximum(0.0, cusum_g_plus + residual - config.cusum_k)
+    g_minus_new = jnp.maximum(0.0, cusum_g_minus - residual - config.cusum_k)
+    
+    # 5. Alarm detection
+    alarm = (g_plus_new > h_t) | (g_minus_new > h_t)
+    in_grace_period = grace_counter > 0
+    should_alarm = alarm & ~in_grace_period
+    
+    # 6. CUSUM reset if alarm
+    final_g_plus = jnp.where(should_alarm, 0.0, g_plus_new)
+    final_g_minus = jnp.where(should_alarm, 0.0, g_minus_new)
+    
+    # 7. Update grace counter
+    new_grace_counter = jnp.where(
+        should_alarm,
+        config.grace_period_steps,
+        jnp.maximum(0, grace_counter - 1)
     )
+    
+    # 8. Return updated state with all components
+    final_state = replace(
+        new_state,
+        cusum_g_plus=final_g_plus,
+        cusum_g_minus=final_g_minus,
+        grace_counter=int(new_grace_counter),
+        kurtosis=kurtosis,
+    )
+    
+    return final_state, bool(should_alarm), float(h_t)
+
+
 
 
 @jax.jit
@@ -228,47 +333,48 @@ def atomic_state_update(
     state: InternalState,
     new_signal: Float[Array, ""],
     new_residual: Float[Array, ""],
-    cusum_k: float,
-    volatility_alpha: float
-) -> InternalState:
+    config: "PredictorConfig"
+) -> tuple[InternalState, bool]:
     """
     Perform atomic update of all state buffers simultaneously.
     
     Combines multiple Zero-Copy updates into a single functional operation:
     - Signal history rolling window
     - Residual buffer rolling window
-    - CUSUM statistics (G+, G-)
+    - CUSUM statistics (G+, G-) with kurtosis adaptation
     - EWMA variance
+    - Grace period management
     
     Args:
         state: Current internal state
         new_signal: New signal magnitude
-        new_residual: New prediction error
-        cusum_k: CUSUM allowance parameter
-        volatility_alpha: EWMA smoothing factor
+        new_residual: New prediction error (absolute deviation)
+        config: System configuration (PredictorConfig)
     
     Returns:
-        New InternalState with all buffers updated atomically
+        Tuple of (updated_state, should_alarm: bool)
+        - updated_state: New InternalState with all buffers updated atomically
+        - should_alarm: True if CUSUM alarm triggered, False otherwise
     
     Example:
         >>> from stochastic_predictor.api.config import get_config
         >>> config = get_config()
-        >>> new_state = atomic_state_update(
-        ...     state, new_signal=3.14, new_residual=0.05,
-        ...     cusum_k=config.cusum_k, volatility_alpha=config.volatility_alpha
+        >>> new_state, alarm = atomic_state_update(
+        ...     state, new_signal=3.14, new_residual=0.05, config=config
         ... )
     
     References:
         - API_Python.tex §3.4: Atomic State Updates
-        - Implementacion.tex §5: State Management
+        - Implementation_v2.0.1_API.tex §2.3: CUSUM Kurtosis Adjustment (V-CRIT-1)
+        - Stochastic_Predictor_Theory.tex §3.4.2: CUSUM Grace Period Logic
     """
     # Chain functional updates (JAX will optimize this)
     state = update_signal_history(state, new_signal)
     state = update_residual_buffer(state, new_residual)
-    state = update_cusum_statistics(state, new_residual, cusum_k)
-    state = update_ema_variance(state, new_residual, volatility_alpha)
+    state, should_alarm, h_t = update_cusum_statistics(new_residual, state, config)
+    state = update_ema_variance(state, new_residual, config.volatility_alpha)
     
-    return state
+    return state, should_alarm
 
 
 @jax.jit
@@ -300,6 +406,8 @@ __all__ = [
     "update_signal_history",
     "update_residual_buffer",
     "batch_update_signal_history",
+    "compute_rolling_kurtosis",
+    "update_residual_window",
     "update_cusum_statistics",
     "update_ema_variance",
     "atomic_state_update",

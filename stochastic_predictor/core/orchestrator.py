@@ -182,13 +182,13 @@ def orchestrate_step(
     # If observation is rejected, skip state update entirely (return unchanged state)
     if reject_observation:
         updated_state = state
+        regime_change_detected = False
     else:
-        updated_state = atomic_state_update(
+        updated_state, regime_change_detected = atomic_state_update(
             state=state,
             new_signal=current_value,
             new_residual=residual,
-            cusum_k=config.cusum_k,
-            volatility_alpha=config.volatility_alpha,
+            config=config,
         )
 
     updated_state = replace(
@@ -199,18 +199,11 @@ def orchestrate_step(
         rng_key=jax.random.split(state.rng_key, RNG_SPLIT_COUNT)[1],
     )
 
-    regime_change_detected = bool(updated_state.cusum_g_plus > config.cusum_h)
+    # Grace period decay during normal operations (CUSUM reset is done in update_cusum_statistics)
     grace_counter = updated_state.grace_counter
-
-    if regime_change_detected:
-        updated_state = reset_cusum_statistics(updated_state)
-        grace_counter = config.grace_period_steps
-
     if grace_counter > 0:
         grace_counter -= 1
-        updated_state = replace(updated_state, rho=state.rho)
-
-    updated_state = replace(updated_state, grace_counter=grace_counter)
+        updated_state = replace(updated_state, grace_counter=grace_counter, rho=state.rho)
 
     emergency_mode = bool(updated_state.holder_exponent < config.holder_threshold)
     
