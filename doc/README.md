@@ -58,7 +58,7 @@ doc/                                  # Documentation root
     - Total 1,423 LoC with RKHS, DGM, SDE, and Signature methods
     - All kernels JIT-compilable, stateless, with stop_gradient on diagnostics
   - **`Implementation_v2.0.3_Core.tex`** ✨
-    - Tag: `impl/v2.0.3` (commit b566b2f)
+    - Tag: `impl/v2.0.3` (commit cb119d9)
     - Core Orchestration Complete: JKO/Sinkhorn fusion with volatility coupling
     - Modules: core/sinkhorn.py, core/fusion.py, core/orchestrator.py
     - Config-driven simplex validation and weight updates

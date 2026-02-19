@@ -1,8 +1,8 @@
 # Universal Stochastic Predictor (USP)
 
 ![License](https://img.shields.io/badge/license-MIT-blue.svg)
-![Status](https://img.shields.io/badge/status-Phase%202%20Complete-brightgreen.svg)
-![Version](https://img.shields.io/badge/version-v2.0.2-blue.svg)
+![Status](https://img.shields.io/badge/status-Phase%203%20Complete-brightgreen.svg)
+![Version](https://img.shields.io/badge/version-v2.0.3-blue.svg)
 
 ## 📋 Descripción
 
@@ -32,10 +32,10 @@ Este repositorio contiene:
 
 - `impl/v2.0.0` - Initial 5-tier architecture scaffold (Bootstrap)
 - `impl/v2.0.1` - Phase 1 Complete: Full API Layer (types, PRNG, validation, schemas, config)
-- `impl/v2.0.2` - Phase 2 Complete: Kernels A, B, C, D (RKHS, DGM, SDE, Signatures) [CURRENT]
-- `impl/v2.1.x` - *Pending*: Phase 3 - Orchestration (JKO, Sinkhorn)
-- `impl/v2.2.x` - *Pending*: Phase 4 - I/O (snapshots, streaming)
-- `impl/v2.3.x` - *Pending*: Phase 5 - Tests and hardening
+- `impl/v2.0.2` - Phase 2 Complete: Kernels A, B, C, D (RKHS, DGM, SDE, Signatures)
+- `impl/v2.0.3` - Phase 3 Complete: Core Orchestration (JKO, Sinkhorn) [CURRENT]
+- `impl/v2.1.x` - *Pending*: Phase 4 - I/O (snapshots, streaming)
+- `impl/v2.2.x` - *Pending*: Phase 5 - Tests and hardening
 - `impl/v3.0.0` - *Pending*: First production-ready version
 
 **Legacy** (for history):
@@ -155,13 +155,13 @@ Para detalles, ver [doc/README.md](doc/README.md).
 
 ## 🚀 Estado Actual
 
-### FASE: Phase 2 Complete (v2.0.2) - Kernels Layer Materialized ✅
+### FASE: Phase 3 Complete (v2.0.3) - Core Orchestration Materialized ✅
 
 **Branch activo**: `implementation/base-jax`  
-**Tag actual**: `impl/v2.0.2`  
+**Tag actual**: `impl/v2.0.3`  
 **Fecha**: 19 Feb 2026
 
-✅ **Completado (Phase 1-2: Foundations + Kernels)**:
+✅ **Completado (Phase 1-3: Foundations + Kernels + Core)**:
 
 - 7 documentos LaTeX especificación exhaustiva (1.73 MB PDFs)
 - Estructura de 5 capas implementada (`api/`, `core/`, `kernels/`, `io/`, `utils/`)
@@ -177,6 +177,10 @@ Para detalles, ver [doc/README.md](doc/README.md).
   - `kernel_b.py`: DGM PDE solver (HJB)
   - `kernel_c.py`: SDE integration (Levy)
   - `kernel_d.py`: Path signatures
+- **Core orchestration materialized**:
+  - `core/sinkhorn.py`: Sinkhorn scan-based OT with volatility coupling
+  - `core/fusion.py`: JKO fusion and free-energy tracking
+  - `core/orchestrator.py`: state updates, degraded modes, telemetry outputs
 - Golden Master con dependency pinning estricto (`==`)
 - Documentación reorganizada en estructura jerárquica
 - Políticas de seguridad (.env, .gitignore)
@@ -186,11 +190,11 @@ Para detalles, ver [doc/README.md](doc/README.md).
 - Stack tecnológico completo (JAX 0.4.20 + Equinox 0.11.2 + Diffrax 0.4.1 + Pydantic 2.0.0)
 - 100% English code enforcement (language policy verified)
 
-🚧 **En desarrollo próximo (Phase 3)**:
+🚧 **En desarrollo próximo (Phase 4)**:
 
-- Orquestador JKO/Sinkhorn (core/)
+- Capa I/O (snapshots atómicos, streaming asíncrono)
 - Motor SIA (WTMM, entropía, estacionariedad)
-- Suite de tests por kernel
+- Suite de tests por kernel y core
 - Validación CPU/GPU parity
 
 **Este repositorio está listo para desarrollo activo** con scaffold validado y especificación rigurosa como referencia.
@@ -231,6 +235,6 @@ Especificación integra JAX, Equinox, Diffrax, Signax, PyWavelets, OTT-JAX.
 
 ---
 
-📐 **v2.0.2-Phase1-Complete**: API layer fully materialized with Pydantic schemas and config injection  
+📐 **v2.0.3-Phase3-Complete**: Core orchestration materialized with JKO/Sinkhorn fusion  
 ⚡ **Stack garantizado**: JAX==0.4.20 | Equinox==0.11.2 | Diffrax==0.4.1 | Signax==0.1.4 | OTT-JAX==0.4.5 | Pydantic==2.0.0  
-🏗️ **Branch activo**: `implementation/base-jax` - Phase 2 (Kernels) próximamente
+🏗️ **Branch activo**: `implementation/base-jax` - Phase 3 (Core) completo
