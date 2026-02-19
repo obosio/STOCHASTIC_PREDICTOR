@@ -175,6 +175,9 @@ FIELD_TO_SECTION_MAP: Dict[str, str] = {
     
     # Validation & Outlier Detection
     "sigma_bound": "orchestration",
+    "sigma_val": "orchestration",
+    "max_future_drift_ns": "orchestration",
+    "max_past_drift_ns": "orchestration",
     
     # I/O Policies
     "market_feed_timeout": "io",

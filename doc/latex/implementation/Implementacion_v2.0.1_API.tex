@@ -100,7 +100,7 @@ The \texttt{types.py} module defines the foundational data structures for the pr
 \begin{lstlisting}[language=Python]
 @dataclass(frozen=True)
 class PredictorConfig:
-    """Complete Hyperparameter Vector Lambda (28 fields)."""
+    """Complete Hyperparameter Vector Lambda (31 fields)."""
     # Metadata
     schema_version: str = "1.0"
     
@@ -135,8 +135,11 @@ class PredictorConfig:
     grace_period_steps: int = 20
     volatility_alpha: float = 0.1
     
-    # Validation (Black Swan Detection)
-    sigma_bound: float = 20.0  # N sigmas for outlier rejection
+    # Validation (Outlier Detection & Temporal Drift)
+    sigma_bound: float = 20.0           # N sigmas (Black Swan threshold)
+    sigma_val: float = 1.0              # Reference std dev
+    max_future_drift_ns: int = 1_000_000_000     # Clock skew (1s)
+    max_past_drift_ns: int = 86_400_000_000_000  # Stale data (24h)
     
     # I/O Policies
     market_feed_timeout: int = 30
@@ -150,13 +153,15 @@ class PredictorConfig:
     inference_recovery_hysteresis: float = 0.8
 \end{lstlisting}
 
-\textbf{Field Count}: 28 total fields (expanded from 15 in v2.0.1 initial release)
+\textbf{Field Count}: 31 total fields (expanded from 15 initial → 28 e4237ad → 31 current)
 
 \textbf{Validation}: \texttt{\_\_post\_init\_\_} enforces mathematical invariants:
 \begin{itemize}
     \item Sinkhorn parameters: $\epsilon > 0$, $\epsilon_0 \geq \epsilon_{min}$, $\alpha \in (0, 1]$
     \item SDE integration: $dt > 0$, $0 < stiffness_{low} < stiffness_{high}$
     \item Holder threshold: $H_{min} \in (0, 1)$
+    \item Outlier detection: $\sigma_{bound} > 0$, $\sigma_{val} > 0$
+    \item Temporal drift: $max\_future\_drift\_ns > 0$, $max\_past\_drift\_ns > 0$
     \item Compression: Must be ``none'', ``gzip'', or ``brotli''
 \end{itemize}
 
@@ -312,38 +317,57 @@ def validate_beta_stable(beta: float, alpha: float) -> tuple[bool, str]:
 
 \section{Zero-Heuristics Policy Enforcement}
 
-\textbf{Critical Refactor}: Removed hardcoded defaults from validation functions to enforce configuration-driven operation (Diamond Level Specification).
+\textbf{Critical Refactor}: Removed ALL hardcoded defaults from validation functions to enforce configuration-driven operation (Diamond Level Specification).
 
 \begin{lstlisting}[language=Python]
-# BEFORE (hardcoded heuristic):
+# BEFORE (hardcoded heuristics - VIOLATIONS):
 def validate_price(
     price: Float[Array, "1"],
-    sigma_bound: float = 20.0,  # MAGIC NUMBER
-    sigma_val: float = 1.0
+    sigma_bound: float = 20.0,  # MAGIC NUMBER 1
+    sigma_val: float = 1.0      # MAGIC NUMBER 2
 ) -> Tuple[bool, str]:
     # ...
 
-# AFTER (zero-heuristics):
+def validate_timestamp(
+    timestamp_ns: int,
+    max_future_drift_ns: int = 1_000_000_000,      # MAGIC NUMBER 3
+    max_past_drift_ns: int = 86_400_000_000_000    # MAGIC NUMBER 4
+) -> Tuple[bool, str]:
+    # ...
+
+# AFTER (zero-heuristics - COMPLIANT):
 def validate_price(
     price: Float[Array, "1"],
-    sigma_bound: float,  # MUST come from PredictorConfig
-    sigma_val: float = 1.0
+    sigma_bound: float,  # From config.sigma_bound
+    sigma_val: float     # From config.sigma_val
 ) -> Tuple[bool, str]:
-    """
-    Zero-Heuristics Policy: sigma_bound MUST be passed 
-    from PredictorConfig. No default value.
-    """
+    """ALL parameters MUST come from PredictorConfig."""
+    # ...
+
+def validate_timestamp(
+    timestamp_ns: int,
+    max_future_drift_ns: int,  # From config.max_future_drift_ns
+    max_past_drift_ns: int     # From config.max_past_drift_ns
+) -> Tuple[bool, str]:
+    """ALL parameters MUST come from PredictorConfig."""
     # ...
 
 # Usage:
 config = PredictorConfigInjector().create_config()
 is_valid, msg = validate_price(
     price=jnp.array([100.5]), 
-    sigma_bound=config.sigma_bound  # Explicit config injection
+    sigma_bound=config.sigma_bound,
+    sigma_val=config.sigma_val  # Explicit config injection
+)
+
+is_valid, msg = validate_timestamp(
+    timestamp_ns=time.time_ns(),
+    max_future_drift_ns=config.max_future_drift_ns,
+    max_past_drift_ns=config.max_past_drift_ns
 )
 \end{lstlisting}
 
-\textbf{Rationale}: Hardcoded \texttt{sigma\_bound = 20.0} violated the principle that ALL hyperparameters must reside in PredictorConfig. This prevented runtime tuning and broke the unity of the configuration vector $\Lambda$.
+\textbf{Rationale}: Hardcoded defaults for outlier detection (\texttt{sigma\_bound}, \texttt{sigma\_val}) and temporal drift validation (\texttt{max\_future\_drift\_ns}, \texttt{max\_past\_drift\_ns}) violated the Diamond Level principle that ALL hyperparameters must reside in PredictorConfig. This prevented runtime tuning for different market regimes (HFT vs. daily trading) and broke the unity of the configuration vector $\Lambda$.
 
 \chapter{Schema Definitions (schemas.py)}
 
@@ -459,7 +483,7 @@ class ConfigManager:
 
 \section{FIELD\_TO\_SECTION\_MAP (Single Source of Truth)}
 
-\textbf{Expanded from 15 to 28 fields} to enforce zero-heuristics policy.
+\textbf{Expanded from 15 → 28 (e4237ad) → 31 fields (current)} to enforce zero-heuristics policy.
 
 \begin{lstlisting}[language=Python]
 # Maps PredictorConfig field names to config.toml sections
@@ -497,8 +521,11 @@ FIELD_TO_SECTION_MAP: Dict[str, str] = {
     "volatility_alpha": "orchestration",
     "inference_recovery_hysteresis": "orchestration",
     
-    # Validation
+    # Validation & Outlier Detection
     "sigma_bound": "orchestration",
+    "sigma_val": "orchestration",
+    "max_future_drift_ns": "orchestration",
+    "max_past_drift_ns": "orchestration",
     
     # I/O Policies
     "market_feed_timeout": "io",
@@ -509,7 +536,7 @@ FIELD_TO_SECTION_MAP: Dict[str, str] = {
     # Core System Policies
     "staleness_ttl_ns": "core",
 }
-# Total: 28 fields
+# Total: 31 fields
 \end{lstlisting}
 
 \section{PredictorConfigInjector (Automated Mapping)}
@@ -569,21 +596,24 @@ current_config = get_config()
 
 \textbf{Convention}: \texttt{USP\_SECTION\_\_KEY} (double underscore separator)
 
-\textbf{Expanded to 28 parameters} (13 new fields added for zero-heuristics compliance).
+\textbf{Expanded to 31 parameters} (16 new fields total: 13 in e4237ad + 3 temporal drift).
 
 \begin{lstlisting}[language=bash]
 # Core System Configuration
 USP_CORE__STALENESS_TTL_NS=500000000
 
-# Orchestration Parameters (13 total, 6 new)
+# Orchestration Parameters (16 total, 9 new)
 USP_ORCHESTRATION__EPSILON=0.001
 USP_ORCHESTRATION__LEARNING_RATE=0.01
-USP_ORCHESTRATION__SINKHORN_EPSILON_MIN=0.01  # NEW
-USP_ORCHESTRATION__SINKHORN_EPSILON_0=0.1     # NEW
-USP_ORCHESTRATION__SINKHORN_ALPHA=0.5         # NEW
-USP_ORCHESTRATION__ENTROPY_WINDOW=100         # NEW
-USP_ORCHESTRATION__ENTROPY_THRESHOLD=0.8      # NEW
-USP_ORCHESTRATION__SIGMA_BOUND=20.0           # NEW (outlier detection)
+USP_ORCHESTRATION__SINKHORN_EPSILON_MIN=0.01  # NEW (e4237ad)
+USP_ORCHESTRATION__SINKHORN_EPSILON_0=0.1     # NEW (e4237ad)
+USP_ORCHESTRATION__SINKHORN_ALPHA=0.5         # NEW (e4237ad)
+USP_ORCHESTRATION__ENTROPY_WINDOW=100         # NEW (e4237ad)
+USP_ORCHESTRATION__ENTROPY_THRESHOLD=0.8      # NEW (e4237ad)
+USP_ORCHESTRATION__SIGMA_BOUND=20.0           # NEW (e4237ad: outlier detection)
+USP_ORCHESTRATION__SIGMA_VAL=1.0              # NEW (current: reference std dev)
+USP_ORCHESTRATION__MAX_FUTURE_DRIFT_NS=1000000000      # NEW (current: clock skew)
+USP_ORCHESTRATION__MAX_PAST_DRIFT_NS=86400000000000    # NEW (current: stale data)
 USP_ORCHESTRATION__HOLDER_THRESHOLD=0.4
 USP_ORCHESTRATION__CUSUM_H=5.0
 USP_ORCHESTRATION__CUSUM_K=0.5
@@ -591,7 +621,7 @@ USP_ORCHESTRATION__GRACE_PERIOD_STEPS=20
 USP_ORCHESTRATION__VOLATILITY_ALPHA=0.1
 USP_ORCHESTRATION__INFERENCE_RECOVERY_HYSTERESIS=0.8
 
-# Kernel Parameters (8 total, 4 new)
+# Kernel Parameters (8 total, 4 new in e4237ad)
 USP_KERNELS__LOG_SIG_DEPTH=3
 USP_KERNELS__WTMM_BUFFER_SIZE=128
 USP_KERNELS__BESOV_CONE_C=1.5
@@ -611,13 +641,14 @@ USP_IO__SNAPSHOT_COMPRESSION=none             # NEW
 USP_META__SCHEMA_VERSION=1.0
 \end{lstlisting}
 
-\textbf{Critical Fix (commits dc16b1a + 65e4bcf + [PENDING])}:
+\textbf{Critical Fix (commits dc16b1a + 65e4bcf + e4237ad + [CURRENT])}:
 \begin{itemize}
     \item Replaced generic \texttt{JAX\_PLATFORMS} with \texttt{USP\_SECTION\_\_KEY} convention
-    \item Documented ALL 28 algorithmic parameters with correct prefixes (expanded from 15)
+    \item Documented ALL 31 algorithmic parameters with correct prefixes (expanded from 15 → 28 → 31)
     \item Synchronized with \texttt{FIELD\_TO\_SECTION\_MAP} (single source of truth)
     \item JAX-specific vars (\texttt{JAX\_PLATFORMS}, \texttt{JAX\_ENABLE\_X64}) preserved without \texttt{USP\_} prefix (consumed by JAX at import time)
     \item \textbf{New section}: \texttt{USP\_IO\_\_*} for I/O policies (market feed, snapshots)
+    \item \textbf{Temporal drift validation}: Added \texttt{sigma\_val}, \texttt{max\_future\_drift\_ns}, \texttt{max\_past\_drift\_ns}
 \end{itemize}
 
 \textbf{ConfigManager Auto-Merge}:
@@ -665,12 +696,13 @@ config.py & 220 \\
     \item ✓ No VSCode errors or warnings
     \item ✓ All imports resolved
     \item ✓ 5-layer architecture maintained
-    \item ✓ \textbf{Config injection completeness}: All 28 PredictorConfig fields mapped (expanded from 15)
+    \item ✓ \textbf{Config injection completeness}: All 31 PredictorConfig fields mapped (15 → 28 → 31)
     \item ✓ \textbf{Type consistency}: Float[Array, "1"] across schemas.py and types.py
     \item ✓ \textbf{Environment policy}: USP\_SECTION\_\_KEY convention enforced
     \item ✓ \textbf{Automated validation}: Runtime checks for FIELD\_TO\_SECTION\_MAP completeness
-    \item ✓ \textbf{Zero-heuristics policy}: No hardcoded magic numbers (Diamond Level)
-    \item ✓ \textbf{Validation API}: sigma\_bound no longer has default (must come from config)
+    \item ✓ \textbf{Zero-heuristics policy (Diamond Level)}: ALL hardcoded defaults eliminated
+    \item ✓ \textbf{Validation API}: sigma\_bound, sigma\_val, max\_future\_drift\_ns, max\_past\_drift\_ns MUST come from config
+    \item ✓ \textbf{Temporal drift governance}: Clock skew and stale data thresholds externalized
 \end{itemize}
 
 \section{Critical Fixes Applied}
@@ -681,7 +713,7 @@ config.py & 220 \\
 \hline
 \textbf{Issue} & \textbf{Commit} & \textbf{Resolution} \\
 \hline
-Config injection incomplete (8/15 fields) & dc16b1a & All 15 fields mapped \\
+Config injection incomplete (8/15) & dc16b1a & All 15 fields mapped \\
 \hline
 Type dimensional mismatch & dc16b1a & Float[Array, "1"] enforced \\
 \hline
@@ -689,11 +721,15 @@ Environment variable naming & dc16b1a & USP\_SECTION\_\_KEY convention \\
 \hline
 Manual field mapping (78 LOC) & 65e4bcf & Automated dataclass introspection \\
 \hline
-Hardcoded heuristics (sigma\_bound) & [PENDING] & Removed from validate\_price() default \\
+Hardcoded sigma\_bound default & e4237ad & Removed from validate\_price() \\
 \hline
-Missing config fields & [PENDING] & Expanded PredictorConfig to 28 fields \\
+Missing SDE/IO config fields & e4237ad & Expanded to 28 fields (+13 new) \\
 \hline
-SDE/IO parameters ungoverned & [PENDING] & Added stiffness\_low/high, sde\_dt, market\_feed\_timeout, snapshot\_compression \\
+Hardcoded sigma\_val default & [CURRENT] & Removed (must come from config) \\
+\hline
+Hardcoded temporal drift defaults & [CURRENT] & Removed max\_future/past\_drift\_ns defaults \\
+\hline
+Temporal drift ungoverned & [CURRENT] & Added 3 fields (31 total) \\
 \hline
 \end{tabular}
 \end{table}

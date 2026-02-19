@@ -23,7 +23,7 @@ import warnings
 def validate_price(
     price: Union[float, Float[Array, "1"]],
     sigma_bound: float,
-    sigma_val: float = 1.0,
+    sigma_val: float,
     allow_nan: bool = False
 ) -> Tuple[bool, str]:
     """
@@ -32,13 +32,13 @@ def validate_price(
     Design: Detection of catastrophic outliers (> N sigma) that could
     indicate data feed errors or flash crashes.
     
-    Zero-Heuristics Policy: sigma_bound MUST be passed from PredictorConfig.
-    No default value to enforce configuration-driven operation.
+    Zero-Heuristics Policy: All parameters MUST be passed from PredictorConfig.
+    No default values to enforce configuration-driven operation.
     
     Args:
         price: Price to validate (scalar or JAX array)
-        sigma_bound: Maximum number of standard deviations allowed (from config)
-        sigma_val: Reference standard deviation
+        sigma_bound: Maximum number of standard deviations allowed (from config.sigma_bound)
+        sigma_val: Reference standard deviation (from config.sigma_val)
         allow_nan: If True, permits NaN values (for missing data)
         
     Returns:
@@ -51,7 +51,11 @@ def validate_price(
         >>> from stochastic_predictor.api.validation import validate_price
         >>> from stochastic_predictor.api.config import PredictorConfigInjector
         >>> config = PredictorConfigInjector().create_config()
-        >>> is_valid, msg = validate_price(jnp.array([100.5]), sigma_bound=config.sigma_bound)
+        >>> is_valid, msg = validate_price(
+        ...     price=jnp.array([100.5]),
+        ...     sigma_bound=config.sigma_bound,
+        ...     sigma_val=config.sigma_val
+        ... )
         >>> assert is_valid
     """
     # Convert to JAX array if necessary
@@ -80,16 +84,19 @@ def validate_price(
 
 def validate_timestamp(
     timestamp_ns: int,
-    max_future_drift_ns: int = 1_000_000_000,  # 1 second
-    max_past_drift_ns: int = 86_400_000_000_000  # 24 hours
+    max_future_drift_ns: int,
+    max_past_drift_ns: int
 ) -> Tuple[bool, str]:
     """
     Validate that a timestamp is in a reasonable range relative to current time.
     
+    Zero-Heuristics Policy: All drift thresholds MUST be passed from PredictorConfig.
+    No default values to enforce configuration-driven operation.
+    
     Args:
         timestamp_ns: Unix timestamp in nanoseconds
-        max_future_drift_ns: Maximum allowed future drift
-        max_past_drift_ns: Maximum allowed past drift
+        max_future_drift_ns: Maximum allowed future drift (from config.max_future_drift_ns)
+        max_past_drift_ns: Maximum allowed past drift (from config.max_past_drift_ns)
         
     Returns:
         Tuple (is_valid: bool, error_message: str)
@@ -97,6 +104,14 @@ def validate_timestamp(
     References:
         - API_Python.tex §3.1: Staleness TTL
         - IO.tex §2.2: Timestamp Validation
+        
+    Example:
+        >>> config = PredictorConfigInjector().create_config()
+        >>> is_valid, msg = validate_timestamp(
+        ...     timestamp_ns=time.time_ns(),
+        ...     max_future_drift_ns=config.max_future_drift_ns,
+        ...     max_past_drift_ns=config.max_past_drift_ns
+        ... )
     """
     import time
     

@@ -73,8 +73,11 @@ class PredictorConfig:
     # Volatility Monitoring (EWMA)
     volatility_alpha: float = 0.1   # α: Exponential decay
     
-    # Validation (Outlier Detection)
+    # Validation (Outlier Detection & Temporal Drift)
     sigma_bound: float = 20.0       # Black Swan threshold (N sigma)
+    sigma_val: float = 1.0          # Reference standard deviation for outlier detection
+    max_future_drift_ns: int = 1_000_000_000      # Max future drift: 1 second (clock skew tolerance)
+    max_past_drift_ns: int = 86_400_000_000_000   # Max past drift: 24 hours (stale data threshold)
     
     # I/O Policies (Market Feed & Snapshots)
     market_feed_timeout: int = 30           # Timeout in seconds
@@ -129,9 +132,15 @@ class PredictorConfig:
         assert self.cusum_h > 0 and self.cusum_k >= 0, \
             "CUSUM thresholds must be non-negative"
         
-        # Outlier detection
+        # Outlier detection & temporal drift
         assert self.sigma_bound > 0, \
             f"sigma_bound must be > 0, got {self.sigma_bound}"
+        assert self.sigma_val > 0, \
+            f"sigma_val must be > 0, got {self.sigma_val}"
+        assert self.max_future_drift_ns > 0, \
+            f"max_future_drift_ns must be > 0, got {self.max_future_drift_ns}"
+        assert self.max_past_drift_ns > 0, \
+            f"max_past_drift_ns must be > 0, got {self.max_past_drift_ns}"
         
         # I/O constraints
         assert self.market_feed_timeout > 0, \
@@ -169,17 +178,17 @@ class MarketObservation:
     def validate_domain(
         self, 
         sigma_bound: float, 
-        sigma_val: float = 1.0
+        sigma_val: float
     ) -> bool:
         """
         Catastrophic Outlier Detection (> N sigma).
         
-        Zero-Heuristics Policy: sigma_bound MUST be passed from PredictorConfig.
-        No default value to enforce configuration-driven operation.
+        Zero-Heuristics Policy: All parameters MUST be passed from PredictorConfig.
+        No default values to enforce configuration-driven operation.
         
         Args:
             sigma_bound: Maximum number of standard deviations (from config.sigma_bound)
-            sigma_val: Reference standard deviation
+            sigma_val: Reference standard deviation (from config.sigma_val)
             
         Returns:
             bool: True if observation is within valid domain
@@ -190,7 +199,10 @@ class MarketObservation:
         Example:
             >>> config = PredictorConfigInjector().create_config()
             >>> obs = MarketObservation(...)
-            >>> is_valid = obs.validate_domain(sigma_bound=config.sigma_bound)
+            >>> is_valid = obs.validate_domain(
+            ...     sigma_bound=config.sigma_bound,
+            ...     sigma_val=config.sigma_val
+            ... )
         """
         return bool(jnp.abs(self.price) <= (sigma_bound * sigma_val))
 

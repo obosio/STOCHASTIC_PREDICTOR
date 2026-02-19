@@ -39,6 +39,11 @@ volatility_alpha = 0.1
 
 # Outlier detection (Black Swan threshold)
 sigma_bound = 20.0  # N sigma for catastrophic outlier detection
+sigma_val = 1.0  # Reference standard deviation for outlier detection
+
+# Temporal drift validation (clock skew and stale data thresholds)
+max_future_drift_ns = 1_000_000_000  # 1 second (future clock skew tolerance)
+max_past_drift_ns = 86_400_000_000_000  # 24 hours (stale data threshold)
 
 # Circuit breaker
 holder_threshold = 0.4  # Holder exponent critical threshold
