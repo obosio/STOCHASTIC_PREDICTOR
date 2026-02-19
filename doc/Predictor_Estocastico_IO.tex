@@ -108,6 +108,22 @@ Ciclo de actualización paso a paso en tiempo $t$.
     \end{itemize}
 \end{itemize}
 
+\section{Políticas de Seguridad en la Capa de I/O (Credenciales)}
+
+El diseño del Predictor Estocástico exige operaciones de ingesta de alta frecuencia contra infraestructuras de mercado externas (ej. WebSockets institucionales, brokers o APIs REST). El acceso a estas infraestructuras introduce vectores de vulnerabilidad crítica.
+
+\vspace{0.5em}
+
+\noindent \textbf{Inyección de Entorno Segura}
+
+Queda categóricamente prohibido el \textit{hardcoding} (codificación en duro) de tokens, claves API, secretos de bases de datos o credenciales de conexión en cualquier módulo del código fuente futuro (ej. \texttt{io/streams.py}). Toda implementación \textbf{debe} aplicar el patrón de Inyección de Entorno, leyendo estas credenciales en tiempo de ejecución desde variables del sistema operativo o archivos locales \texttt{.env}.
+
+\vspace{0.5em}
+
+\noindent \textbf{Exclusión de Control de Versiones}
+
+El repositorio de implementación resultante debe incluir reglas explícitas de exclusión en su sistema de control de versiones (ej. forzar \texttt{*.env} en el archivo \texttt{.gitignore}) para garantizar que ningún secreto sea expuesto inadvertidamente.
+
 \section{Salidas del Sistema (System Outputs)}
 
 \subsection{1. Señal de Control (Prediction Signal)}

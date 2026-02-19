@@ -7,7 +7,7 @@
 
 **Especificación matemática y algorítmica completa** de un sistema de predicción estocástica universal capaz de operar sobre procesos dinámicos cuya ley de probabilidad subyacente es desconocida *a priori*. El proyecto integra teoría de procesos estocásticos, análisis multifractal, ecuaciones diferenciales estocásticas y transporte óptimo en un framework unificado.
 
-> ⚠️ **Estado del Proyecto**: Este repositorio contiene **especificaciones técnicas completas** (7 documentos LaTeX, 3000+ líneas, 1.73 MB PDFs) + **Contrato de Entorno** (requirements.txt, environment.yml). **No incluye código de implementación**.
+> ⚠️ **Estado del Proyecto**: Este repositorio contiene **únicamente especificaciones técnicas completas** (7 documentos LaTeX, 3000+ líneas, 1.73 MB PDFs). **No incluye código de implementación**.
 
 ## 🎯 Características Principales
 
@@ -51,9 +51,7 @@ $$\hat{X}_{t+h} = \underset{Z \in L^2(\mathcal{F}_t)}{\text{argmin}} \, \mathbb{
 
 ### Stack Python Especificado (Grabado en Piedra)
 
-La especificación define y justifica rigurosamente el siguiente stack:
-
-**Versiones exactas congeladas** (ver `requirements.txt` y `environment.yml`):
+La especificación define y justifica rigurosamente el siguiente stack para implementación futura:
 
 - **JAX 0.4.20**: Motor XLA con diferenciación automática y vectorización (capa fundamental)
 - **Equinox 0.11.3**: Framework neuronal pythonico para Ramas B y C (DGM, Neural ODEs)
@@ -61,10 +59,8 @@ La especificación define y justifica rigurosamente el siguiente stack:
 - **Signax 0.1.4**: Cálculo de log-signatures en GPU para Rama D
 - **PyWavelets 1.4.1**: Transformada wavelet continua para SIA (WTMM)
 - **OTT-JAX 0.4.5**: Transporte óptimo diferenciable para Orquestador JKO
-- **Python 3.10.12**: Obligatorio (3.11+ cambia comportamiento de RNG)
 
-> 📚 **Justificación completa**: [Python.tex §1](doc/Predictor_Estocastico_Python.tex) (~250 líneas) with technical analysis and rejected alternatives  
-> 📋 **Contrato de Entorno**: [requirements.txt](requirements.txt) (Pip) + [environment.yml](environment.yml) (Conda)
+> 📘 **Justificación completa**: Ver [Python.tex §1](doc/Predictor_Estocastico_Python.tex) (~250 líneas) con análisis técnico y alternativas descartadas.
 
 ## 📚 Documentación
 
@@ -255,5 +251,5 @@ Esta especificación integra metodologías de múltiples áreas de las matemáti
 
 ---
 
-> 🔷 **Nivel Diamante**: Especificación matemática rigurosa + Contrato de Entorno (versions frozen with ==)  
-⚡ Stack: JAX 0.4.20 + Equinox 0.11.3 + Diffrax 0.4.1 + Signax 0.1.4 + OTT-JAX 0.4.5 on Python 3.10.12
+📐 **Nivel Diamante**: Especificación matemática rigurosa lista para implementación  
+⚡ Stack especificado: JAX + Equinox + Diffrax + Signax + OTT-JAX

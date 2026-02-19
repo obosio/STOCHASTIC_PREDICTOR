@@ -3,11 +3,6 @@
 Este directorio contiene la **especificación matemática y algorítmica completa** del Predictor Estocástico Universal en formato LaTeX (3000+ líneas, 7 documentos, 1.73 MB PDFs).
 
 > ⚠️ **Este es un proyecto de especificación pura**: No incluye código de implementación, solo documentación técnica rigurosa lista para traducción directa a código.
->
-> 📋 **Contrato de Entorno**: Las versiones exactas de todas las dependencias están congeladas en los archivos de la raíz:
->   - `requirements.txt` - Pip (versiones con ==)
->   - `environment.yml` - Conda/Mamba (versiones con ==)
->   - `.python-version` - Python 3.10.12 (pyenv)
 
 ## 📁 Estructura de Directorios
 
