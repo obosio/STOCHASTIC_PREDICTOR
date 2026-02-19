@@ -145,7 +145,7 @@ def orchestrate_step(
     updated_state = replace(
         updated_state,
         rho=updated_weights,
-        dgm_entropy=jnp.asarray(kernel_outputs[1].metadata.get("entropy_dgm", 0.0)),
+        dgm_entropy=jnp.asarray(kernel_outputs[KernelType.KERNEL_B].metadata.get("entropy_dgm", 0.0)),
         last_update_ns=timestamp_ns,
         rng_key=jax.random.split(state.rng_key, 2)[1],
     )
@@ -179,7 +179,7 @@ def orchestrate_step(
         degraded_inference_mode=degraded_mode,
         emergency_mode=emergency_mode,
         regime_change_detected=regime_change_detected,
-        mode_collapse_warning=bool(kernel_outputs[1].metadata.get("mode_collapse", False)),
+        mode_collapse_warning=bool(kernel_outputs[KernelType.KERNEL_B].metadata.get("mode_collapse", False)),
         mode=_compute_mode(degraded_mode, emergency_mode),
     )
 

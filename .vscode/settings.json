@@ -14,6 +14,19 @@
     "dist": true,
     "*.egg-info": true
   },
+  "python.analysis.diagnosticMode": "openFilesOnly",
+  "python.analysis.include": [
+    "stochastic_predictor",
+    "tests"
+  ],
+  "python.analysis.exclude": [
+    "**/.*",
+    "**/node_modules/**",
+    "**/__pycache__/**",
+    "**/.venv/**",
+    "**/doc/**",
+    "**/examples/**"
+  ],
   "[latex]": {
     "editor.formatOnSave": false
   }
