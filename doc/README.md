@@ -1,7 +1,7 @@
 # Documentation - Implementation Branch
 
-**Version**: v2.0.3-Phase3-Complete
-**Status**: Phase 4 (I/O) In Progress
+**Version**: v2.0.4-Phase4-Complete
+**Status**: Phase 4 (I/O) Complete
 **Branch**: `implementation/base-jax`
 
 ## Current Structure
@@ -64,10 +64,12 @@ doc/                                  # Documentation root
     - Modules: core/sinkhorn.py, core/fusion.py, core/orchestrator.py
     - Config-driven simplex validation and weight updates
   - **`Implementation_v2.0.4_IO.tex`**
-    - Tag: `impl/v2.0.4` (pending)
-    - IO Layer Initiation: telemetry buffering, deterministic logging, snapshot design
-    - Modules: io/validators.py, io/loaders.py, io/telemetry.py, io/snapshots.py, io/credentials.py
-    - Policies: outlier/frozen signal gate, TTL staleness, binary snapshots, hash verification
+    - Tag: `impl/v2.0.4` (commit 2d1b877)
+    - IO Layer Complete: ingestion validation, telemetry buffering, deterministic logging, atomic snapshots
+    - Modules: io/validators.py, io/loaders.py, io/telemetry.py, io/snapshots.py, io/credentials.py (~800 LoC)
+    - Policies: catastrophic outlier rejection, frozen signal detection, TTL staleness, binary serialization (msgpack), hash-verified snapshots, credential injection
+    - Critical Features: Zero-heuristics (no implicit defaults), 64-bit precision enforcement, layer isolation (PRNG in API)
+    - Orchestrator Integration: evaluate_ingestion() gate, IngestionDecision flags, degraded mode support
 
 - **`pdf/specification/`**: Compiled specification PDFs
 

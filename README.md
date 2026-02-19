@@ -1,8 +1,8 @@
 # Universal Stochastic Predictor (USP)
 
 ![License](https://img.shields.io/badge/license-MIT-blue.svg)
-![Status](https://img.shields.io/badge/status-Phase%204%20In%20Progress-blue.svg)
-![Version](https://img.shields.io/badge/version-v2.0.3-blue.svg)
+![Status](https://img.shields.io/badge/status-Phase%204%20Complete-brightgreen.svg)
+![Version](https://img.shields.io/badge/version-v2.0.4-brightgreen.svg)
 
 ## Description
 
@@ -33,9 +33,9 @@ This repository contains:
 - `impl/v2.0.0` - Initial 5-tier architecture scaffold (Bootstrap)
 - `impl/v2.0.1` - Phase 1 Complete: Full API Layer (types, PRNG, validation, schemas, config)
 - `impl/v2.0.2` - Phase 2 Complete: Kernels A, B, C, D (RKHS, DGM, SDE, Signatures)
-- `impl/v2.0.3` - Phase 3 Complete: Core Orchestration (JKO, Sinkhorn) [CURRENT]
-- `impl/v2.1.x` - In progress: Phase 4 - I/O (snapshots, streaming)
-- `impl/v2.2.x` - Pending: Phase 5 - Tests and hardening
+- `impl/v2.0.3` - Phase 3 Complete: Core Orchestration (JKO, Sinkhorn)
+- `impl/v2.0.4` - Phase 4 Complete: I/O Layer (ingestion, snapshots, telemetry, credentials) [CURRENT]
+- `impl/v2.5.x` - Pending: Phase 5 - Tests and hardening
 - `impl/v3.0.0` - Pending: First production-ready version
 
 **Legacy** (for history):
