@@ -115,7 +115,7 @@ def drift_levy_stable(
     Args:
         t: Current time
         y: Current state (d-dimensional)
-        args: Tuple of (mu, alpha, beta) parameters
+        args: Tuple of (mu, alpha, beta, sigma) parameters
     
     Returns:
         Drift vector (d-dimensional)
@@ -124,9 +124,10 @@ def drift_levy_stable(
         - Teoria.tex §2.3.3: Lévy Stable Processes
         - Python.tex §2.2.3: Drift Function
     """
-    mu, alpha, beta = args
+    # CRITICAL: Match arity with kernel_c_predict args packing (4 parameters)
+    mu, alpha, beta, sigma = args
     
-    # Constant drift
+    # Constant drift (sigma not used in drift, but must unpack for consistency)
     return jnp.full_like(y, mu)
 
 
@@ -170,11 +171,15 @@ def solve_sde(
     key: Array,
     config,
     args: tuple = ()
-) -> tuple[Float[Array, "d"], str, float]:
+) -> tuple[Float[Array, "d"], Array, Float[Array, ""]]:
     """
-    Solve SDE using Diffrax.
+    Solve SDE using Diffrax with XLA-compatible dynamic solver selection.
     
     Integrates dY = drift(t, Y)dt + diffusion(t, Y)dW from t0 to t1.
+    
+    COMPLIANCE: Python.tex §3.1 - Control Flow in Traced Contexts
+    Uses jax.lax.cond for dynamic solver selection (not Python if statements).
+    Returns solver_idx as jnp.int32 (not str) for XLA compatibility.
     
     Args:
         drift_fn: Drift function f(t, y, args)
@@ -187,11 +192,13 @@ def solve_sde(
         args: Additional arguments for drift/diffusion
     
     Returns:
-        Final state at time t1
+        tuple: (final_state, solver_idx, current_stiffness_metric)
+        where solver_idx: 0=Euler, 1=Heun, 2=ImplicitEuler (as jnp.int32)
     
     References:
         - Python.tex §2.2.3: SDE Solver with Diffrax
         - Implementacion.tex §3.3.2: Adaptive Stepping
+        - Python.tex §3.1: XLA-Compatible Control Flow
     """
     # Define SDE terms
     drift_term = diffrax.ODETerm(drift_fn)
@@ -209,17 +216,6 @@ def solve_sde(
     # Combined SDE terms
     terms = diffrax.MultiTerm(drift_term, diffusion_term)
     
-    # Dynamic solver selection based on stiffness (Teoria.tex §2.3.3)
-    # Estimate current stiffness from drift/diffusion at initial state
-    current_stiffness = estimate_stiffness(drift_fn, diffusion_fn, y0, t0, args, config)
-    solver_obj = select_stiffness_solver(current_stiffness, config)
-    if isinstance(solver_obj, diffrax.ImplicitEuler):
-        solver_type = "implicit_euler"
-    elif isinstance(solver_obj, diffrax.Heun):
-        solver_type = "heun"
-    else:
-        solver_type = "euler"
-    
     # Adaptive step size controller (Zero-Heuristics: tolerances from config)
     stepsize_controller = diffrax.PIDController(
         rtol=config.sde_pid_rtol,
@@ -228,21 +224,66 @@ def solve_sde(
         dtmax=config.sde_pid_dtmax
     )
     
-    # Solve SDE (dt0 from config: dtmax/sde_initial_dt_factor as initial step)
-    solution = diffrax.diffeqsolve(
-        terms,
-        solver_obj,
-        t0=t0,
-        t1=t1,
-        dt0=config.sde_pid_dtmax / config.sde_initial_dt_factor,
-        y0=y0,
-        args=args,
-        stepsize_controller=stepsize_controller,
-        saveat=diffrax.SaveAt(t1=True)
+    # Initial step size from config
+    dt0 = config.sde_pid_dtmax / config.sde_initial_dt_factor
+    
+    # Estimate current stiffness from drift/diffusion at initial state
+    # CRITICAL: This is a JAX Tracer in @jax.jit context, NOT Python float
+    # estimate_stiffness returns float, convert to Array for type consistency
+    current_stiffness = jnp.asarray(estimate_stiffness(drift_fn, diffusion_fn, y0, t0, args, config))
+    
+    # XLA-COMPATIBLE DYNAMIC SOLVER SELECTION via jax.lax.cond
+    # (NOT Python if statements which cause ConcretizationTypeError)
+    
+    def solve_with_euler(_):
+        """Explicit Euler for non-stiff systems (solver_idx=0)"""
+        sol = diffrax.diffeqsolve(
+            terms, diffrax.Euler(), t0=t0, t1=t1, dt0=dt0, y0=y0, args=args,
+            stepsize_controller=stepsize_controller, saveat=diffrax.SaveAt(t1=True)
+        )
+        y_final = sol.ys[-1] if sol.ys is not None else y0
+        return y_final, jnp.array(0, dtype=jnp.int32)
+        
+    def solve_with_heun(_):
+        """Heun method for medium-stiffness systems (solver_idx=1)"""
+        sol = diffrax.diffeqsolve(
+            terms, diffrax.Heun(), t0=t0, t1=t1, dt0=dt0, y0=y0, args=args,
+            stepsize_controller=stepsize_controller, saveat=diffrax.SaveAt(t1=True)
+        )
+        y_final = sol.ys[-1] if sol.ys is not None else y0
+        return y_final, jnp.array(1, dtype=jnp.int32)
+        
+    def solve_with_implicit(_):
+        """Implicit Euler for stiff systems (solver_idx=2)"""
+        sol = diffrax.diffeqsolve(
+            terms, diffrax.ImplicitEuler(), t0=t0, t1=t1, dt0=dt0, y0=y0, args=args,
+            stepsize_controller=stepsize_controller, saveat=diffrax.SaveAt(t1=True)
+        )
+        y_final = sol.ys[-1] if sol.ys is not None else y0
+        return y_final, jnp.array(2, dtype=jnp.int32)
+    
+    # Pure JAX conditional branching (XLA-compatible)
+    # if current_stiffness < stiffness_low: use Euler
+    # elif current_stiffness < stiffness_high: use Heun
+    # else: use ImplicitEuler
+    def choose_medium_or_high(operand):
+        # Inner cond for medium vs high stiffness
+        return jax.lax.cond(
+            current_stiffness < config.stiffness_high,
+            solve_with_heun,
+            solve_with_implicit,
+            operand=operand
+        )
+    
+    y_final, solver_idx = jax.lax.cond(
+        current_stiffness < config.stiffness_low,
+        solve_with_euler,
+        choose_medium_or_high,
+        operand=None
     )
     
-    # Return final state
-    return (solution.ys[-1] if solution.ys is not None else y0), solver_type, float(current_stiffness)
+    # Return final state, numeric solver index, and stiffness metric (all as Arrays/JAX types)
+    return y_final, solver_idx, current_stiffness
 
 
 @jax.jit
@@ -300,7 +341,8 @@ def kernel_c_predict(
     args = (mu, alpha, beta, sigma)
     
     # Integrate SDE (config injection pattern)
-    y_final, solver_type, stiffness_metric = solve_sde(
+    # solve_sde now returns (y_final, solver_idx, stiffness_metric) where solver_idx is jnp.int32
+    y_final, solver_idx, stiffness_metric = solve_sde(
         drift_fn=drift_levy_stable,
         diffusion_fn=diffusion_levy,
         y0=y0,
@@ -324,6 +366,12 @@ def kernel_c_predict(
     
     confidence = jnp.sqrt(variance)
     
+    # Map solver_idx (jnp.int32 from XLA) to string for diagnostics
+    # Done here (post-JIT) to avoid XLA string type incompatibility
+    solver_idx_int = int(solver_idx)
+    solver_type_map = {0: "euler", 1: "heun", 2: "implicit_euler"}
+    solver_type = solver_type_map.get(solver_idx_int, "unknown")
+    
     # Diagnostics
     diagnostics = {
         "kernel_type": "C_Ito_Levy_SDE",
@@ -332,8 +380,9 @@ def kernel_c_predict(
         "beta": beta,
         "horizon": horizon,
         "solver_type": solver_type,
-        "stiffness_metric": stiffness_metric,
-        "final_state": y_final[0]
+        "solver_idx": solver_idx_int,
+        "stiffness_metric": float(stiffness_metric),
+        "final_state": float(y_final[0])
     }
     
     # Apply stop_gradient to diagnostics
