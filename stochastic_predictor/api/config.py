@@ -219,6 +219,8 @@ FIELD_TO_SECTION_MAP: Dict[str, str] = {
     
     # Phase 6: Kernel B Hyperparameters (Zero-Heuristics)
     "kernel_b_spatial_samples": "kernels",
+    "kernel_ridge_lambda": "kernels",
+    "sde_diffusion_sigma": "kernels",
     
     # Phase 6: Kernel D Hyperparameters (Zero-Heuristics)
     "kernel_d_confidence_scale": "kernels",

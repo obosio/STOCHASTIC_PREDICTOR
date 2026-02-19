@@ -156,16 +156,16 @@ def loss_hjb(
     r: float,
     sigma: float
 ) -> Float[Array, ""]:
-    
+    """
     Returns:
         Mean squared residual loss
     
     References:
         - Python.tex §2.2.2: HJB Loss Function
-        - Tests_Python.tex §1.2: Black-Scholes Hamiltonian
+        - Teoria.tex §2.2: HJB PDE Theory
     
     Note:
-        This is a simplified Black-Scholes example.
+        This is a simplified drift-diffusion example for a stochastic process.
         For general case, pass Hamiltonian function as argument.
     """
     def pde_residual(t, x):
@@ -184,14 +184,13 @@ def loss_hjb(
         hess_fn = jax.hessian(v_fn, argnums=1)
         v_xx = hess_fn(t, x)
         
-        # Black-Scholes Hamiltonian
-        # H = r*S*V_S + 0.5*sigma^2*S^2*V_SS - r*V
-        S = x[0]  # Asset price (first coordinate)
+        # Drift-diffusion equation Hamiltonian
+        # H = mu*X*V_X + 0.5*sigma^2*X^2*V_XX
+        X = x[0]  # Process value (first coordinate)
         
         hamiltonian = (
-            r * S * v_x[0]
-            + 0.5 * sigma ** 2 * S ** 2 * v_xx[0, 0]
-            - r * v
+            r * X * v_x[0]
+            + 0.5 * sigma ** 2 * X ** 2 * v_xx[0, 0]
         )
         
         # PDE residual: V_t + H = 0
@@ -219,13 +218,11 @@ def loss_hjb(
 def kernel_b_predict(
     signal: Float[Array, "n"],
     key: Array,
-    r: float,
-    sigma: float,
-    horizon: float,
+    config,
     model: Optional[DGM_HJB_Solver] = None
 ) -> KernelOutput:
     """
-    Kernel B: DGM prediction for Fokker-Planck dynamics.
+    Kernel B: DGM prediction for stochastic dynamics.
     
     Algorithm:
         1. Initialize or use provided DGM model
@@ -236,10 +233,10 @@ def kernel_b_predict(
     Args:
         signal: Input time series (current state trajectory)
         key: JAX PRNG key for model initialization (if needed)
+        config: PredictorConfig with dgm_width_size, dgm_depth, kernel_b_r, 
+                kernel_b_sigma, kernel_b_horizon, dgm_entropy_num_bins, 
+                kernel_b_spatial_samples
         model: Pre-trained DGM model (if None, creates dummy)
-        r: Drift parameter (e.g., interest rate)
-        sigma: Diffusion parameter (volatility)
-        horizon: Prediction horizon
     
     Returns:
         KernelOutput with prediction, confidence, and diagnostics
@@ -258,7 +255,12 @@ def kernel_b_predict(
     # Initialize model if not provided (for testing)
     if model is None:
         key_model, key_predict = jax.random.split(key)
-        model = DGM_HJB_Solver(in_size=2, key=key_model)  # (t, S)
+        model = DGM_HJB_Solver(
+            in_size=2, 
+            key=key_model,
+            width_size=config.dgm_width_size,
+            depth=config.dgm_depth
+        )
     
     # Evaluate value function at current state and horizon
     t = 0.0  # Current time
@@ -268,11 +270,11 @@ def kernel_b_predict(
     
     # Prediction: Simple drift-diffusion forecast
     # In full DGM, this would use optimal control policy derived from V
-    # For now, use drift-diffusion: E[S_{t+h}] = S_t * exp(r*h)
-    prediction = current_state * jnp.exp(r * horizon)
+    # For now, use drift-diffusion: E[X_{t+h}] = X_t * exp(mu*h)
+    prediction = current_state * jnp.exp(config.kernel_b_r * config.kernel_b_horizon)
     
-    # Confidence: Diffusion term σ*S*√h
-    confidence = sigma * current_state * jnp.sqrt(horizon)
+    # Confidence: Diffusion term σ*X*√h
+    confidence = config.kernel_b_sigma * current_state * jnp.sqrt(config.kernel_b_horizon)
     
     # Compute entropy for mode collapse detection
     # Sample spatial domain around current state
@@ -280,7 +282,7 @@ def kernel_b_predict(
         current_state * 0.5,
         current_state * 1.5,
         config.kernel_b_spatial_samples
-    )[:, None]  # Shape (config.kernel_b_spatial_samples, 1)
+    )[:, None]  # Shape (kernel_b_spatial_samples, 1)
     
     entropy_dgm = compute_entropy_dgm(model, t, x_samples, num_bins=config.dgm_entropy_num_bins)
     
@@ -294,9 +296,9 @@ def kernel_b_predict(
         "value_function": value,
         "entropy_dgm": entropy_dgm,
         "mode_collapse": mode_collapse,
-        "r": r,
-        "sigma": sigma,
-        "horizon": horizon
+        "r": config.kernel_b_r,
+        "sigma": config.kernel_b_sigma,
+        "horizon": config.kernel_b_horizon
     }
     
     # Apply stop_gradient to diagnostics
