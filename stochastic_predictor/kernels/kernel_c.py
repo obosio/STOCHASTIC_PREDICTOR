@@ -29,7 +29,8 @@ def estimate_stiffness(
     diffusion_fn: Callable,
     y: Float[Array, "d"],
     t: float,
-    args: tuple
+    args: tuple,
+    config
 ) -> float:
     """
     Estimate stiffness ratio for dynamic solver selection.
@@ -210,7 +211,7 @@ def solve_sde(
     
     # Dynamic solver selection based on stiffness (Teoria.tex §2.3.3)
     # Estimate current stiffness from drift/diffusion at initial state
-    current_stiffness = estimate_stiffness(drift_fn, diffusion_fn, y0, t0, args)
+    current_stiffness = estimate_stiffness(drift_fn, diffusion_fn, y0, t0, args, config)
     solver_obj = select_stiffness_solver(current_stiffness, config)
     
     # Adaptive step size controller (Zero-Heuristics: tolerances from config)
