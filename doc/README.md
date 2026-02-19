@@ -1,7 +1,7 @@
 # Documentation - Implementation Branch
 
-**Version**: v1.1.0-Implementation-Scaffold  
-**Status**: Diamond Level Validated ✅  
+**Version**: v2.0.1-Phase1-Complete  
+**Status**: API Layer Complete ✅  
 **Branch**: `implementation/base-jax`
 
 ## 📂 Current Structure
@@ -39,11 +39,25 @@ doc/                                  # Documentation root
   - Predictor_Estocastico_Tests_Python.tex
   - 4 more
 
-- **`latex/implementation/`**: Ready for new implementation documentation (currently empty)
+- **`latex/implementation/`**: Implementation documentation (one file per tag)
+  - **`Implementacion_v2.0.0_Bootstrap.tex`** ✨
+    - Tag: `impl/v2.0.0`
+    - Documents initial 5-layer architecture scaffold
+    - Language policy, Golden Master dependencies, git workflow
+  - **`Implementacion_v2.0.1_Phase1_Foundations.tex`** ✨
+    - Tag: `impl/v2.0.1` [CURRENT]
+    - Phase 1 Complete: Full API layer
+    - Modules: types.py, prng.py, validation.py, schemas.py, config.py
+    - Total ~2000 LoC with complete type system, PRNG management, I/O validation, serialization, and config injection
+  - **`Implementacion_v2.0.2_Phase1_Complete.tex`** (FOR REFERENCE - documents Phase 1 details)
+    - Detailed documentation of schemas.py and config.py implementation
+    - Phase 1 metrics and verification
+    - Phase 2 roadmap
 
 - **`pdf/specification/`**: Auto-generated compiled PDFs (git-ignored)
 
-- **`pdf/implementation/`**: Will be auto-generated when `.tex` files are added
+- **`pdf/implementation/`**: Auto-generated implementation PDFs (git-ignored)
+  - Will generate `Implementacion_v2.0.0_Bootstrap.pdf`, `Implementacion_v2.0.1_Phase1_Foundations.pdf`, `Implementacion_v2.0.2_Phase1_Complete.pdf` (detailed reference) on compile
 
 - **`compile.sh`**: Dynamic LaTeX compiler (processes ANY folder in `latex/`)
 
@@ -60,24 +74,29 @@ doc/                                  # Documentation root
 
 ## 📖 Implementation Documentation Strategy
 
-Documentation for implementation is NOT in `doc/` but in:
+Implementation documentation uses a **tiered approach**:
 
-1. **Python docstrings** (primary):
+1. **Formal LaTeX documentation** (for major phases):
+   - `Implementacion_Phase1_Bootstrap.tex` - Phase 1 & Bootstrap complete write-up
+   - Each major phase gets a corresponding `.tex` file documenting:
+     - Architecture decisions
+     - Code structure and key algorithms
+     - Verification metrics and QA results
+
+2. **Python docstrings** (function-level documentation):
 
    ```python
    # stochastic_predictor/kernels/kernel_c.py
    """Itô/Lévy kernel.
    
    Theory: See doc/Predictor_Estocastico_Teoria.tex §2.3.3
-   Implementation: See doc/Predictor_Estocastico_Python.tex §3
+   Implementation details: See doc/latex/implementation/Implementacion_Phase*.tex
    """
    ```
 
-2. **GitHub Issues** (architecture decisions)
+3. **GitHub Issues** (architecture decisions & discussions)
 
-3. **Commit messages** (rationale for choices)
-
-4. **Top-level README.md** (this repo's main README)
+4. **Commit messages** (rationale for individual changes)
 
 ## 🔗 Referencing Specification from Code
 

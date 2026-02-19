@@ -1,8 +1,8 @@
 # Universal Stochastic Predictor (USP)
 
 ![License](https://img.shields.io/badge/license-MIT-blue.svg)
-![Status](https://img.shields.io/badge/status-Implementation%20Scaffold-green.svg)
-![Version](https://img.shields.io/badge/version-v1.1.0-blue.svg)
+![Status](https://img.shields.io/badge/status-Phase%201%20Complete-brightgreen.svg)
+![Version](https://img.shields.io/badge/version-v2.0.1-blue.svg)
 
 ## 📋 Descripción
 
@@ -30,12 +30,12 @@ Este repositorio contiene:
 
 **Implementation**:
 
-- `impl/v2.0.0-Bootstrap` - Initial 5-tier architecture scaffold
-- `impl/v2.0.0-Phase1` - Foundations: API layer, PRNG, validation, test fixtures
-- `impl/v2.0.0-Phase2` - *Pending*: Kernels A, B, C, D
-- `impl/v2.0.0-Phase3` - *Pending*: Orchestration (JKO, Sinkhorn)  
-- `impl/v2.0.0-Phase4` - *Pending*: I/O (snapshots, streaming)
-- `impl/v2.1.0-Stable` - *Pending*: First production-ready version
+- `impl/v2.0.0` - Initial 5-tier architecture scaffold (Bootstrap)
+- `impl/v2.0.1` - Phase 1 Complete: Full API Layer (types, PRNG, validation, schemas, config) [CURRENT]
+- `impl/v2.1.x` - *Pending*: Phase 2 - Kernels A, B, C, D
+- `impl/v2.2.x` - *Pending*: Phase 3 - Orchestration (JKO, Sinkhorn)
+- `impl/v2.3.x` - *Pending*: Phase 4 - I/O (snapshots, streaming)
+- `impl/v3.0.0` - *Pending*: First production-ready version
 
 **Legacy** (for history):
 
@@ -154,30 +154,37 @@ Para detalles, ver [doc/README.md](doc/README.md).
 
 ## 🚀 Estado Actual
 
-### FASE: Implementation Scaffold (v1.1.0) - Diamond Level Validated ✅
+### FASE: Phase 1 Complete (v2.0.2) - API Layer Materialized ✅
 
 **Branch activo**: `implementation/base-jax`  
-**Tag actual**: `v1.1.0-Implementation-Scaffold`  
+**Tag actual**: `impl/v2.0.2`  
 **Fecha**: 19 Feb 2026
 
-✅ **Completado (100% Auditoría Nivel Diamante)**:
+✅ **Completado (Phase 1: Foundations)**:
 
 - 7 documentos LaTeX especificación exhaustiva (1.73 MB PDFs)
 - Estructura de 5 capas implementada (`api/`, `core/`, `kernels/`, `io/`, `utils/`)
+- **API layer materialized**:
+  - `types.py` (347 líneas): PredictorConfig, MarketObservation, PredictionResult
+  - `prng.py` (301 líneas): JAX threefry2x32 deterministic PRNG management
+  - `validation.py` (467 líneas): Input/output domain validation
+  - `schemas.py` (330 líneas): Pydantic models for serialization (MarketObservationSchema, PredictionResultSchema, TelemetryDataSchema)
+  - `config.py` (220 líneas): ConfigManager singleton with config.toml injection
 - Golden Master con dependency pinning estricto (`==`)
 - Documentación reorganizada en estructura jerárquica
 - Políticas de seguridad (.env, .gitignore)
 - Configuración centralizada (config.toml)
-- Tests base configurados (pytest, coverage)
+- Tests base configurados (pytest, 10 reusable fixtures in conftest.py)
 - LaTeX Workshop configurado
-- Stack tecnológico completo (JAX 0.4.20 + Equinox 0.11.2 + Diffrax 0.4.1)
+- Stack tecnológico completo (JAX 0.4.20 + Equinox 0.11.2 + Diffrax 0.4.1 + Pydantic 2.0.0)
+- 100% English code enforcement (language policy verified)
 
-🚧 **En desarrollo**:
+🚧 **En desarrollo próximo (Phase 2)**:
 
-- Implementación de kernels (A, B, C, D)
+- Implementación de kernels (A, B, C, D) - Monte Carlo Lévy, DGM, Neural ODEs, Log-Signatures
 - Motor SIA (WTMM, entropía, estacionariedad)
 - Orquestador JKO/Sinkhorn
-- Suite de tests completa
+- Suite de tests por kernel
 - Validación CPU/GPU parity
 
 **Este repositorio está listo para desarrollo activo** con scaffold validado y especificación rigurosa como referencia.
@@ -218,6 +225,6 @@ Especificación integra JAX, Equinox, Diffrax, Signax, PyWavelets, OTT-JAX.
 
 ---
 
-📐 **v1.1.0-Implementation-Scaffold**: Scaffold validado con especificación Nivel Diamante  
-⚡ **Stack garantizado**: JAX==0.4.20 | Equinox==0.11.2 | Diffrax==0.4.1 | Signax==0.1.4 | OTT-JAX==0.4.5  
-🏗️ **Branch activo**: `implementation/base-jax` - Desarrollo en progreso
+📐 **v2.0.2-Phase1-Complete**: API layer fully materialized with Pydantic schemas and config injection  
+⚡ **Stack garantizado**: JAX==0.4.20 | Equinox==0.11.2 | Diffrax==0.4.1 | Signax==0.1.4 | OTT-JAX==0.4.5 | Pydantic==2.0.0  
+🏗️ **Branch activo**: `implementation/base-jax` - Phase 2 (Kernels) próximamente
