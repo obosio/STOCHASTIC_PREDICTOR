@@ -1,0 +1,180 @@
+\documentclass[11pt, a4paper]{report}
+
+% --- PREAMBLE ---
+\usepackage[a4paper, top=2.5cm, bottom=2.5cm, left=2cm, right=2cm]{geometry}
+\usepackage{fontspec}
+\usepackage{amsmath}
+\usepackage{amssymb}
+\usepackage{listings}
+\usepackage{xcolor}
+\usepackage[hidelinks]{hyperref}
+\usepackage{graphicx}
+\usepackage{booktabs}
+\usepackage{array}
+
+\usepackage[spanish, provide=*]{babel}
+\babelprovide[import, onchar=ids fonts]{spanish}
+
+% Code highlighting
+\definecolor{codegreen}{rgb}{0,0.6,0}
+\definecolor{codegray}{rgb}{0.5,0.5,0.5}
+\definecolor{codepurple}{rgb}{0.58,0,0.82}
+\definecolor{backcolour}{rgb}{0.95,0.95,0.92}
+
+\lstdefinestyle{mystyle}{
+    backgroundcolor=\color{backcolour},
+    commentstyle=\color{codegreen},
+    keywordstyle=\color{magenta},
+    numberstyle=\tiny\color{codegray},
+    stringstyle=\color{codepurple},
+    basicstyle=\ttfamily\footnotesize,
+    breakatwhitespace=false,
+    breaklines=true,
+    captionpos=b,
+    keepspaces=true,
+    numbers=left,
+    numbersep=5pt,
+    showspaces=false,
+    showstringspaces=false,
+    showtabs=false,
+    tabsize=2,
+    frame=single
+}
+
+\lstset{style=mystyle}
+
+\title{\textbf{Universal Stochastic Predictor \\ Phase 3: Core Orchestration}}
+\author{Implementation Team}
+\date{February 19, 2026}
+
+\begin{document}
+
+\maketitle
+
+\tableofcontents
+
+\chapter{Phase 3: Core Orchestration Overview}
+
+Phase 3 implements the physical orchestration layer in \texttt{stochastic\_predictor/core/}. This layer fuses heterogeneous kernel outputs using Wasserstein gradient flow (JKO) and entropic optimal transport (Sinkhorn) with volatility-coupled regularization.
+
+\section{Scope}
+
+Phase 3 covers:
+\begin{itemize}
+    \item \textbf{Sinkhorn Regularization}: Volatility-coupled entropic regularization for stable optimal transport
+    \item \textbf{Wasserstein Fusion}: JKO-weighted fusion of kernel predictions and confidence scores
+    \item \textbf{Simplex Sanitization}: Enforced simplex constraints for kernel weights
+    \item \textbf{Core API}: Exported fusion and Sinkhorn utilities via \texttt{core/\_\_init\_\_.py}
+\end{itemize}
+
+\section{Design Principles}
+
+\begin{itemize}
+    \item \textbf{Zero-Heuristics Policy}: All parameters injected via \texttt{PredictorConfig}
+    \item \textbf{JAX-Native}: Stateless functions compatible with JIT/vmap
+    \item \textbf{Determinism}: Bit-exact reproducibility under configured XLA settings
+    \item \textbf{Volatility Coupling}: Dynamic regularization tied to EWMA variance
+\end{itemize}
+
+\chapter{Sinkhorn Module (core/sinkhorn.py)}
+
+\section{Volatility-Coupled Regularization}
+
+The entropic regularization parameter adapts to local volatility according to the specification:
+
+\[
+\varepsilon_t = \max\left(\varepsilon_{\min}, \varepsilon_0 \cdot (1 + \alpha \cdot \sigma_t)\right)
+\]
+
+where $\sigma_t = \sqrt{\text{EMA variance}}$ and $\alpha$ is the coupling coefficient.
+
+\begin{lstlisting}[language=Python]
+def compute_sinkhorn_epsilon(ema_variance, config):
+    sigma_t = jnp.sqrt(jnp.maximum(ema_variance, config.numerical_epsilon))
+    epsilon_t = config.sinkhorn_epsilon_0 * (1.0 + config.sinkhorn_alpha * sigma_t)
+    return jnp.maximum(config.sinkhorn_epsilon_min, epsilon_t)
+\end{lstlisting}
+
+\section{Entropy-Regularized OT}
+
+\begin{lstlisting}[language=Python]
+def run_sinkhorn(source_weights, target_weights, cost_matrix, epsilon):
+    geom = geometry.Geometry(cost_matrix=cost_matrix, epsilon=float(epsilon))
+    problem = linear_problem.LinearProblem(geom, a=source_weights, b=target_weights)
+    out = sinkhorn.Sinkhorn()(problem)
+    return SinkhornResult(
+        transport_matrix=out.matrix,
+        reg_ot_cost=jnp.asarray(out.reg_ot_cost) if out.reg_ot_cost is not None else jnp.array(0.0),
+        converged=bool(out.converged),
+        epsilon=jnp.asarray(float(epsilon)),
+    )
+\end{lstlisting}
+
+\chapter{Fusion Module (core/fusion.py)}
+
+\section{JKO-Weighted Fusion}
+
+The fusion step normalizes kernel confidences into a simplex and performs a JKO proximal update on weights:
+
+\[
+\rho_{k+1} = \rho_k + \tau (\hat{\rho} - \rho_k)
+\]
+
+\begin{lstlisting}[language=Python]
+def fuse_kernel_outputs(kernel_outputs, current_weights, ema_variance, config):
+    predictions = jnp.array([ko.prediction for ko in kernel_outputs]).reshape(-1)
+    confidences = jnp.array([ko.confidence for ko in kernel_outputs]).reshape(-1)
+    target_weights = _normalize_confidences(confidences, config)
+
+    sinkhorn_epsilon = compute_sinkhorn_epsilon(ema_variance, config)
+    cost_matrix = compute_cost_matrix(predictions, config)
+    sinkhorn_result = run_sinkhorn(
+        source_weights=current_weights,
+        target_weights=target_weights,
+        cost_matrix=cost_matrix,
+        epsilon=sinkhorn_epsilon,
+    )
+
+    updated_weights = _jko_update_weights(current_weights, target_weights, config)
+    PredictionResult.validate_simplex(updated_weights, config.validation_simplex_atol)
+
+    fused_prediction = jnp.sum(updated_weights * predictions)
+    return FusionResult(
+        fused_prediction=fused_prediction,
+        updated_weights=updated_weights,
+        free_energy=sinkhorn_result.reg_ot_cost,
+        sinkhorn_converged=sinkhorn_result.converged,
+        sinkhorn_epsilon=sinkhorn_result.epsilon,
+        sinkhorn_transport=sinkhorn_result.transport_matrix,
+    )
+\end{lstlisting}
+
+\section{Simplex Sanitization}
+
+The simplex constraint is validated using the injected tolerance:
+
+\begin{lstlisting}[language=Python]
+PredictionResult.validate_simplex(updated_weights, config.validation_simplex_atol)
+\end{lstlisting}
+
+\chapter{Core Public API}
+
+\begin{lstlisting}[language=Python]
+from .fusion import FusionResult, fuse_kernel_outputs
+from .sinkhorn import SinkhornResult, compute_sinkhorn_epsilon
+\end{lstlisting}
+
+\section{Compliance Checklist}
+
+\begin{itemize}
+    \item \textbf{Zero-Heuristics}: All parameters injected via config
+    \item \textbf{Volatility Coupling}: Implemented per specification
+    \item \textbf{Simplex Validation}: Config-driven tolerance enforced
+    \item \textbf{JAX-Native}: Pure functions and stateless modules
+\end{itemize}
+
+\chapter{Phase 3 Summary}
+
+Phase 3 delivers a concrete orchestration layer for Wasserstein fusion and JKO weight updates. The core layer is now physically present and ready for integration with the prediction pipeline.
+
+\end{document}

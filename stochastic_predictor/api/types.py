@@ -331,6 +331,11 @@ class PredictionResult:
         holder_val = float(self.holder_exponent)
         assert 0.0 <= holder_val <= 1.0, \
             f"holder_exponent must be in [0, 1], got {holder_val}"
+
+        # Valid mode string
+        valid_modes = {"Standard", "Robust", "Emergency"}
+        assert self.mode in valid_modes, \
+            f"mode must be one of {valid_modes}, got '{self.mode}'"
     
     @staticmethod
     def validate_simplex(weights: Float[Array, "4"], atol: float) -> None:
@@ -351,10 +356,6 @@ class PredictionResult:
         assert jnp.allclose(weights_sum, 1.0, atol=atol), \
             f"weights must form a simplex (sum=1.0 ± {atol}), got sum={weights_sum:.6f}"
         
-        # Valid mode string
-        valid_modes = {"Standard", "Robust", "Emergency"}
-        assert self.mode in valid_modes, \
-            f"mode must be one of {valid_modes}, got '{self.mode}'"
 
 
 # ═══════════════════════════════════════════════════════════════════════════

@@ -24,3 +24,17 @@ Expected module structure:
   - cusum.py: Change point detection
   - entropy.py: Entropy monitoring and state vector
 """
+
+from .fusion import FusionResult, fuse_kernel_outputs
+from .orchestrator import OrchestrationResult, initialize_state, orchestrate_step
+from .sinkhorn import SinkhornResult, compute_sinkhorn_epsilon
+
+__all__ = [
+    "FusionResult",
+    "OrchestrationResult",
+    "SinkhornResult",
+    "compute_sinkhorn_epsilon",
+    "fuse_kernel_outputs",
+    "initialize_state",
+    "orchestrate_step",
+]
