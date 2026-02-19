@@ -193,7 +193,7 @@ Completed (Phase 1-3: Foundations + Kernels + Core):
 
 In active development (Phase 4):
 
-- I/O layer (atomic snapshots, async streaming)
+- I/O layer (atomic snapshots, async telemetry)
 - SIA engine (WTMM, entropy, stationarity)
 - Test suite per kernel and core
 - CPU/GPU parity validation
@@ -202,6 +202,8 @@ In active development (Phase 4):
 
 - **TelemetryBuffer**: the orchestrator emits a telemetry buffer at the end of each step for out-of-thread consumption.
 - **Deterministic logging**: record sha256 hashes of $\rho$ weights and OT cost at configurable intervals for CPU/GPU parity.
+- **Snapshots**: MessagePack serialization with hash verification and atomic write-then-rename protocol.
+- **Validation**: catastrophic outlier, frozen signal, and TTL staleness gate with degraded mode.
 
 This repository is ready for active development with a validated scaffold and a rigorous specification baseline.
 

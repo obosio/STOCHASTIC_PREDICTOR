@@ -65,6 +65,7 @@ Phase 4 covers:
     \item \textbf{Snapshot Strategy}: Atomic persistence of predictor state
     \item \textbf{Ingestion and Validation}: Input filtering, staleness policy, frozen signal detection
     \item \textbf{Security Enforcement}: Credential injection and secret exclusion
+    \item \textbf{IO Modules}: validators, loaders, telemetry, snapshots, credentials
 \end{itemize}
 
 \section{Design Principles}
@@ -79,6 +80,18 @@ Phase 4 covers:
 
 \chapter{Ingestion and Validation}
 
+\section{Implementation Modules}
+
+Phase 4 IO introduces the following modules:
+
+\begin{itemize}
+    \item \texttt{io/validators.py}: Outlier, frozen signal, and staleness checks
+    \item \texttt{io/loaders.py}: Ingestion gate and decision flags
+    \item \texttt{io/telemetry.py}: Non-blocking telemetry buffer and parity hashes
+    \item \texttt{io/snapshots.py}: Binary snapshots, hash verification, atomic writes
+    \item \texttt{io/credentials.py}: Environment-based credential injection helpers
+\end{itemize}
+
 \section{Catastrophic Outlier Filter}
 
 Input validation must reject catastrophic outliers when $|y_t| > 20\sigma$ relative to historical normalization. In this case, the system must preserve inertial state and emit a critical alert without advancing the transport update.
@@ -88,6 +101,10 @@ Input validation must reject catastrophic outliers when $|y_t| > 20\sigma$ relat
     \item Emit a critical alert for audit visibility.
     \item Do not update JKO/Sinkhorn weights for the rejected step.
 \end{itemize}
+
+\subsection{Implementation Notes}
+
+Outlier detection is implemented as a pure function with configuration-driven thresholds. The ingestion gate returns a decision object that preserves inertial state when an outlier is detected.
 
 \section{Frozen Signal Alarm}
 
@@ -99,6 +116,10 @@ If the exact same value is observed for $N_{freeze} \geq 5$ consecutive steps, e
     \item Continue monitoring until signal variation resumes.
 \end{itemize}
 
+\subsection{Recovery Criteria}
+
+The frozen signal lock is released after the variance exceeds a configurable ratio of historical variance for a configurable number of consecutive steps.
+
 \section{Staleness Policy (TTL)}
 
 Every observation must carry a timestamp for TTL evaluation. If the target delay exceeds $\Delta_{max}$, the JKO update must be suspended immediately.
@@ -108,6 +129,10 @@ Every observation must carry a timestamp for TTL evaluation. If the target delay
     \item If $\Delta_t > \Delta_{max}$, skip the transport update.
     \item Preserve state and record a staleness warning event.
 \end{itemize}
+
+\subsection{Implementation Notes}
+
+Staleness is computed as the difference between current time and observation timestamp. The ingestion decision flags a suspended JKO update when the TTL is exceeded.
 
 \chapter{Telemetry Abstraction}
 
@@ -120,6 +145,10 @@ The JKO orchestrator should emit a \texttt{TelemetryBuffer} at the end of each s
     \item The compute path only enqueues the buffer and continues.
     \item The consumer is responsible for serialization and persistence.
 \end{itemize}
+
+\subsection{Implementation Notes}
+
+The telemetry buffer is a bounded, thread-safe queue. Parity hashes are emitted on a configurable interval and derived from canonical float64 serialization.
 
 \section{No Compute Stalls}
 
@@ -161,6 +190,10 @@ Text formats (JSON, XML) are prohibited for critical snapshots due to latency an
     \item Preserve float64 for numerical fidelity.
 \end{itemize}
 
+\subsection{Implementation Notes}
+
+The snapshot serializer uses MessagePack as the default binary format. Hash verification is performed before state injection.
+
 \section{Integrity Verification}
 
 Each snapshot $\Sigma_t$ must include a hash footer (SHA-256 or CRC32c). The load routine must verify the hash before injecting state into memory.
@@ -179,11 +212,19 @@ To avoid partial writes, persist snapshots to a temporary file and then atomical
     \item Ensure the target file is replaced atomically.
 \end{itemize}
 
+\subsection{Implementation Notes}
+
+Snapshots are written to a unique temporary file and moved into place using atomic rename. Optional fsync ensures persistence across power loss.
+
 \chapter{Security Policies}
 
 \section{Credential Injection}
 
 Tokens and API keys must not appear in source code. Credentials must be injected at runtime via environment variables or .env files.
+
+\subsection{Implementation Notes}
+
+Credential helpers read from environment variables or .env files and raise explicit errors on missing values.
 
 \section{Version Control Exclusion}
 
@@ -199,6 +240,7 @@ The repository must exclude .env files and credential directories via .gitignore
     \item \textbf{Security}: No raw signals, VRAM dumps, or secrets
     \item \textbf{Integrity}: Snapshot hashes verified before load
     \item \textbf{Config-Driven}: Intervals and destinations are injected
+    \item \textbf{Module Coverage}: IO helpers implemented for validation, telemetry, snapshots, and credentials
 \end{itemize}
 
 \chapter{Phase 4 Summary}

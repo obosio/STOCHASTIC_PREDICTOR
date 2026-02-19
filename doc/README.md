@@ -66,6 +66,8 @@ doc/                                  # Documentation root
   - **`Implementation_v2.0.4_IO.tex`**
     - Tag: `impl/v2.0.4` (pending)
     - IO Layer Initiation: telemetry buffering, deterministic logging, snapshot design
+    - Modules: io/validators.py, io/loaders.py, io/telemetry.py, io/snapshots.py, io/credentials.py
+    - Policies: outlier/frozen signal gate, TTL staleness, binary snapshots, hash verification
 
 - **`pdf/specification/`**: Compiled specification PDFs
 
