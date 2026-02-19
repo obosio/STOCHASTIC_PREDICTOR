@@ -170,6 +170,7 @@ FIELD_TO_SECTION_MAP: Dict[str, str] = {
     "dgm_width_size": "kernels",
     "dgm_depth": "kernels",
     "dgm_entropy_num_bins": "kernels",
+    "dgm_activation": "kernels",
     "kernel_b_r": "kernels",
     "kernel_b_sigma": "kernels",
     "kernel_b_horizon": "kernels",

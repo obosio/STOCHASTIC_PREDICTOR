@@ -96,6 +96,7 @@ sde_solver_type = "heun"                    # Solver type: "euler" or "heun"
 dgm_width_size = 64                     # Hidden layer width for DGM network
 dgm_depth = 4                           # Number of hidden layers
 dgm_entropy_num_bins = 50               # Histogram bins for entropy monitoring
+dgm_activation = "tanh"                 # Activation function: "tanh" (smooth PDEs), "relu", "elu", "gelu"
 kernel_b_r = 0.05                       # Drift rate parameter (HJB Hamiltonian)
 kernel_b_sigma = 0.2                    # Dispersion coefficient (HJB diffusion term)
 kernel_b_horizon = 1.0                  # Prediction horizon (integration time)

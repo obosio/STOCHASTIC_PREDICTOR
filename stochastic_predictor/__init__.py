@@ -22,15 +22,41 @@ Date: February 18, 2026
 # JAX CONFIGURATION (CRITICAL - Must execute before any JAX imports)
 # ═══════════════════════════════════════════════════════════════════════════
 
+import os
 import jax
 
-# Enable float64 precision globally (MANDATORY per Python.tex §1.3)
+# ─────────────────────────────────────────────────────────────────────────────
+# 1. NUMERICAL PRECISION (MANDATORY per Python.tex §1.3, API_Python.tex §5)
+# ─────────────────────────────────────────────────────────────────────────────
+
+# Enable float64 precision globally
 # Required for:
-# - Malliavin derivative stability (Kernel C)
+# - Malliavin derivative stability (Kernel C - SDE)
 # - Hölder exponent precision (Kernel A - WTMM)
-# - Sinkhorn convergence under extreme conditions (JKO Orchestrator)
-# - Path signature accuracy (Kernel D)
+# - Sinkhorn convergence under extreme conditions (JKO Orchestrator, ε→0)
+# - Path signature accuracy (Kernel D - rough paths with H < 0.5)
 jax.config.update('jax_enable_x64', True)
+
+# ─────────────────────────────────────────────────────────────────────────────
+# 2. DETERMINISTIC EXECUTION (MANDATORY per Tests_Python.tex §1.1)
+# ─────────────────────────────────────────────────────────────────────────────
+
+# Force deterministic reductions for hardware parity (CPU/GPU/TPU)
+# Ensures bit-exact reproducibility across different backends
+os.environ["JAX_DETERMINISTIC_REDUCTIONS"] = "1"
+
+# XLA GPU deterministic operations
+# Guarantees identical results across runs on GPU hardware
+os.environ["XLA_FLAGS"] = "--xla_gpu_deterministic_ops=true"
+
+# ─────────────────────────────────────────────────────────────────────────────
+# 3. COMPILATION CACHE (JIT Consistency)
+# ─────────────────────────────────────────────────────────────────────────────
+
+# Enable compilation cache to ensure JIT consistency across sessions
+# Prevents recompilation overhead and guarantees identical XLA lowering
+cache_dir = os.getenv("USP_JAX_CACHE_DIR", "/tmp/jax_cache")
+jax.config.update('jax_compilation_cache_dir', cache_dir)
 
 # ═══════════════════════════════════════════════════════════════════════════
 # PACKAGE METADATA

@@ -27,6 +27,44 @@ from typing import Optional
 from .base import KernelOutput, apply_stop_gradient_to_diagnostics
 
 
+# ═══════════════════════════════════════════════════════════════════════════
+# ACTIVATION FUNCTION REGISTRY (Zero-Heuristics Compliance)
+# ═══════════════════════════════════════════════════════════════════════════
+
+ACTIVATION_FUNCTIONS = {
+    "tanh": jax.nn.tanh,      # Default: Smooth PDEs (recommended for HJB)
+    "relu": jax.nn.relu,      # Alternative: Processes with rectification
+    "elu": jax.nn.elu,        # Alternative: Smooth approximation to ReLU
+    "gelu": jax.nn.gelu,      # Alternative: Transformer-style (Gaussian-like)
+    "sigmoid": jax.nn.sigmoid,  # Alternative: Bounded outputs
+    "swish": jax.nn.swish,    # Alternative: Self-gated (smooth)
+}
+
+
+def get_activation_fn(name: str):
+    """
+    Resolve activation function name to JAX callable.
+    
+    Args:
+        name: Activation function name (from config.dgm_activation)
+    
+    Returns:
+        Callable JAX activation function
+    
+    Raises:
+        ValueError: If activation name is not recognized
+    
+    References:
+        - Python.tex §2.2.2: DGM Network Architecture
+    """
+    if name not in ACTIVATION_FUNCTIONS:
+        raise ValueError(
+            f"Unknown activation function: {name}. "
+            f"Valid options: {list(ACTIVATION_FUNCTIONS.keys())}"
+        )
+    return ACTIVATION_FUNCTIONS[name]
+
+
 class DGM_HJB_Solver(eqx.Module):
     """
     Deep Galerkin Method neural network for HJB equations.
@@ -56,18 +94,21 @@ class DGM_HJB_Solver(eqx.Module):
         Args:
             in_size: Input dimension (typically d+1 for d spatial dims + 1 time)
             key: JAX PRNG key for weight initialization
-            config: PredictorConfig with dgm_width_size, dgm_depth
+            config: PredictorConfig with dgm_width_size, dgm_depth, dgm_activation
         
         References:
             - Python.tex §2.2.2: DGM Network Initialization
         """
+        # Resolve activation function from config (Zero-Heuristics)
+        activation_fn = get_activation_fn(config.dgm_activation)
+        
         self.mlp = eqx.nn.MLP(
             in_size=in_size,
             out_size=1,
             width_size=config.dgm_width_size,
             depth=config.dgm_depth,
             key=key,
-            activation=jax.nn.tanh  # Smooth activation for derivatives
+            activation=activation_fn  # From config, not hardcoded
         )
     
     def __call__(self, t: float | Float[Array, ""], x: Float[Array, "d"]) -> Float[Array, ""]:

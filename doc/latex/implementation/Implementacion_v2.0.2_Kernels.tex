@@ -369,10 +369,74 @@ def kernel_b_predict(signal: Float[Array, "n"],
 \begin{itemize}
     \item \texttt{dgm\_width\_size}: Hidden layer width (default: 64)
     \item \texttt{dgm\_depth}: Number of hidden layers (default: 4)
+    \item \texttt{dgm\_activation}: Activation function (default: "tanh")
     \item \texttt{dgm\_entropy\_num\_bins}: Bins for entropy calculation (default: 50)
-    \item \texttt{kernel\_b\_r}: HJB interest rate (default: 0.05)
-    \item \texttt{kernel\_b\_sigma}: HJB volatility (default: 0.2)
+    \item \texttt{kernel\_b\_r}: HJB drift rate parameter (default: 0.05)
+    \item \texttt{kernel\_b\_sigma}: HJB dispersion coefficient (default: 0.2)
     \item \texttt{kernel\_b\_horizon}: Prediction horizon (default: 1.0)
+    \item \texttt{kernel\_b\_spatial\_samples}: Spatial grid samples for entropy (default: 100)
+\end{itemize}
+
+\section{Activation Function Flexibility (Audit v2 Compliance)}
+
+\subsection{Zero-Heuristics Enforcement}
+
+Prior to Audit v2, the DGM network used hardcoded \texttt{jax.nn.tanh} activation, constituting an architectural heuristic. This has been eliminated through configuration injection.
+
+\subsection{Activation Function Registry}
+
+The system now provides a registry of JAX activation functions selectable via \texttt{config.dgm\_activation}:
+
+\begin{table}[h!]
+\centering
+\begin{tabular}{|l|l|p{6cm}|}
+\hline
+\textbf{Name} & \textbf{JAX Function} & \textbf{Recommended Use Case} \\
+\hline
+\texttt{tanh} & \texttt{jax.nn.tanh} & Smooth PDEs (default, HJB equations) \\
+\texttt{relu} & \texttt{jax.nn.relu} & Processes with rectification \\
+\texttt{elu} & \texttt{jax.nn.elu} & Smooth ReLU approximation \\
+\texttt{gelu} & \texttt{jax.nn.gelu} & Gaussian-like (Transformer-style) \\
+\texttt{sigmoid} & \texttt{jax.nn.sigmoid} & Bounded outputs \\
+\texttt{swish} & \texttt{jax.nn.swish} & Self-gated smooth activation \\
+\hline
+\end{tabular}
+\caption{DGM Activation Function Registry}
+\end{table}
+
+\subsection{Implementation}
+
+\begin{lstlisting}[language=Python]
+ACTIVATION_FUNCTIONS = {
+    "tanh": jax.nn.tanh,      # Default for smooth PDEs
+    "relu": jax.nn.relu,      # Alternative for rectified processes
+    "elu": jax.nn.elu,        # Smooth ReLU approximation
+    "gelu": jax.nn.gelu,      # Transformer-style
+    "sigmoid": jax.nn.sigmoid,  # Bounded outputs
+    "swish": jax.nn.swish,    # Self-gated
+}
+
+def get_activation_fn(name: str):
+    """Resolve activation function name to JAX callable."""
+    if name not in ACTIVATION_FUNCTIONS:
+        raise ValueError(
+            f"Unknown activation: {name}. "
+            f"Valid: {list(ACTIVATION_FUNCTIONS.keys())}"
+        )
+    return ACTIVATION_FUNCTIONS[name]
+
+# In DGM_HJB_Solver.__init__:
+activation_fn = get_activation_fn(config.dgm_activation)
+self.mlp = eqx.nn.MLP(..., activation=activation_fn)
+\end{lstlisting}
+
+\subsection{Benefits}
+
+\begin{itemize}
+    \item \textbf{Zero-Heuristics}: No hardcoded architectural choices
+    \item \textbf{Lévy Support}: Enables non-smooth activations for jump processes
+    \item \textbf{Extensibility}: Easy to add custom activation functions
+    \item \textbf{Reproducibility}: Activation choice documented in config.toml
 \end{itemize}
 
 \chapter{Kernel C: SDE Integration}

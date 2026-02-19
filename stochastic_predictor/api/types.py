@@ -101,6 +101,7 @@ class PredictorConfig:
     dgm_width_size: int = 64                    # Hidden layer width for DGM network
     dgm_depth: int = 4                          # Number of hidden layers in DGM
     dgm_entropy_num_bins: int = 50              # Histogram bins for entropy monitoring
+    dgm_activation: str = "tanh"                # Activation function: "tanh", "relu", "elu", "gelu"
     kernel_b_r: float = 0.05                    # Drift rate parameter (HJB Hamiltonian)
     kernel_b_sigma: float = 0.2                 # Dispersion coefficient (HJB diffusion term)
     kernel_b_horizon: float = 1.0               # Prediction horizon (HJB integration time)
