@@ -378,6 +378,191 @@ jax.config.update("jax_enable_x64", True)
 
 This enforces bit-exact reproducibility across CPU/GPU/FPGA backends and must execute before \texttt{ConfigManager} initialization.
 
+\chapter{Telemetry Buffer Integration (P2.3)}
+
+\section{Motivation}
+
+Phase 2 implementations (P2.1 WTMM, P2.2 SDE stiffness, V-MAJ violations) generate rich diagnostic data during orchestration. To enable post-mortem analysis, compliance audits, and debugging without stalling inference, P2.3 integrates a \textbf{non-blocking telemetry buffer} into the orchestration pipeline.
+
+Key requirements:
+\begin{itemize}
+    \item \textbf{Non-Blocking}: Logging never blocks compute threads (async enqueue only)
+    \item \textbf{Thread-Safe}: Multiple consumers can safely drain buffer
+    \item \textbf{Audit Trail}: Records capture complete prediction state snapshot
+    \item \textbf{Integrity}: Parity hashes verify weights and free energy
+    \item \textbf{Config-Driven}: Emission interval and buffer capacity injected from config
+\end{itemize}
+
+\section{Data Model}
+
+Each telemetry record captures:
+
+\begin{lstlisting}[language=Python]
+@dataclass(frozen=True)
+class TelemetryRecord:
+    step: int                     # Monotonic counter
+    payload: dict                 # Rich diagnostic data
+
+
+# Payload structure (P2.3):
+payload = {
+    "step": 42,
+    "timestamp_ns": 1708308000000000000,  # Nanosecond precision
+    "prediction": 1.234,                  # Fused kernel prediction
+    "weights": [0.25, 0.25, 0.25, 0.25], # Kernel ensemble weights (rho)
+    "kurtosis": 3.5,
+    "holder_exponent": 0.65,              # Signal regularity
+    "dgm_entropy": 0.45,
+    "mode_collapse_warning": false,       # V-MAJ-5 flag
+    "degraded_mode": false,               # V-MAJ-7 hysteresis
+    "emergency_mode": false,              # Circuit breaker
+    "parity_hashes": {
+        "rho_sha256": "abc123...",        # Hash of weight vector
+        "ot_cost_sha256": "def456..."     # Hash of Sinkhorn free energy
+    }
+}
+\end{lstlisting}
+
+\section{Integration into orchestrate\_step()}
+
+The orchestrator now accepts optional \texttt{telemetry\_buffer} and \texttt{step\_counter} parameters:
+
+\begin{lstlisting}[language=Python]
+def orchestrate_step(
+    signal: Float[Array, "n"],
+    timestamp_ns: int,
+    state: InternalState,
+    config: PredictorConfig,
+    observation: ProcessState,
+    now_ns: int,
+    telemetry_buffer: Optional[TelemetryBuffer] = None,  # P2.3
+    step_counter: int = 0,  # P2.3
+) -> OrchestrationResult:
+    """
+    Run a single orchestration step with telemetry buffering.
+    
+    If telemetry_buffer is None, skips telemetry (backward compatible).
+    If provided, enqueues record when hash_interval triggers.
+    """
+    # ... existing orchestration logic ...
+    
+    # P2.3: Telemetry Buffer Integration (before return)
+    if telemetry_buffer is not None:
+        parity_record = parity_hashes(
+            rho=final_rho,
+            ot_cost=float(free_energy) if fusion is not None else 0.0
+        )
+        
+        telemetry_payload = {
+            "step": step_counter,
+            "timestamp_ns": timestamp_ns,
+            "prediction": float(fused_prediction),
+            "weights": [float(w) for w in final_rho],
+            "kurtosis": float(updated_state.kurtosis),
+            "holder_exponent": float(updated_state.holder_exponent),
+            "dgm_entropy": float(updated_state.dgm_entropy),
+            "mode_collapse_warning": mode_collapse_warning,
+            "degraded_mode": degraded_mode,
+            "emergency_mode": emergency_mode,
+            "parity_hashes": parity_record,
+        }
+        
+        # Emit only when hash_interval triggers (config-driven)
+        if should_emit_hash(step_counter, config.telemetry_hash_interval_steps):
+            telemetry_record = TelemetryRecord(step=step_counter, payload=telemetry_payload)
+            telemetry_buffer.enqueue(telemetry_record)
+    
+    return OrchestrationResult(...)
+\end{lstlisting}
+
+\section{Configuration Parameters}
+
+\begin{table}[h!]
+\centering
+\begin{tabular}{|l|c|p{6cm}|}
+\hline
+\textbf{Parameter} & \textbf{Default} & \textbf{Purpose} \\
+\hline
+\texttt{telemetry\_buffer\_capacity} & 1024 & Maximum records in ring buffer \\
+\hline
+\texttt{telemetry\_hash\_interval\_steps} & 1 & Emit telemetry every N steps \\
+\hline
+\end{tabular}
+\caption{P2.3 Telemetry Configuration}
+\end{table}
+
+\subsection{Configuration Injection Example}
+
+\begin{lstlisting}[language=TOML]
+# config.toml
+[io]
+# Telemetry
+telemetry_hash_interval_steps = 1          # Emit every step (or 10 for sparser logging)
+telemetry_buffer_capacity = 1024           # Ring buffer size (zero-heuristics injection)
+\end{lstlisting}
+
+\section{Thread-Safety Model}
+
+\texttt{TelemetryBuffer} uses \texttt{threading.Lock} for atomic operations:
+
+\begin{itemize}
+    \item \textbf{enqueue()}: Acquires lock, appends record, releases (O(1) amortized)
+    \item \textbf{drain()}: Acquires lock, extracts all records, clears buffer, releases
+    \item \textbf{size()}: Acquires lock, returns current count, releases
+\end{itemize}
+
+This prevents race conditions when orchestrator (compute thread) enqueues while consumer thread drains.
+
+\section{Backward Compatibility}
+
+P2.3 is fully backward compatible:
+\begin{itemize}
+    \item If \texttt{telemetry\_buffer=None}, no telemetry is emitted (default)
+    \item Existing calls to \texttt{orchestrate\_step()} without telemetry params continue working
+    \item No changes to compute path (telemetry entirely outside @jax.jit scope)
+\end{itemize}
+
+\section{Usage Example}
+
+\begin{lstlisting}[language=Python]
+from stochastic_predictor.io.telemetry import TelemetryBuffer
+from stochastic_predictor.api.config import PredictorConfigInjector
+
+# Initialize
+config = PredictorConfigInjector().create_config()
+telemetry_buffer = TelemetryBuffer(capacity=config.telemetry_buffer_capacity)
+
+# In prediction loop:
+for step in range(num_steps):
+    result = orchestrate_step(
+        signal=current_signal,
+        timestamp_ns=now_ns(),
+        state=state,
+        config=config,
+        observation=obs,
+        now_ns=now_ns(),
+        telemetry_buffer=telemetry_buffer,     # P2.3: Pass buffer
+        step_counter=step,                     # P2.3: Pass step
+    )
+    
+    # Optional: Drain telemetry in background thread
+    if step\% 100 == 0:
+        records = telemetry_buffer.drain()
+        # Write to file/database (non-blocking, doesn't stall orchestrator)
+        write_telemetry_async(records)
+\end{lstlisting}
+
+\section{Benefits}
+
+\begin{itemize}
+    \item \textbf{Non-Blocking}: Telemetry enqueue is O(1), never stalls inference
+    \item \textbf{Audit Trail}: Complete state snapshots for compliance and debugging
+    \item \textbf{Integrity}: Parity hashes enable CPU/GPU parity validation
+    \item \textbf{Configurable}: Emission interval and buffer size injected from config
+    \item \textbf{Thread-Safe}: Lock-based synchronization for multi-threaded consumers
+    \item \textbf{Backward Compatible}: Fully optional, no impact on existing code paths
+\end{itemize}
+
 \chapter{Compliance Checklist}
 
 \begin{itemize}
