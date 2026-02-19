@@ -373,6 +373,57 @@ Esta activación duplica la precisión a \texttt{float64}, preservando:
 
 \textbf{Costo y Compensación:} El overhead es $\sim 2\times$ en tiempo de compilación XLA y VRAM consumida, pero es esencial para la confiabilidad en producción cuando se procesan trayectorias de assets volátiles.
 
+\section{Arquitectura Física de Directorios (Restricción de Implementación)}
+
+Para garantizar la estricta Separación de Responsabilidades (Separation of Concerns) y proteger la pureza de las funciones compiladas por XLA, cualquier repositorio de código derivado de esta especificación \textbf{debe} instanciarse respetando la siguiente jerarquía física de paquetes:
+
+\begin{itemize}
+    \item \texttt{stochastic\_predictor/api/}: Frontera de contrato externo (Facade). Debe contener exclusivamente la configuración global (\texttt{PredictorConfig}), los esquemas de validación estricta usando tipos de datos seguros, y la lógica de degradación de inferencia (Load Shedding).
+    
+    \item \texttt{stochastic\_predictor/core/}: Capa de orquestación central. Aloja el bucle principal de transporte JKO, la regularización de Sinkhorn y el monitoreo de entropía/curtosis. No interactúa directamente con los sockets de I/O.
+    
+    \item \texttt{stochastic\_predictor/kernels/}: Motores matemáticos puros en XLA (SIA, DGM, Itô/Lévy, Signatures). Todos sus submódulos deben exponer funciones puras (\textit{stateless}) para maximizar la velocidad de compilación JIT y paralelización vectorizada (\texttt{vmap}).
+    
+    \item \texttt{stochastic\_predictor/io/}: Gestión de Entrada/Salida física. Responsable de la sanitización de señales entrantes y de ejecutar el motor asíncrono para el Snapshotting Atómico de memoria latente.
+    
+    \item \texttt{tests/}: Suite de validación externa, separada del paquete principal, destinada a las pruebas causales y de consistencia de bit (Hardware Parity).
+\end{itemize}
+
+\section{Especificación Estricta del Entorno (Dependency Pinning)}
+
+Debido a que JAX actúa como un compilador \textit{Just-In-Time} (JIT) sobre hardware acelerado, variaciones menores en las versiones de las librerías pueden alterar heurísticas de fusión de grafos, rompiendo la consistencia de bit matemática. El entorno de ejecución queda \textbf{congelado} a la siguiente matriz de compatibilidad (Golden Master):
+
+\begin{lstlisting}[language=bash, caption={Golden Master Environment Specification}]
+# --- CORE MATHEMATICS & HARDWARE (JAX/XLA) ---
+jax==0.4.20
+jaxlib==0.4.20+cuda12.cudnn89
+
+# --- NEURAL ODEs & STOCHASTIC SOLVERS ---
+equinox==0.11.2
+diffrax==0.4.1
+jaxtyping==0.2.24
+
+# --- OPTIMAL TRANSPORT (JKO Flow) ---
+ott-jax==0.4.5
+
+# --- ROUGH PATHS & TOPOLOGY ---
+signax==0.1.4
+
+# --- SIGNAL PROCESSING (WTMM) ---
+PyWavelets==1.4.1
+scipy==1.11.4
+
+# --- SERIALIZATION & API ---
+msgpack==1.0.7
+pydantic==2.5.2
+\end{lstlisting}
+
+\vspace{0.5em}
+
+\noindent \textbf{Prohibición de Resolución Dinámica}
+
+Queda estrictamente prohibido el uso de operadores de versión abierta (ej. \texttt{>=}) o comandos de actualización dinámica (ej. \texttt{pip install -U}) en los entornos de Integración Continua (CI/CD) o Producción.
+
 \chapter{Módulo 1: Motor de Identificación (SIA)}
 
 \section{Estimación WTMM con Callback Asíncrono}
