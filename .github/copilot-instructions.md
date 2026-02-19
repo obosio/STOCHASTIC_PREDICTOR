@@ -59,78 +59,156 @@ Adhere strictly to the pinned versions to ensure bit-exact parity:
 ## 6. Tone & Style
 Maintain a technical, industrial-grade, and concise tone. Avoid conversational fillers like "Based on the provided files" or "I think". Provide direct, rigorous implementation proposals that match the Teoria.tex and Implementacion.tex specifications.
 
-## 7. Pre-Commit Quality Assurance (MANDATORY)
-**CRITICAL RULE**: ALWAYS verify there are NO VSCode errors before executing `git commit` or `git push`.
+## 7. Pre-Commit/Push Workflow (MANDATORY)
 
-**Workflow**:
-1. After making changes, run VSCode error check using `get_errors()` tool
-2. If errors found: Fix all errors BEFORE staging
-3. Only after `get_errors()` returns "No errors found" → proceed to commit/push
-4. Never bypass this check - errors cause corrupted releases and broken CI/CD
+**CRITICAL RULE**: Follow this exact sequence before EVERY `git commit` and `git push`. Non-compliance causes corrupted releases and project delays.
 
-**Common Error Types to Watch**:
-- Markdown (MD040: Code blocks missing language specifier, MD060: Table formatting, MD032: list spacing, MD036: heading punctuation)
-- LaTeX (Unicode incompatibility in verbatim blocks, escape character issues)
-- Python (Type hints, import statements, syntax errors)
-- YAML/TOML (Indentation, key format, string escaping)
+### **Step-by-Step Checklist**
 
-**Reference Incident**: Previous release v1.1.0 was corrupted due to Markdown formatting errors not caught pre-commit. Required deletion and recreation of entire release artifact.
+1. **✅ Fix All VSCode Errors**
+   ```bash
+   get_errors()  # Must return "No errors found"
+   ```
+   - Fix Markdown errors (MD040, MD050, MD032, MD036, MD060)
+   - Fix LaTeX errors (unescaped `_`, missing language specifiers, unicode issues)
+   - Fix Python errors (type hints, imports, syntax)
+   - Fix YAML/TOML errors (indentation, escaping)
+   - **Never proceed if errors exist** (Reference: v1.1.0 release corruption incident)
 
-## 8. Git Workflow (Strict Discipline)
-1. Make code changes
-2. **ALWAYS**: `get_errors()` → Fix if needed
-3. `git add <files>`
-4. `git commit -m "..."` (meaningful, technical commit message)
-5. `git push origin <branch>`
-6. Verify push successful and CI/CD passing
+2. **📝 Update LaTeX Documentation** (if code changes affect public API/architecture)
+   ```bash
+   # Edit corresponding file in doc/latex/implementation/
+   # - Implementacion_v2.0.1_API.tex (API layer)
+   # - Implementacion_v2.0.2_Kernels.tex (Kernels layer)
+   # - Future: Implementacion_v2.0.X_*.tex for each phase
+   
+   # Update sections:
+   # - Tag Information (add commit hashes for fixes)
+   # - Code Examples (reflect CURRENT implementation)
+   # - Critical Fixes Applied table (document corrections)
+   # - Metrics (LoC, module counts)
+   # - Compliance checklist (add ✓ for fixed issues)
+   
+   # Compile PDFs (only modified files)
+   cd doc && ./compile.sh --all
+   
+   # Verify no LaTeX errors
+   get_errors()
+   ```
+   
+   **When to Update LaTeX**:
+   - ✅ Critical bug fixes (e.g., config injection, type consistency)
+   - ✅ Major refactors (e.g., automated field mapping)
+   - ✅ Phase milestone completion
+   - ✅ Public API contract changes
+   - ❌ Minor internal refactors (no public impact)
 
-Non-compliance with this sequence has caused project delays.
+3. **📖 Update README Files** (before creating tags only)
+   ```bash
+   # Only required when creating impl/vX.Y.Z tags
+   # Update:
+   # - README.md (root): version table, phase status
+   # - doc/README.md: documentation structure
+   # - Layer READMEs (if exist): API descriptions, examples
+   
+   # Checklist:
+   # - [ ] Current version/tag referenced
+   # - [ ] Phase status accurate (Implementation vs Specification)
+   # - [ ] Code examples up-to-date
+   # - [ ] No broken links
+   # - [ ] 100% English (no Spanish)
+   
+   get_errors()  # Verify Markdown compliance
+   ```
 
-## 9. README Updates Before Tagging (MANDATORY)
-**CRITICAL RULE**: ALL README.md files in the project structure MUST be updated BEFORE creating and pushing a new version tag.
+4. **💾 Stage, Commit, Push**
+   ```bash
+   # Stage code changes
+   git add <files>
+   
+   # If LaTeX updated: stage docs too
+   git add doc/latex/implementation/*.tex doc/pdf/implementation/*.pdf
+   
+   # If READMEs updated: stage them
+   git add README.md doc/README.md
+   
+   # Commit with meaningful message
+   git commit -m "type(scope): description
+   
+   - Detail 1
+   - Detail 2
+   
+   Fixes: #issue (if applicable)
+   Refs: commit_hash (if docs updated for specific fix)"
+   
+   # Push
+   git push origin <branch>
+   
+   # Verify push successful
+   ```
 
-**When to Update READMEs:**
-- After completing a new Phase (Phase 1, Phase 2, etc.)
-- When adding new layers, modules, or public APIs
-- When updating version numbers or architecture diagrams
-- Before running `git tag` command
+5. **🏷️ Create Tag** (only for phase milestones)
+   ```bash
+   # Only after steps 1-4 complete AND READMEs updated
+   git tag impl/vX.Y.Z -m "Implementation vX.Y.Z: <Description>"
+   git push origin impl/vX.Y.Z
+   ```
 
-**Files to Check/Update:**
-- `README.md` (root) - Overall project status, quick start, version table
-- `doc/README.md` - Documentation guide and structure
-- `stochastic_predictor/api/README.md` - API layer documentation (if created)
-- `stochastic_predictor/core/README.md` - Core layer documentation (if created)
-- `stochastic_predictor/kernels/README.md` - Kernels layer documentation (if created)
-- `stochastic_predictor/io/README.md` - I/O layer documentation (if created)
-- `tests/README.md` - Testing strategy and fixture guide (if created)
+### **Quick Reference: What to Update When**
 
-**README Content Checklist:**
-- [ ] Current version/tag referenced
-- [ ] Phase status (Implementation vs Specification)
-- [ ] Layer description matches current implementation
-- [ ] Code examples are up-to-date
-- [ ] References to spec documents are correct
-- [ ] No broken links or typos
-- [ ] 100% English (no Spanish comments or descriptions)
+| Change Type | VSCode Errors | LaTeX Docs | READMEs | Example |
+|-------------|---------------|------------|---------|---------|
+| Bug fix (critical) | ✅ Required | ✅ Required | ❌ No | Config injection fix (dc16b1a) |
+| Bug fix (minor) | ✅ Required | ❌ No | ❌ No | Typo in log message |
+| Refactor (public API) | ✅ Required | ✅ Required | ❌ No | Automated config introspection (65e4bcf) |
+| Refactor (internal) | ✅ Required | ❌ No | ❌ No | Private function rename |
+| New feature (phase) | ✅ Required | ✅ Required | ✅ Required | Phase 2 Kernels (a0dc577) |
+| Phase milestone tag | ✅ Required | ✅ Required | ✅ Required | impl/v2.0.1, impl/v2.0.2 |
 
-**Workflow Before Tagging:**
-```bash
-# 1. Update all relevant README files
-# 2. Review with get_errors() to ensure Markdown compliance
-get_errors()
+### **Common Mistakes to Avoid**
 
-# 3. Stage README changes
-git add README.md doc/README.md stochastic_predictor/*/README.md
+- ❌ Committing with VSCode errors present
+- ❌ Updating code without updating LaTeX for architectural changes
+- ❌ Creating tags before README updates
+- ❌ Stale code examples in LaTeX docs
+- ❌ Missing commit hashes in "Critical Fixes Applied" tables
+- ❌ PDFs not regenerated after LaTeX changes
+- ❌ Generic commit messages ("fix bug", "update docs")
 
-# 4. Commit README updates
-git commit -m "docs: Update READMEs for vX.Y.Z"
+### **LaTeX Documentation Patterns**
 
-# 5. Only then create the tag
-git tag impl/vX.Y.Z -m "Implementation vX.Y.Z: <Description>"
+**Example: Documenting Critical Fix**
+```latex
+\section{Tag Information}
+\begin{itemize}
+    \item \textbf{Initial Commits}: 4757710 through 76f87c2
+    \item \textbf{Critical Fixes}: dc16b1a (config injection) + 65e4bcf (automated introspection)
+    \item \textbf{Status}: Complete, audited, and verified
+\end{itemize}
 
-# 6. Push both commits and tags
-git push origin <branch>
-git push origin impl/vX.Y.Z
+\section{Critical Fixes Applied}
+\begin{table}[h!]
+\begin{tabular}{|l|l|l|}
+\hline
+\textbf{Issue} & \textbf{Commit} & \textbf{Resolution} \\
+\hline
+Config injection incomplete & dc16b1a & All 15 fields now mapped \\
+Manual field mapping & 65e4bcf & Automated dataclass introspection \\
+\hline
+\end{tabular}
+\end{table}
 ```
 
-**Reference Standard**: Previous commits like cf46ff4 and 3976210 show proper README updates before tagging.
+**LaTeX Errors to Avoid**:
+- Unescaped underscores (use `\_` in text, OK in `lstlisting`)
+- Missing `[language=Python]` in `\begin{lstlisting}`
+- Unicode characters in verbatim blocks
+- Table column overflow (use `p{width}` for long text)
+
+### **Reference Standards**
+- ✅ Commit 65e4bcf: Code refactor + LaTeX update + README update
+- ✅ Commit 94c5296: Phase 2 docs + compiled PDFs
+- ✅ Commit dc16b1a: Critical fixes documented with commit hashes
+- ❌ v1.1.0 incident: Release corrupted due to uncaught Markdown errors
+
+---
