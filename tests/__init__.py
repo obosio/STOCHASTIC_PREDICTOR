@@ -1,36 +1,20 @@
-"""Tests - External Validation Layer
+"""Tests - External Validation Layer (Reserved for v3.x.x)
 
-Comprehensive test suite validating the entire prediction system.
+This directory is a placeholder for the comprehensive test suite.
 
-Responsibilities:
+Test implementation is reserved for v3.x.x and will include:
   - Unit tests for each kernel (A, B, C, D)
   - Integration tests for orchestration pipeline
   - Regression tests for numerical stability
-  - Hardware-parity tests for algorithm implementations
+  - Hardware-parity tests (CPU vs GPU determinism)
   - End-to-end prediction accuracy benchmarks
 
-See: doc/Predictor_Estocastico_Tests_Python.tex - Test specification
+See: doc/Predictor_Estocastico_Tests_Python.tex for test specification
 
-CRITICAL CI/CD PROCEDURE (doc/Predictor_Estocastico_Tests_Python.tex §1.1):
-
-Before running pytest, CI/CD MUST validate environment:
-  1. Extract expected versions from requirements.txt (Golden Master)
-  2. Compare against installed versions in virtual environment
-  3. If divergence detected → FAIL immediately (exit 1)
-  4. Only proceed with pytest if all versions match exactly
-
-See: doc/Predictor_Estocastico_Tests_Python.tex §1.1 for validation script
-
-Test structure:
-  - test_kernels/: Unit tests for A,B,C,D kernels
-  - test_orchestration/: Integration tests
-  - test_io/: I/O layer validation
-  - test_algorithms/: Specific algorithm correctness
-  - conftest.py: Pytest fixtures and utilities
-
-Expected test organization:
-  - Follow pytest conventions
-  - Use jax.random.PRNGKey() for reproducibility
-  - Cross-reference theory in test docstrings
-  - Hardware-parity tests compare against known solutions
+Current Implementation Status:
+  - v2.0.0: Bootstrap (5-layer architecture scaffold)
+  - v2.0.1: API Layer (types, PRNG, validation, schemas, config)
+  - v2.0.2: Kernels Layer (A, B, C, D prediction kernels)
+  - v3.x.x: Test Suite (PENDING)
 """
+

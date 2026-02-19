@@ -66,8 +66,9 @@ Phase 1 covers:
     \item \textbf{Validation Framework} (\texttt{validation.py}): Domain-specific validation logic
     \item \textbf{Schema Definitions} (\texttt{schemas.py}): Pydantic models for API contracts
     \item \textbf{Configuration Management} (\texttt{config.py}): Singleton ConfigManager with TOML injection
-    \item \textbf{Test Infrastructure} (\texttt{conftest.py}): 10 pytest fixtures for deterministic testing
 \end{itemize}
+
+\textbf{Note}: Test infrastructure (including \texttt{conftest.py}) is reserved for v3.x.x.
 
 \section{Tag Information}
 
@@ -391,120 +392,6 @@ def my_kernel(data: Array, config: PredictorConfig) -> Array:
 current_config = get_config()
 \end{lstlisting}
 
-\chapter{Test Infrastructure (conftest.py)}
-
-\section{Overview}
-
-The \texttt{conftest.py} module provides 10 pytest fixtures that establish:
-\begin{itemize}
-    \item Deterministic RNG seeding
-    \item Synthetic data generation (Brownian motion, Lévy stable processes)
-    \item Mock market data and reference solutions
-    \item JAX device configuration
-    \item Custom assertions
-\end{itemize}
-
-\section{PRNG Fixtures}
-
-\subsection{rng\_key}
-
-\begin{lstlisting}[language=Python]
-@pytest.fixture(scope="session")
-def rng_key():
-    """Session-scoped RNG key for deterministic tests."""
-    return initialize_jax_prng(seed=42)
-\end{lstlisting}
-
-\section{Data Generation Fixtures}
-
-\subsection{synthetic\_brownian}
-
-\begin{lstlisting}[language=Python]
-@pytest.fixture
-def synthetic_brownian(rng_key):
-    """Generate synthetic Brownian motion path."""
-    key1, key2 = split_key(rng_key)
-    n_steps = 1000
-    dt = 0.01
-    increments = normal_samples(key2, n_steps)
-    path = jax.numpy.cumsum(jax.numpy.sqrt(dt) * increments)
-    return path
-\end{lstlisting}
-
-\subsection{synthetic\_levy\_stable}
-
-\begin{lstlisting}[language=Python]
-@pytest.fixture
-def synthetic_levy_stable(rng_key):
-    """Generate synthetic Lévy stable process."""
-    # Generates alpha-stable increments
-    # Uses Mantegna-Chambers algorithm
-    # Returns normalized sample path
-\end{lstlisting}
-
-\section{Configuration Fixtures}
-
-\subsection{default\_config}
-
-\begin{lstlisting}[language=Python]
-@pytest.fixture
-def default_config():
-    """Standard predictor configuration for tests."""
-    return PredictorConfig(
-        jax_seed=42,
-        update_threshold=0.95,
-        warmup_steps=100,
-        n_particles=1000,
-        kernel_bandwidth=0.1,
-        sinkhorn_epsilon=1e-3,
-        beta_threshold=0.05,
-        cusum_threshold=4.0,
-        entropy_floor=1e-10,
-        wtmm_scales_min=1,
-        wtmm_scales_max=10
-    )
-\end{lstlisting}
-
-\subsection{test\_config\_low\_threshold}
-
-\begin{lstlisting}[language=Python]
-@pytest.fixture
-def test_config_low_threshold():
-    """Configuration with relaxed thresholds for quick testing."""
-    # Same as default_config but with:
-    # - warmup_steps=10
-    # - n_particles=100
-    # - cusum_threshold=2.0
-\end{lstlisting}
-
-\section{JAX Device Fixture}
-
-\begin{lstlisting}[language=Python]
-@pytest.fixture
-def jax_device():
-    """Ensure tests run on CPU for reproducibility."""
-    jax.config.update('jax_platform_name', 'cpu')
-    return jax.devices()[0]
-\end{lstlisting}
-
-\section{Assertion Fixture}
-
-\subsection{assert\_jax\_deterministic}
-
-\begin{lstlisting}[language=Python]
-@pytest.fixture
-def assert_jax_deterministic():
-    """Custom assertion for deterministic output equality."""
-    def _assert_equal(result1: Array, result2: Array, 
-                      rtol: float = 1e-10):
-        if not jax.numpy.allclose(result1, result2, rtol=rtol):
-            raise AssertionError(
-                f"Deterministic outputs differ:\n"
-                f"  Max difference: {jax.numpy.max(jax.numpy.abs(result1 - result2))}"
-            )
-    return _assert_equal
-\end{lstlisting}
-
 \chapter{Code Quality Metrics}
 
 \section{Lines of Code}
@@ -520,9 +407,8 @@ prng.py & 301 \\
 validation.py & 467 \\
 schemas.py & 330 \\
 config.py & 220 \\
-conftest.py & 345 \\
 \hline
-\textbf{Total} & \textbf{2,010} \\
+\textbf{Total} & \textbf{1,665} \\
 \hline
 \end{tabular}
 \end{table}
@@ -547,8 +433,9 @@ Phase 1 establishes the foundational API layer with:
     \item Comprehensive validation framework
     \item Explicit API contracts via Pydantic
     \item Singleton configuration management
-    \item Comprehensive test infrastructure
 \end{itemize}
+
+\textbf{Note}: Test infrastructure will be implemented in v3.x.x with full CPU/GPU parity validation.
 
 All code is production-ready and tagged as \texttt{impl/v2.0.1}.
 

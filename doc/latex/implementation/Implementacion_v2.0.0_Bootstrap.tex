@@ -106,10 +106,9 @@ stochastic_predictor/
 │   ├── snapshots.py       
 │   └── __init__.py
 │
-└── tests/                  Layer 5: Validation (Hardware Parity)
-    ├── conftest.py        
-    ├── test_integration.py
-    └── [subdirs for each layer]
+└── tests/                  Layer 5: Test Infrastructure (scaffold)
+    ├── __init__.py        
+    └── [test files reserved for v3.x.x]
 \end{verbatim}
 \end{figure}
 
@@ -127,7 +126,7 @@ Each layer has strict responsibilities:
 \texttt{core/} & Orchestration, decision logic, fusion algorithms & Direct device operations, I/O \\
 \texttt{kernels/} & Pure, stateless JAX functions (JIT-compilable) & Configuration, file I/O, randomness generation \\
 \texttt{io/} & Atomic snapshots, stream sanitization & Prediction logic, kernel computations \\
-\texttt{tests/} & Validation, fixtures, integration tests & Implementation logic \\
+\texttt{tests/} & Test infrastructure scaffold (reserved for v3.x.x) & Implementation logic \\
 \hline
 \end{tabular}
 \caption{Clean Architecture Layer Boundaries}
@@ -160,10 +159,9 @@ Bootstrap creates the 5-layer directory structure with minimal \texttt{\_\_init\
 mkdir -p stochastic_predictor/{api,core,kernels,io}
 touch stochastic_predictor/{__init__.py,api/__init__.py,core/__init__.py,kernels/__init__.py,io/__init__.py}
 
-# Create tests structure
-mkdir -p tests/{integrators,kernels,orchestrator,sia,utils}
-touch tests/{__init__.py,conftest.py}
-touch tests/{integrators,kernels,orchestrator,sia,utils}/__init__.py
+# Create tests structure (scaffold only, actual tests in v3.x.x)
+mkdir -p tests
+touch tests/__init__.py
 \end{lstlisting}
 
 \chapter{Language Policy Enforcement}
@@ -330,7 +328,7 @@ doc/
 
 \begin{itemize}
     \item[✓] \texttt{stochastic\_predictor/} created with 5-layer structure
-    \item[✓] \texttt{tests/} directory with layer subdirectories
+    \item[✓] \texttt{tests/} directory scaffold (actual tests reserved for v3.x.x)
     \item[✓] All \texttt{\_\_init\_\_.py} files created for module discovery
     \item[✓] \texttt{doc/} structure established (specification + implementation)
 \end{itemize}
@@ -372,8 +370,9 @@ Bootstrap establishes the foundation. Phase 1 will implement:
     \item \texttt{api/validation.py}: Input/output domain validation
     \item \texttt{api/schemas.py}: Pydantic models for serialization
     \item \texttt{api/config.py}: ConfigManager singleton with config.toml injection
-    \item \texttt{tests/conftest.py}: 10 reusable pytest fixtures
 \end{itemize}
+
+\textbf{Note}: Test infrastructure (including fixtures) is reserved for v3.x.x.
 
 All Phase 1 code will be 100\% English, follow Clean Architecture constraints, and pass pre-commit quality gates.
 

@@ -16,10 +16,10 @@ doc/                                  # Documentation root
 |   |   └-- ...
 |   └-- implementation/               # Ready for implementation docs
 |
-|-- pdf/                              # Compiled PDFs (auto-generated, git-ignored)
+|-- pdf/                              # Compiled PDFs
 |   |-- specification/                # Generated from latex/specification/
 |   |   └-- Predictor_Estocastico_*.pdf
-|   └-- implementation/               # Will generate from latex/implementation/
+|   └-- implementation/               # Generated from latex/implementation/
 |
 `-- .build/                           # Build artifacts (git-ignored)
 ```
@@ -45,18 +45,25 @@ doc/                                  # Documentation root
     - Documents initial 5-layer architecture scaffold
     - Language policy, Golden Master dependencies, git workflow
     - 12KB, 381 lines
-  - **`Implementacion_v2.0.1_Phase1.tex`** ✨
-    - Tag: `impl/v2.0.1` [CURRENT] (commit 4757710 through 76f87c2)
-    - Phase 1 Complete: Full API layer consolidated
-    - Modules: types.py (347 LoC), prng.py (301 LoC), validation.py (467 LoC), schemas.py (330 LoC), config.py (220 LoC), conftest.py (345 LoC)
-    - Total 2,010 LoC with complete type system, PRNG management, I/O validation, Pydantic schemas, and config injection
-    - 16KB, comprehensive Phase 1 documentation
+  - **`Implementacion_v2.0.1_API.tex`** ✨
+    - Tag: `impl/v2.0.1` (commit 4757710)
+    - API Layer Complete: Full foundational API
+    - Modules: types.py (347 LoC), prng.py (301 LoC), validation.py (467 LoC), schemas.py (330 LoC), config.py (220 LoC)
+    - Total 1,665 LoC (test infrastructure reserved for v3.x.x)
+    - 16KB, comprehensive API documentation
+  - **`Implementacion_v2.0.2_Kernels.tex`** ✨
+    - Tag: `impl/v2.0.2` [PENDING] (commit a0dc577)
+    - Kernels Layer Complete: Four prediction kernels (A, B, C, D)
+    - Modules: base.py (217 LoC), kernel_a.py (276 LoC), kernel_b.py (331 LoC), kernel_c.py (277 LoC), kernel_d.py (217 LoC), \_\_init\_\_.py (105 LoC)
+    - Total 1,423 LoC with RKHS, DGM, SDE, and Signature methods
+    - All kernels JIT-compilable, stateless, with stop_gradient on diagnostics
 
-- **`pdf/specification/`**: Auto-generated compiled PDFs (git-ignored)
+- **`pdf/specification/`**: Compiled specification PDFs
 
-- **`pdf/implementation/`**: Auto-generated implementation PDFs (git-ignored)
+- **`pdf/implementation/`**: Compiled implementation PDFs
   - `Implementacion_v2.0.0_Bootstrap.pdf` (67KB) ✅
-  - `Implementacion_v2.0.1_Phase1.pdf` (97KB) ✅
+  - `Implementacion_v2.0.1_API.pdf` (97KB) ✅
+  - `Implementacion_v2.0.2_Kernels.pdf` (pending commit) ✅
 
 - **`compile.sh`**: Dynamic LaTeX compiler (processes ANY folder in `latex/`)
 
@@ -145,8 +152,6 @@ echo "\\documentclass{article} \\begin{document} Test \\end{document}" > latex/r
 
 # 3. Result: pdf/research/my_doc.pdf is created automatically
 ```
-
-**Never commit** PDFs - they're auto-generated and git-ignored.
 
 ## 📋 Branch Strategy
 
