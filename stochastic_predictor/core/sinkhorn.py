@@ -1,10 +1,11 @@
 """Sinkhorn utilities for Wasserstein fusion.
 
-Implements volatility-coupled entropic regularization with a manual
-Sinkhorn loop using jax.lax.scan for predictable XLA lowering.
+Implements volatility-coupled entropic regularization using the native
+ott-jax library for maximum numerical stability and XLA efficiency.
 
 References:
-    - Stochastic_Predictor_Implementation.tex §2.4
+    - Stochastic_Predictor_Implementation.tex §2.4 (Golden Master: OTT-JAX)
+    - Python.tex §2.1 (Precision Requirements)
 """
 
 from dataclasses import dataclass
@@ -12,7 +13,9 @@ from dataclasses import dataclass
 import jax
 import jax.numpy as jnp
 from jaxtyping import Array, Float
-from jax.scipy.special import logsumexp
+from ott.geometry import geometry
+from ott.problems.linear import linear_problem
+from ott.solvers.linear import sinkhorn
 
 from stochastic_predictor.api.types import PredictorConfig
 
@@ -57,11 +60,6 @@ def compute_cost_matrix(
     return jnp.square(diffs)
 
 
-def _smin(matrix: Float[Array, "n n"], epsilon: Float[Array, ""]) -> Float[Array, "n"]:
-    """Log-domain soft minimum operator (stable Sinkhorn update)."""
-    return -epsilon * logsumexp(-matrix / epsilon, axis=1)
-
-
 def volatility_coupled_sinkhorn(
     source_weights: Float[Array, "n"],
     target_weights: Float[Array, "n"],
@@ -69,44 +67,73 @@ def volatility_coupled_sinkhorn(
     ema_variance: Float[Array, "1"],
     config: PredictorConfig
 ) -> SinkhornResult:
-    """Run Sinkhorn with volatility-coupled epsilon using jax.lax.scan."""
-    log_a = jnp.log(jnp.maximum(source_weights, config.numerical_epsilon))
-    log_b = jnp.log(jnp.maximum(target_weights, config.numerical_epsilon))
-
-    f0 = jnp.zeros_like(source_weights)
-    g0 = jnp.zeros_like(target_weights)
-
-    def sinkhorn_step(carry, _):
-        f, g = carry
-        epsilon = compute_sinkhorn_epsilon(ema_variance, config)
-        f = _smin(cost_matrix - g[None, :], epsilon) + log_a
-        g = _smin(cost_matrix.T - f[None, :], epsilon) + log_b
-        return (f, g), None
-
-    (f_final, g_final), _ = jax.lax.scan(
-        sinkhorn_step,
-        (f0, g0),
-        None,
-        length=config.sinkhorn_max_iter
+    """
+    Run Sinkhorn with volatility-coupled epsilon using native OTT-JAX.
+    
+    COMPLIANCE: Golden Master (Implementacion.tex §2.4) requires ott-jax==0.4.5
+    for numerically stable Wasserstein distance computation with optimal transport.
+    
+    Args:
+        source_weights: Initial kernel weights [ρ_A, ρ_B, ρ_C, ρ_D]
+        target_weights: Target simplex [0.25, 0.25, 0.25, 0.25]
+        cost_matrix: Pairwise prediction distance matrix
+        ema_variance: EWMA volatility estimate (scalar)
+        config: Predictor configuration with Sinkhorn parameters
+    
+    Returns:
+        SinkhornResult with transport matrix, cost, convergence flags
+    
+    References:
+        - Implementacion.tex §2.4: Golden Master Dependencies (OTT-JAX)
+        - Python.tex §2.1: Precision & Numerical Stability
+        - Theory.tex §5.2: Optimal Transport Geometry
+    """
+    # Compute volatility-coupled epsilon as float (required by OTT API)
+    epsilon_final_scalar = float(compute_sinkhorn_epsilon(ema_variance, config))
+    
+    # Instantiate OTT Geometry with cost matrix and dynamic epsilon
+    # OTT-JAX automatically handles numerical stability via log-domain operations
+    geom = geometry.Geometry(
+        cost_matrix=cost_matrix,
+        epsilon=epsilon_final_scalar,
+        scale_cost="mean"  # Normalize costs for numerical robustness
     )
-
-    epsilon_final = compute_sinkhorn_epsilon(ema_variance, config)
-    transport = jnp.exp((f_final[:, None] + g_final[None, :] - cost_matrix) / epsilon_final)
-    safe_transport = jnp.maximum(transport, config.numerical_epsilon)
-    entropy_term = jnp.sum(safe_transport * (jnp.log(safe_transport) - 1.0))
-    reg_ot_cost = jnp.sum(transport * cost_matrix) + epsilon_final * entropy_term
-
-    row_sums = jnp.sum(transport, axis=1)
-    col_sums = jnp.sum(transport, axis=0)
-    row_err = jnp.max(jnp.abs(row_sums - source_weights))
-    col_err = jnp.max(jnp.abs(col_sums - target_weights))
-    max_err = jnp.maximum(row_err, col_err)
-    converged = jnp.asarray(max_err <= config.validation_simplex_atol)
-
+    
+    # Create LinearProblem with marginal constraints (source and target weights)
+    ot_prob = linear_problem.LinearProblem(
+        geom,
+        a=source_weights,
+        b=target_weights
+    )
+    
+    # Native OTT-JAX Sinkhorn solver with config-driven parameters
+    solver = sinkhorn.Sinkhorn(
+        max_iterations=int(config.sinkhorn_max_iter),
+        threshold=float(config.validation_simplex_atol),
+        inner_iterations=10  # Inner iterations for log-domain stability
+    )
+    
+    # Dispatch to OTT solver with LinearProblem
+    ott_result = solver(ot_prob)
+    
+    # Extract transport matrix and cost from OTT result
+    transport = ott_result.matrix
+    
+    # Compute regularized OT cost (entropy penalty included by OTT)
+    # Fallback to 0 if None
+    reg_ot_cost = ott_result.reg_ot_cost if ott_result.reg_ot_cost is not None else jnp.array(0.0)
+    
+    # Convergence detection from OTT solver (numerical measure in dual variables)
+    converged = jnp.asarray(ott_result.converged)
+    
+    # Extract max marginal error for diagnostics
+    # OTT stores errors array; take max for simplex constraint violation
+    max_err = jnp.max(jnp.asarray(ott_result.errors)) if ott_result.errors is not None else jnp.array(0.0)
+    
     return SinkhornResult(
         transport_matrix=transport,
-        reg_ot_cost=reg_ot_cost,
+        reg_ot_cost=jnp.asarray(reg_ot_cost),
         converged=converged,
-        epsilon=jnp.asarray(epsilon_final),
+        epsilon=jnp.asarray(epsilon_final_scalar),
         max_err=jnp.asarray(max_err),
     )
