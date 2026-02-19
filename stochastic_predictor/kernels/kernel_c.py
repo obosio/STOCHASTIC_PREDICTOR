@@ -59,14 +59,16 @@ def diffusion_levy(
     args: tuple
 ) -> Float[Array, "d d"]:
     """
-    Diffusion term g(t, y) for Lévy process.
+    Diffusion term g(t, y) for Lévy process with config-driven sigma.
     
     For simple case: g(t, y) = σ * I (isotropic diffusion)
+    
+    Zero-Heuristics: sigma is NOT hardcoded; must come from config.sde_diffusion_sigma.
     
     Args:
         t: Current time
         y: Current state (d-dimensional)
-        args: Tuple of (sigma, ...) parameters
+        args: Tuple of (mu, alpha, beta, sigma)
     
     Returns:
         Diffusion matrix (d x d)
@@ -75,8 +77,7 @@ def diffusion_levy(
         - Teoria.tex §2.3.3: Diffusion Coefficient
         - Implementacion.tex §3.3.1: Volatility Structure
     """
-    mu, alpha, beta = args
-    sigma = 0.2  # Default volatility
+    mu, alpha, beta, sigma = args  # sigma from config, not hardcoded
     
     d = y.shape[0]
     return sigma * jnp.eye(d)
@@ -170,11 +171,12 @@ def solve_sde(
 def kernel_c_predict(
     signal: Float[Array, "n"],
     key: Array,
-    mu: float = 0.0,
-    alpha: float = 1.8,
-    beta: float = 0.0,
-    horizon: float = 1.0,
-    dt0: float = 0.01
+    sigma: float,
+    mu: float,
+    alpha: float,
+    beta: float,
+    horizon: float,
+    dt0: float
 ) -> KernelOutput:
     """
     Kernel C: Itô/Lévy SDE prediction.
@@ -188,11 +190,12 @@ def kernel_c_predict(
     Args:
         signal: Input time series (historical trajectory)
         key: JAX PRNG key for Brownian motion
-        mu: Drift parameter
-        alpha: Stability parameter (1 < alpha <= 2)
-        beta: Skewness parameter (-1 <= beta <= 1)
-        horizon: Prediction time horizon
-        dt0: Initial time step
+        sigma: Diffusion coefficient (from config.sde_diffusion_sigma - REQUIRED)
+        mu: Drift parameter (from config.kernel_c_mu - REQUIRED)
+        alpha: Stability parameter (from config.kernel_c_alpha - REQUIRED, 1 < alpha <= 2)
+        beta: Skewness parameter (from config.kernel_c_beta - REQUIRED, -1 <= beta <= 1)
+        horizon: Prediction horizon (from config.kernel_c_horizon - REQUIRED)
+        dt0: Initial time step (from config.kernel_c_dt0 - REQUIRED)
     
     Returns:
         KernelOutput with prediction, confidence, and diagnostics
@@ -202,9 +205,19 @@ def kernel_c_predict(
         - Teoria.tex §2.3.3: Lévy Process Dynamics
     
     Example:
+        >>> from stochastic_predictor.api.config import PredictorConfigInjector
+        >>> config = PredictorConfigInjector().create_config()
         >>> signal = synthetic_levy_stable(rng_key)
         >>> key = initialize_jax_prng(42)
-        >>> result = kernel_c_predict(signal, key, alpha=1.8)
+        >>> result = kernel_c_predict(
+        ...     signal, key,
+        ...     sigma=config.sde_diffusion_sigma,
+        ...     mu=config.kernel_c_mu,
+        ...     alpha=config.kernel_c_alpha,
+        ...     beta=config.kernel_c_beta,
+        ...     horizon=config.kernel_c_horizon,
+        ...     dt0=config.kernel_c_dt0
+        ... )
         >>> prediction = result.prediction
     """
     # Current state (last value, convert to 1D array)
@@ -214,8 +227,8 @@ def kernel_c_predict(
     t0 = 0.0
     t1 = horizon
     
-    # SDE parameters
-    args = (mu, alpha, beta)
+    # SDE parameters (including sigma from config, not hardcoded)
+    args = (mu, alpha, beta, sigma)
     
     # Integrate SDE
     y_final = solve_sde(
@@ -236,7 +249,8 @@ def kernel_c_predict(
     # Confidence: Theoretical variance of Lévy stable process
     # For α-stable: Var ~ t^(2/α) (power law)
     # For Brownian (α=2): Var = σ^2 * t
-    sigma = 0.2  # Default diffusion coefficient
+    # sigma comes from config (REQUIRED parameter passed explicitly)
+    sigma = args[3]  # Extract sigma from args (injected from config)
     if alpha > 1.99:  # Near-Gaussian
         variance = (sigma ** 2) * horizon
     else:  # Heavy-tailed Lévy

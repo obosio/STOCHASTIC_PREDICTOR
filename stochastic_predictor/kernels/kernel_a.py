@@ -85,10 +85,12 @@ def kernel_ridge_regression(
     y_train: Float[Array, "n"],
     X_test: Float[Array, "m d"],
     bandwidth: float,
-    ridge_lambda: float = 1e-6
+    ridge_lambda: float  # From config.kernel_ridge_lambda (NOT hardcoded)
 ) -> tuple[Float[Array, "m"], Float[Array, "m"]]:
     """
     Kernel Ridge Regression for prediction.
+    
+    Zero-Heuristics: ridge_lambda NOT hardcoded; must come from PredictorConfig.
     
     Solves: alpha = (K + lambda*I)^(-1) y
     Predicts: y_pred = K_test @ alpha
@@ -98,7 +100,7 @@ def kernel_ridge_regression(
         y_train: Training targets (n,)
         X_test: Test points (m x d)
         bandwidth: Kernel bandwidth
-        ridge_lambda: Regularization parameter
+        ridge_lambda: Regularization parameter (from config.kernel_ridge_lambda)
     
     Returns:
         Tuple of (predictions, variances) for test points
@@ -145,7 +147,7 @@ def kernel_ridge_regression(
 @jax.jit
 def create_embedding(
     signal: Float[Array, "n"],
-    embedding_dim: int = 5
+    embedding_dim: int
 ) -> Float[Array, "n_embed d"]:
     """
     Create time-delay embedding (Takens' embedding) from 1D signal.
@@ -155,7 +157,7 @@ def create_embedding(
     
     Args:
         signal: Input time series (length n)
-        embedding_dim: Embedding dimension (d)
+        embedding_dim: Embedding dimension (d, from config.kernel_a_embedding_dim)
     
     Returns:
         Embedded points (n-d+1 x d)
@@ -165,9 +167,11 @@ def create_embedding(
         - Python.tex §2.2.1: Time-Delay Embedding
     
     Example:
+        >>> from stochastic_predictor.api.config import PredictorConfigInjector
+        >>> config = PredictorConfigInjector().create_config()
         >>> signal = jnp.array([1, 2, 3, 4, 5])
-        >>> embedding = create_embedding(signal, embedding_dim=3)
-        >>> # Returns: [[1, 2, 3], [2, 3, 4], [3, 4, 5]]
+        >>> embedding = create_embedding(signal, config.kernel_a_embedding_dim)
+        >>> # Returns: [[1, 2, 3], [2, 3, 4], [3, 4, 5]] (if embedding_dim=3)
     """
     n = signal.shape[0]
     n_embed = n - embedding_dim + 1
@@ -185,9 +189,9 @@ def create_embedding(
 def kernel_a_predict(
     signal: Float[Array, "n"],
     key: Array,
-    bandwidth: float = 0.1,
-    embedding_dim: int = 5,
-    ridge_lambda: float = 1e-6
+    ridge_lambda: float,
+    bandwidth: float,
+    embedding_dim: int
 ) -> KernelOutput:
     """
     Kernel A: RKHS prediction for smooth Gaussian processes.
@@ -201,9 +205,9 @@ def kernel_a_predict(
     Args:
         signal: Input time series (length n)
         key: JAX PRNG key (for compatibility, not used in this deterministic kernel)
-        bandwidth: Gaussian kernel bandwidth
-        embedding_dim: Time-delay embedding dimension
-        ridge_lambda: Ridge regularization parameter
+        ridge_lambda: Ridge regularization (from config.kernel_ridge_lambda - REQUIRED)
+        bandwidth: Gaussian kernel bandwidth (from config.kernel_a_bandwidth - REQUIRED)
+        embedding_dim: Time-delay embedding dimension (from config.kernel_a_embedding_dim - REQUIRED)
     
     Returns:
         KernelOutput with prediction, confidence (std), and metadata
@@ -213,9 +217,16 @@ def kernel_a_predict(
         - Teoria.tex §2.1: RKHS Theory
     
     Example:
-        >>> signal = synthetic_brownian(rng_key)  # From fixture
+        >>> from stochastic_predictor.api.config import PredictorConfigInjector
+        >>> config = PredictorConfigInjector().create_config()
+        >>> signal = jnp.array([1.0, 1.1, 0.95, 1.05])
         >>> key = initialize_jax_prng(42)
-        >>> result = kernel_a_predict(signal, key)
+        >>> result = kernel_a_predict(
+        ...     signal, key,
+        ...     ridge_lambda=config.kernel_ridge_lambda,
+        ...     bandwidth=config.kernel_a_bandwidth,
+        ...     embedding_dim=config.kernel_a_embedding_dim
+        ... )
         >>> prediction = result.prediction
         >>> confidence = result.confidence
     """

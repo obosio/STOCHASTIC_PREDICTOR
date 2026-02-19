@@ -79,7 +79,7 @@ Phase 1 covers:
         \begin{itemize}
             \item dc16b1a: Config injection completeness, type consistency
             \item 65e4bcf: Automated config introspection
-            \item [PENDING]: Zero-heuristics policy (expanded vector $\Lambda$)
+            \item Phase 3 (Rigor Audit v2.1.1): ✓ check\_staleness() dynamic TTL, ✓ Kernel C/A parameter governance
         \end{itemize}
     \item \textbf{Total Lines of Code}: 2,010+ lines (100\% English)
     \item \textbf{Status}: Complete, audited, and verified (all critical fixes applied)
@@ -151,9 +151,30 @@ class PredictorConfig:
     staleness_ttl_ns: int = 500_000_000
     besov_nyquist_interval_ns: int = 100_000_000
     inference_recovery_hysteresis: float = 0.8
+    
+    # Kernel Parameters (Phase 3-4: Rigor + Complete Zero-Heuristics)
+    sde_diffusion_sigma: float = 0.2        # Lévy SDE diffusion coefficient (Kernel C)
+    kernel_ridge_lambda: float = 1e-6       # Ridge regularization (Kernel A)
+    kernel_a_bandwidth: float = 0.1         # Gaussian kernel bandwidth (Kernel A)
+    kernel_a_embedding_dim: int = 5         # Time-delay embedding (Kernel A)
+    dgm_width_size: int = 64                # DGM network width (Kernel B)
+    dgm_depth: int = 4                      # DGM network depth (Kernel B)
+    dgm_entropy_num_bins: int = 50          # DGM entropy bins (Kernel B)
+    kernel_b_r: float = 0.05                # HJB interest rate (Kernel B)
+    kernel_b_sigma: float = 0.2             # HJB volatility (Kernel B)
+    kernel_b_horizon: float = 1.0           # HJB horizon (Kernel B)
+    kernel_c_mu: float = 0.0                # SDE drift (Kernel C)
+    kernel_c_alpha: float = 1.8             # SDE stability (Kernel C)
+    kernel_c_beta: float = 0.0              # SDE skewness (Kernel C)
+    kernel_c_horizon: float = 1.0           # SDE horizon (Kernel C)
+    kernel_c_dt0: float = 0.01              # SDE time step (Kernel C)
+    kernel_d_depth: int = 3                 # Signature depth (Kernel D)
+    kernel_d_alpha: float = 0.1             # Signature scaling (Kernel D)
+    base_min_signal_length: int = 32        # Minimum signal length
+    signal_normalization_method: str = "zscore"  # Normalization method
 \end{lstlisting}
 
-\textbf{Field Count}: 31 total fields (expanded from 15 initial → 28 e4237ad → 31 current)
+\textbf{Field Count}: 45 total fields (expanded from 15 initial → 28 e4237ad → 31 f12157c → 33 Phase 3 → 45 Phase 4)
 
 \textbf{Validation}: \texttt{\_\_post\_init\_\_} enforces mathematical invariants:
 \begin{itemize}
@@ -735,14 +756,32 @@ Hardcoded temporal drift defaults & [CURRENT] & Removed max\_future/past\_drift\
 \hline
 Temporal drift ungoverned & [CURRENT] & Added 3 fields (31 total) \\
 \hline
+Kernel C: hardcoded sigma=0.2 & [CURRENT] & Moved to config.sde\_diffusion\_sigma (required param) \\
+\hline
+Kernel A: hardcoded ridge\_lambda=1e-6 & [CURRENT] & Moved to config.kernel\_ridge\_lambda (required param) \\
+\hline
+check\_staleness() magic TTL & Phase3 & Dynamic config.staleness\_ttl\_ns \\
+\hline
+kernel\_a ridge\_lambda=1e-6 & Phase3 & config.kernel\_ridge\_lambda (2 instances) \\
+\hline
+\textbf{Phase 4: 19 kernel defaults} & Phase 4 & \textbf{14 new config fields + 19 param fixes} \\
+\hline
+kernel\_a bandwidth, embedding\_dim defaults & Phase4 & config.kernel\_a\_*, kernel\_a\_embedding\_dim \\
+\hline
+kernel\_b DGM/HJB parameter defaults & Phase4 & config.dgm\_*, kernel\_b\_* (7 fields) \\
+\hline
+kernel\_c SDE parameter defaults & Phase4 & config.kernel\_c\_* (5 fields) \\
+\hline
+kernel\_d + base function defaults & Phase4 & config.kernel\_d\_*, base\_min\_signal\_length, signal\_normalization\_method \\
+\hline
 \end{tabular}
 \end{table}
 
-\textbf{New Fields Added} (13 total):
+\textbf{New Fields Added} (15 total: 13 in Phase 1, 2 in Phase 3):
 \begin{itemize}
     \item \textbf{Orchestration}: sinkhorn\_epsilon\_min, sinkhorn\_epsilon\_0, sinkhorn\_alpha, entropy\_window, entropy\_threshold, sigma\_bound
-    \item \textbf{Kernels}: stiffness\_low, stiffness\_high, sde\_dt, sde\_numel\_integrations
-    \item \textbf{I/O}: market\_feed\_timeout, market\_feed\_max\_retries, snapshot\_atomic\_fsync, snapshot\_compression (new section)
+    \item \textbf{Kernels}: stiffness\_low, stiffness\_high, sde\_dt, sde\_numel\_integrations, sde\_diffusion\_sigma (Phase 3), kernel\_ridge\_lambda (Phase 3)
+    \item \textbf{I/O}: data\_feed\_timeout, data\_feed\_max\_retries, snapshot\_atomic\_fsync, snapshot\_compression (new section)
 \end{itemize}
 
 \chapter{Conclusion}

@@ -10,10 +10,13 @@ References:
     - Predictor_Estocastico_Implementacion.tex §3: Quality Control
 """
 
-from typing import Union, Tuple
+from typing import Union, Tuple, TYPE_CHECKING
 import jax.numpy as jnp
 from jaxtyping import Float, Array
 import warnings
+
+if TYPE_CHECKING:
+    from stochastic_predictor.api.types import PredictorConfig
 
 
 # ═══════════════════════════════════════════════════════════════════════════
@@ -139,14 +142,16 @@ def validate_timestamp(
 
 def check_staleness(
     timestamp_ns: int,
-    ttl_ns: int = 500_000_000  # 500ms default (from config.toml)
+    config: 'PredictorConfig'
 ) -> Tuple[bool, int]:
     """
-    Verify if an observation is stale according to TTL.
+    Verify if an observation is stale according to TTL from configuration.
+    
+    Zero-Heuristics Policy: TTL is NOT hardcoded; must come from PredictorConfig.
     
     Args:
         timestamp_ns: Observation timestamp
-        ttl_ns: Time-To-Live in nanoseconds
+        config: PredictorConfig with staleness_ttl_ns parameter
         
     Returns:
         Tuple (is_stale: bool, age_ns: int)
@@ -158,6 +163,10 @@ def check_staleness(
     Example:
         >>> import time
         >>> from stochastic_predictor.api.validation import check_staleness
+        >>> from stochastic_predictor.api.config import PredictorConfigInjector
+        >>> config = PredictorConfigInjector().create_config()
+        >>> ts = time.time_ns() - 100_000_000  # 100ms ago
+        >>> is_stale, age = check_staleness(ts, config)
         >>> ts = time.time_ns() - 1_000_000_000  # 1 second ago
         >>> is_stale, age = check_staleness(ts, ttl_ns=500_000_000)
         >>> assert is_stale  # Older than 500ms TTL
@@ -166,7 +175,7 @@ def check_staleness(
     
     current_time_ns = time.time_ns()
     age_ns = current_time_ns - timestamp_ns
-    is_stale = age_ns > ttl_ns
+    is_stale = age_ns > config.staleness_ttl_ns
     
     return bool(is_stale), int(age_ns)
 

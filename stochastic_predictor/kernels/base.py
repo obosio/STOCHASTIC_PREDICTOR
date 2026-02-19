@@ -121,14 +121,14 @@ def apply_stop_gradient_to_diagnostics(
 @jax.jit
 def validate_kernel_input(
     signal: Float[Array, "n"],
-    min_length: int = 32
+    min_length: int
 ) -> tuple[bool, str]:
     """
     Validate input signal for kernel processing.
     
     Args:
         signal: Input time series
-        min_length: Minimum required signal length
+        min_length: Minimum required signal length (from config.base_min_signal_length - REQUIRED)
     
     Returns:
         Tuple of (is_valid, error_message)
@@ -182,14 +182,15 @@ def compute_signal_statistics(
 @jax.jit
 def normalize_signal(
     signal: Float[Array, "n"],
-    method: str = "zscore"
+    method: str
 ) -> Float[Array, "n"]:
     """
     Normalize signal to zero mean and unit variance.
     
     Args:
         signal: Input time series
-        method: Normalization method ('zscore' or 'minmax')
+        method: Normalization method (from config.signal_normalization_method - REQUIRED)
+               Options: 'zscore' or 'minmax'
     
     Returns:
         Normalized signal

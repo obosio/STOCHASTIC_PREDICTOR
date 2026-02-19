@@ -55,12 +55,14 @@ class PredictorConfig:
     # Kernel A (WTMM + Fokker-Planck)
     wtmm_buffer_size: int = 128     # N_buf: Sliding memory
     besov_cone_c: float = 1.5       # Besov Cone of Influence
+    kernel_ridge_lambda: float = 1e-6  # Ridge regularization parameter (Kernel A)
     
     # Kernel C (SDE Integration)
     stiffness_low: int = 100        # Threshold for explicit Euler-Maruyama
     stiffness_high: int = 1000      # Threshold for implicit trapezial
     sde_dt: float = 0.01            # Time step for SDE integration
     sde_numel_integrations: int = 100  # Number of integration steps
+    sde_diffusion_sigma: float = 0.2    # Diffusion coefficient (Levy process volatility)
     
     # Circuit Breaker (Holder Singularity)
     holder_threshold: float = 0.4   # H_min: Critical threshold
@@ -89,6 +91,33 @@ class PredictorConfig:
     staleness_ttl_ns: int = 500_000_000         # TTL: 500ms (degraded mode)
     besov_nyquist_interval_ns: int = 100_000_000 # Nyquist: 100ms (WTMM)
     inference_recovery_hysteresis: float = 0.8  # Recovery hysteresis factor
+    
+    # Kernel A Parameters (RKHS)
+    kernel_a_bandwidth: float = 0.1             # Gaussian kernel bandwidth (smoothness)
+    kernel_a_embedding_dim: int = 5             # Time-delay embedding dimension (Takens)
+    
+    # Kernel B Parameters (DGM)
+    dgm_width_size: int = 64                    # Hidden layer width for DGM network
+    dgm_depth: int = 4                          # Number of hidden layers in DGM
+    dgm_entropy_num_bins: int = 50              # Histogram bins for entropy monitoring
+    kernel_b_r: float = 0.05                    # Interest rate (HJB Hamiltonian)
+    kernel_b_sigma: float = 0.2                 # Volatility (HJB diffusion coefficient)
+    kernel_b_horizon: float = 1.0               # Prediction horizon (HJB integration time)
+    
+    # Kernel C Parameters (SDE)
+    kernel_c_mu: float = 0.0                    # Drift (mean reversion rate)
+    kernel_c_alpha: float = 1.8                 # Stability parameter (1 < alpha <= 2)
+    kernel_c_beta: float = 0.0                  # Skewness parameter (-1 <= beta <= 1)
+    kernel_c_horizon: float = 1.0               # Prediction horizon (integration time)
+    kernel_c_dt0: float = 0.01                  # Initial time step (adaptive stepping)
+    
+    # Kernel D Parameters (Signatures)
+    kernel_d_depth: int = 3                     # Log-signature truncation depth (L)
+    kernel_d_alpha: float = 0.1                 # Signature extrapolation scaling factor
+    
+    # Base/Validation Parameters
+    base_min_signal_length: int = 32            # Minimum required signal length
+    signal_normalization_method: str = "zscore"  # Method: 'zscore' or 'minmax'
     
     def __post_init__(self):
         """Validate mathematical invariants and configuration coherence."""

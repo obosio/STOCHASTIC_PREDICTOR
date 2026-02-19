@@ -48,8 +48,8 @@ class DGM_HJB_Solver(eqx.Module):
         self,
         in_size: int,
         key: Array,
-        width_size: int = 64,
-        depth: int = 4
+        width_size: int,
+        depth: int
     ):
         """
         Initialize DGM solver network.
@@ -57,8 +57,8 @@ class DGM_HJB_Solver(eqx.Module):
         Args:
             in_size: Input dimension (typically d+1 for d spatial dims + 1 time)
             key: JAX PRNG key for weight initialization
-            width_size: Hidden layer width
-            depth: Number of hidden layers
+            width_size: Hidden layer width (from config.dgm_width_size - REQUIRED)
+            depth: Number of hidden layers (from config.dgm_depth - REQUIRED)
         
         References:
             - Python.tex §2.2.2: DGM Network Initialization
@@ -98,7 +98,7 @@ def compute_entropy_dgm(
     model: DGM_HJB_Solver,
     t: float,
     x_samples: Float[Array, "n d"],
-    num_bins: int = 50
+    num_bins: int
 ) -> Float[Array, ""]:
     """
     Compute differential entropy of DGM value function.
@@ -112,7 +112,7 @@ def compute_entropy_dgm(
         model: DGM solver network
         t: Time at which to evaluate
         x_samples: Samples from spatial domain (n x d)
-        num_bins: Number of bins for histogram-based entropy
+        num_bins: Number of bins for histogram-based entropy (from config.dgm_entropy_num_bins - REQUIRED)
     
     Returns:
         Differential entropy (scalar)
@@ -156,17 +156,6 @@ def loss_hjb(
     r: float,
     sigma: float
 ) -> Float[Array, ""]:
-    """
-    Compute HJB residual loss for training DGM.
-    
-    For Black-Scholes: V_t + rS*V_S + 0.5*sigma^2*S^2*V_SS - rV = 0
-    
-    Args:
-        model: DGM solver network
-        t_batch: Time samples (n_t,)
-        x_batch: Spatial samples (n_x x d)
-        r: Interest rate
-        sigma: Volatility
     
     Returns:
         Mean squared residual loss
@@ -230,10 +219,10 @@ def loss_hjb(
 def kernel_b_predict(
     signal: Float[Array, "n"],
     key: Array,
-    model: Optional[DGM_HJB_Solver] = None,
-    r: float = 0.05,
-    sigma: float = 0.2,
-    horizon: float = 1.0
+    r: float,
+    sigma: float,
+    horizon: float,
+    model: Optional[DGM_HJB_Solver] = None
 ) -> KernelOutput:
     """
     Kernel B: DGM prediction for Fokker-Planck dynamics.

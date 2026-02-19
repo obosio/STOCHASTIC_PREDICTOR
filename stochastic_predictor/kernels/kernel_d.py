@@ -28,7 +28,7 @@ from .base import KernelOutput, apply_stop_gradient_to_diagnostics
 @jax.jit
 def compute_log_signature(
     path: Float[Array, "n d"],
-    depth: int = 3
+    depth: int
 ) -> Float[Array, "signature_dim"]:
     """
     Compute log-signature of a path using Signax.
@@ -38,7 +38,7 @@ def compute_log_signature(
     
     Args:
         path: Discrete path (n time steps, d dimensions)
-        depth: Truncation depth (L in theory)
+        depth: Truncation depth (from config.kernel_d_depth - REQUIRED)
     
     Returns:
         Log-signature vector (dimension depends on depth and d)
@@ -48,8 +48,10 @@ def compute_log_signature(
         - Python.tex §2.2.4: Signax Integration
     
     Example:
+        >>> from stochastic_predictor.api.config import PredictorConfigInjector
+        >>> config = PredictorConfigInjector().create_config()
         >>> path = jnp.array([[0.0, 0.0], [1.0, 0.5], [2.0, 1.0]])
-        >>> logsig = compute_log_signature(path, depth=2)
+        >>> logsig = compute_log_signature(path, config.kernel_d_depth)
     """
     # Signax expects shape (batch, length, channels) but path is (length, channels)
     # Add batch dimension
@@ -93,7 +95,8 @@ def create_path_augmentation(
 @jax.jit
 def predict_from_signature(
     logsig: Float[Array, "signature_dim"],
-    last_value: float
+    last_value: float,
+    alpha: float
 ) -> tuple[float, float]:
     """
     Generate prediction from log-signature features.
@@ -105,6 +108,7 @@ def predict_from_signature(
     Args:
         logsig: Log-signature vector
         last_value: Last observed value (for baseline prediction)
+        alpha: Extrapolation scaling factor (from config.kernel_d_alpha - REQUIRED)
     
     Returns:
         Tuple of (prediction, confidence)
@@ -122,14 +126,13 @@ def predict_from_signature(
     sig_norm = jnp.linalg.norm(logsig)
     
     # Simple heuristic: prediction = last_value + alpha * sign(first_sig_component)
-    # where alpha is scaled by signature magnitude
+    # where alpha is scaled by signature magnitude (from config, NOT hardcoded)
     if logsig.shape[0] > 1:
         direction = jnp.sign(logsig[1])  # First non-trivial component
     else:
         direction = 0.0
     
     # Prediction: slight extrapolation based on signature trend
-    alpha = 0.1  # Scaling factor
     prediction = last_value + alpha * direction * sig_norm
     
     # Confidence: proportional to signature norm (more activity = less certainty)
@@ -142,7 +145,7 @@ def predict_from_signature(
 def kernel_d_predict(
     signal: Float[Array, "n"],
     key: Array,
-    depth: int = 3
+    depth: int
 ) -> KernelOutput:
     """
     Kernel D: Signature-based prediction for rough paths.

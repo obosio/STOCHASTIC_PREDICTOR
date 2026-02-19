@@ -73,10 +73,12 @@ Phase 2 covers the complete kernel layer (Layer 3 of 5-layer architecture):
 \section{Tag Information}
 
 \begin{itemize}
-    \item \textbf{Git Tag}: \texttt{impl/v2.0.2} (pending)
-    \item \textbf{Commit}: a0dc577 (Phase 2 kernels complete)
-    \item \textbf{Total Lines of Code}: 1,423 LoC (100\% English)
-    \item \textbf{Status}: Complete and verified (no errors, JIT-compilable)
+    \item \textbf{Git Tag}: \texttt{impl/v2.0.2}
+    \item \textbf{Phase 2 Commit}: a0dc577 (Phase 2 kernels complete)
+    \item \textbf{Phase 4 Enhancement}: 1068531 (Complete Zero-Heuristics enforcement)
+    \item \textbf{Total Lines of Code}: 1,500+ LoC (100\% English)
+    \item \textbf{Status}: Complete and verified with Phase 4 compliance
+    \item \textbf{Zero-Heuristics Compliance}: ✅ Phase 4 - All kernel parameters now governed by PredictorConfig
 \end{itemize}
 
 \section{Architecture Principles}
@@ -88,6 +90,35 @@ All kernels adhere to three critical design constraints:
     \item \textbf{Stop Gradient on Diagnostics}: Apply \texttt{jax.lax.stop\_gradient()} to SIA diagnostics to protect VRAM during backpropagation
     \item \textbf{Deterministic Design}: Designed for CPU/GPU parity (validation tests reserved for v3.x.x)
 \end{enumerate}
+
+\section{Zero-Heuristics Policy (Phase 4 Enforcement)}
+
+\textbf{CRITICAL}: All kernel functions PROHIBIT hardcoded default parameters. Every algorithmic constant (bandwidth, depth, time steps, regularization, etc.) MUST be explicitly injected from \texttt{PredictorConfig}.
+
+\textbf{Rationale}: Enables complete automation via configuration file without modifying kernel logic.
+
+\subsection{Phase 4 Compliance (19 violations resolved)}
+
+\begin{table}[h!]
+\centering
+\begin{tabular}{|l|l|l|}
+\hline
+\textbf{Kernel} & \textbf{Parameters (No Defaults)} & \textbf{Config Fields} \\
+\hline
+\textbf{A (RKHS)} & bandwidth, embedding\_dim & kernel\_a\_bandwidth, kernel\_a\_embedding\_dim \\
+\hline
+\textbf{B (DGM)} & width\_size, depth, num\_bins, r, sigma, horizon & dgm\_width\_size, dgm\_depth, dgm\_entropy\_num\_bins, kernel\_b\_r, kernel\_b\_sigma, kernel\_b\_horizon \\
+\hline
+\textbf{C (SDE)} & mu, alpha, beta, horizon, dt0 & kernel\_c\_mu, kernel\_c\_alpha, kernel\_c\_beta, kernel\_c\_horizon, kernel\_c\_dt0 \\
+\hline
+\textbf{D (Sig)} & depth, alpha & kernel\_d\_depth, kernel\_d\_alpha \\
+\hline
+\textbf{Base} & min\_length, method & base\_min\_signal\_length, signal\_normalization\_method \\
+\hline
+\end{tabular}
+\end{table}
+
+\textbf{Enforcement}: All kernel functions now enforces REQUIRED parameters (no defaults). Callers MUST pass configuration values explicitly from \texttt{PredictorConfig}.
 
 \chapter{Base Infrastructure (base.py)}
 
@@ -160,15 +191,18 @@ Converts 1D signal into $d$-dimensional phase space using Takens' embedding theo
 @jax.jit
 def create_embedding(
     signal: Float[Array, "n"],
-    embedding_dim: int = 5
+    embedding_dim: int  # From config.kernel_a_embedding_dim (REQUIRED)
 ) -> Float[Array, "n_embed d"]:
     """
     Create time-delay embedding (Takens' embedding).
     
+    Zero-Heuristics: embedding_dim is NOT hardcoded, must come from PredictorConfig.
+    
     Example:
-        signal = [1, 2, 3, 4, 5]
-        embedding_dim = 3
-        Returns: [[1, 2, 3], [2, 3, 4], [3, 4, 5]]
+        >>> from stochastic_predictor.api.config import PredictorConfigInjector
+        >>> config = PredictorConfigInjector().create_config()
+        >>> signal = jnp.array([1, 2, 3, 4, 5])
+        >>> embedding = create_embedding(signal, config.kernel_a_embedding_dim)
     """
     n = signal.shape[0]
     n_embed = n - embedding_dim + 1
@@ -189,12 +223,14 @@ def kernel_ridge_regression(
     y_train: Float[Array, "n"],
     X_test: Float[Array, "m d"],
     bandwidth: float,
-    ridge_lambda: float = 1e-6
+    ridge_lambda: float  # From config.kernel_ridge_lambda (REQUIRED)
 ) -> tuple[Float[Array, "m"], Float[Array, "m"]]:
     """
     Solves: alpha = (K + lambda*I)^(-1) y
     Predicts: y_pred = K_test @ alpha
     Variance: Var[f(x)] = k(x,x) - K_test @ (K + lambda*I)^(-1) @ K_test^T
+    
+    Zero-Heuristics: ridge_lambda is NOT hardcoded, must come from PredictorConfig.
     """
     # Compute Gram matrix
     K_train = compute_gram_matrix(X_train, bandwidth)
@@ -207,16 +243,16 @@ def kernel_ridge_regression(
     # ... (implementation details)
 \end{lstlisting}
 
-\section{Main API}
+\section{Main API (Phase 4: Zero-Heuristics Compliant)}
 
 \begin{lstlisting}[language=Python]
 @jax.jit
 def kernel_a_predict(
     signal: Float[Array, "n"],
     key: Array,                      # PRNG key (for compatibility)
-    bandwidth: float = 0.1,
-    embedding_dim: int = 5,
-    ridge_lambda: float = 1e-6
+    ridge_lambda: float,             # From config.kernel_ridge_lambda (REQUIRED)
+    bandwidth: float,                # From config.kernel_a_bandwidth (REQUIRED)
+    embedding_dim: int               # From config.kernel_a_embedding_dim (REQUIRED)
 ) -> KernelOutput:
     """Kernel A: RKHS prediction for smooth Gaussian processes."""
     # 1. Normalize signal
@@ -338,6 +374,8 @@ def loss_hjb(
 
 \chapter{Kernel C: Itô/Lévy SDE (kernel\_c.py)}
 
+\textbf{Phase 4 Update (Zero-Heuristics Compliance)}: All SDE parameters (mu, alpha, beta, horizon, dt0) are now config-driven. No hardcoded defaults permitted.
+
 \section{Mathematical Foundation}
 
 Kernel C integrates stochastic differential equations:
@@ -415,6 +453,8 @@ For $\alpha$-stable Lévy processes, theoretical variance:
 \]
 
 \chapter{Kernel D: Signatures (kernel\_d.py)}
+
+\textbf{Phase 4 Update (Zero-Heuristics Compliance)}: All signature parameters (depth, alpha) are now config-driven. Previously hardcoded values (depth=3, alpha=0.1) now come from PredictorConfig. No hardcoded defaults permitted.
 
 \section{Mathematical Foundation}
 
