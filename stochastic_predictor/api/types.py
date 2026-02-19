@@ -310,7 +310,7 @@ class PredictionResult:
         """Validate output (simplex constraint and flag coherence)."""
         # Weights must sum to 1.0 (simplex)
         weights_sum = float(jnp.sum(self.weights))
-        assert jnp.allclose(weights_sum, 1.0, atol=self.config.validation_simplex_atol), \
+        assert jnp.allclose(weights_sum, 1.0, atol=1e-6), \
             f"weights must form a simplex (sum=1.0), got sum={weights_sum:.6f}"
         
         # Weights non-negative

@@ -91,9 +91,8 @@ def solve_sde(
     t0: float,
     t1: float,
     key: Array,
-    args: tuple = (),
-    dt0: float = 0.01,
-    solver: str = "euler"
+    config,
+    args: tuple = ()
 ) -> Float[Array, "d"]:
     """
     Solve SDE using Diffrax.
@@ -107,9 +106,8 @@ def solve_sde(
         t0: Start time
         t1: End time
         key: JAX PRNG key for Brownian motion
+        config: Configuration object with SDE solver parameters
         args: Additional arguments for drift/diffusion
-        dt0: Initial time step
-        solver: Solver type ('euler' or 'heun')
     
     Returns:
         Final state at time t1
@@ -125,7 +123,7 @@ def solve_sde(
         diffrax.VirtualBrownianTree(
             t0=t0,
             t1=t1,
-            tol=1e-3,
+            tol=config.sde_brownian_tree_tol,
             shape=(y0.shape[0],),
             key=key
         )
@@ -134,29 +132,29 @@ def solve_sde(
     # Combined SDE terms
     terms = diffrax.MultiTerm(drift_term, diffusion_term)
     
-    # Select solver
-    if solver == "euler":
+    # Select solver (Zero-Heuristics: from config.sde_solver_type)
+    if config.sde_solver_type == "euler":
         solver_obj = diffrax.Euler()
-    elif solver == "heun":
+    elif config.sde_solver_type == "heun":
         solver_obj = diffrax.Heun()
     else:
         solver_obj = diffrax.Euler()  # Default
     
-    # Adaptive step size controller
+    # Adaptive step size controller (Zero-Heuristics: tolerances from config)
     stepsize_controller = diffrax.PIDController(
-        rtol=1e-3,
-        atol=1e-6,
-        dtmin=1e-5,
-        dtmax=0.1
+        rtol=config.sde_pid_rtol,
+        atol=config.sde_pid_atol,
+        dtmin=config.sde_pid_dtmin,
+        dtmax=config.sde_pid_dtmax
     )
     
-    # Solve SDE
+    # Solve SDE (dt0 from config: dtmax/10 as initial step)
     solution = diffrax.diffeqsolve(
         terms,
         solver_obj,
         t0=t0,
         t1=t1,
-        dt0=dt0,
+        dt0=config.sde_pid_dtmax / 10.0,
         y0=y0,
         args=args,
         stepsize_controller=stepsize_controller,
@@ -171,12 +169,7 @@ def solve_sde(
 def kernel_c_predict(
     signal: Float[Array, "n"],
     key: Array,
-    sigma: float,
-    mu: float,
-    alpha: float,
-    beta: float,
-    horizon: float,
-    dt0: float
+    config
 ) -> KernelOutput:
     """
     Kernel C: Itô/Lévy SDE prediction.
@@ -187,15 +180,13 @@ def kernel_c_predict(
         3. Integrate SDE forward to horizon
         4. Return prediction with confidence
     
+    Zero-Heuristics: All parameters (sigma, mu, alpha, beta, horizon, tolerances,
+    solver type) are injected from config, not hardcoded.
+    
     Args:
         signal: Input time series (historical trajectory)
         key: JAX PRNG key for Brownian motion
-        sigma: Diffusion coefficient (from config.sde_diffusion_sigma - REQUIRED)
-        mu: Drift parameter (from config.kernel_c_mu - REQUIRED)
-        alpha: Stability parameter (from config.kernel_c_alpha - REQUIRED, 1 < alpha <= 2)
-        beta: Skewness parameter (from config.kernel_c_beta - REQUIRED, -1 <= beta <= 1)
-        horizon: Prediction horizon (from config.kernel_c_horizon - REQUIRED)
-        dt0: Initial time step (from config.kernel_c_dt0 - REQUIRED)
+        config: Configuration object with Kernel C and SDE parameters
     
     Returns:
         KernelOutput with prediction, confidence, and diagnostics
@@ -209,17 +200,15 @@ def kernel_c_predict(
         >>> config = PredictorConfigInjector().create_config()
         >>> signal = synthetic_levy_stable(rng_key)
         >>> key = initialize_jax_prng(42)
-        >>> result = kernel_c_predict(
-        ...     signal, key,
-        ...     sigma=config.sde_diffusion_sigma,
-        ...     mu=config.kernel_c_mu,
-        ...     alpha=config.kernel_c_alpha,
-        ...     beta=config.kernel_c_beta,
-        ...     horizon=config.kernel_c_horizon,
-        ...     dt0=config.kernel_c_dt0
-        ... )
+        >>> result = kernel_c_predict(signal, key, config)
         >>> prediction = result.prediction
     """
+    # Extract parameters from config (Zero-Heuristics pattern)
+    sigma = config.sde_diffusion_sigma
+    mu = config.kernel_c_mu
+    alpha = config.kernel_c_alpha
+    beta = config.kernel_c_beta
+    horizon = config.kernel_c_horizon
     # Current state (last value, convert to 1D array)
     y0 = jnp.array([signal[-1]])
     
@@ -227,10 +216,10 @@ def kernel_c_predict(
     t0 = 0.0
     t1 = horizon
     
-    # SDE parameters (including sigma from config, not hardcoded)
+    # SDE parameters
     args = (mu, alpha, beta, sigma)
     
-    # Integrate SDE
+    # Integrate SDE (config injection pattern)
     y_final = solve_sde(
         drift_fn=drift_levy_stable,
         diffusion_fn=diffusion_levy,
@@ -238,9 +227,8 @@ def kernel_c_predict(
         t0=t0,
         t1=t1,
         key=key,
-        args=args,
-        dt0=dt0,
-        solver=config.sde_solver_type  # From config ("euler" or "heun")
+        config=config,
+        args=args
     )
     
     # Prediction
@@ -249,8 +237,6 @@ def kernel_c_predict(
     # Confidence: Theoretical variance of Lévy stable process
     # For α-stable: Var ~ t^(2/α) (power law)
     # For Brownian (α=2): Var = σ^2 * t
-    # sigma comes from config (REQUIRED parameter passed explicitly)
-    sigma = args[3]  # Extract sigma from args (injected from config)
     if alpha > 1.99:  # Near-Gaussian
         variance = (sigma ** 2) * horizon
     else:  # Heavy-tailed Lévy
@@ -265,8 +251,7 @@ def kernel_c_predict(
         "alpha": alpha,
         "beta": beta,
         "horizon": horizon,
-        "solver": "heun",
-        "dt0": dt0,
+        "solver": config.sde_solver_type,
         "final_state": y_final[0]
     }
     

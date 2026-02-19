@@ -96,7 +96,8 @@ def create_path_augmentation(
 def predict_from_signature(
     logsig: Float[Array, "signature_dim"],
     last_value: float,
-    alpha: float
+    alpha: float,
+    config
 ) -> tuple[float, float]:
     """
     Generate prediction from log-signature features.
@@ -109,6 +110,7 @@ def predict_from_signature(
         logsig: Log-signature vector
         last_value: Last observed value (for baseline prediction)
         alpha: Extrapolation scaling factor (from config.kernel_d_alpha - REQUIRED)
+        config: Configuration object with kernel_d_confidence_scale
     
     Returns:
         Tuple of (prediction, confidence)
@@ -135,7 +137,8 @@ def predict_from_signature(
     # Prediction: slight extrapolation based on signature trend
     prediction = last_value + alpha * direction * sig_norm
     
-    # Confidence: proportional to signature norm (more activity = less certainty)
+    # Confidence: Scale from config (Zero-Heuristics: 0.1 hardcode removed)
+    # More activity (larger sig_norm) = less certainty
     confidence = config.kernel_d_confidence_scale * (1.0 + sig_norm)
     
     return prediction, confidence
@@ -190,18 +193,19 @@ def kernel_d_predict(
     # Step 2: Compute log-signature
     logsig = compute_log_signature(path, depth=config.kernel_d_depth)
     
-    # Step 3: Predict from signature
+    # Step 3: Predict from signature (config injection pattern)
     last_value = signal[-1]
     prediction, confidence = predict_from_signature(
         logsig, 
         last_value, 
-        alpha=config.kernel_d_alpha
+        alpha=config.kernel_d_alpha,
+        config=config
     )
     
     # Diagnostics
     diagnostics = {
         "kernel_type": "D_Signature_Rough_Paths",
-        "signature_depth": depth,
+        "signature_depth": config.kernel_d_depth,
         "signature_dim": logsig.shape[0],
         "signature_norm": jnp.linalg.norm(logsig),
         "path_length": path.shape[0],
