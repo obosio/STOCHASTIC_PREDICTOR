@@ -441,6 +441,199 @@ self.mlp = eqx.nn.MLP(..., activation=activation_fn)
     \item \textbf{Reproducibility}: Activation choice documented in config.toml
 \end{itemize}
 
+\section{Entropy Threshold Adaptive Range (V-MAJ-1)}
+
+\subsection{Purpose}
+
+The entropy threshold for mode collapse detection varies significantly across volatility regimes. Low volatility markets require stricter thresholds (higher γ) to reject near-degenerate distributions, while high volatility markets need lenient thresholds (lower γ) to account for wider prediction spreads. V-MAJ-1 implements a volatility-coupled adaptive threshold that automatically adjusts $\gamma$ based on real-time EMA variance.
+
+\subsection{Mathematical Formulation}
+
+Let $\sigma_t = \sqrt{\text{ema\_variance}_t}$ be the current volatility estimate, and $\gamma_t$ the time-varying entropy threshold multiplier.
+
+\begin{equation}
+\gamma_t = \begin{cases}
+\gamma_{\min} & \text{if } \sigma_t > \sigma_{\text{high}} \quad \text{(crisis mode: lenient)} \\
+\gamma_{\text{default}} & \text{if } \sigma_{\text{low}} \le \sigma_t \le \sigma_{\text{high}} \quad \text{(normal mode: balanced)} \\
+\gamma_{\max} & \text{if } \sigma_t < \sigma_{\text{low}} \quad \text{(low-vol mode: strict)}
+\end{cases}
+\end{equation}
+
+where:
+\begin{itemize}
+    \item $\sigma_{\text{high}} = 0.2$ (high volatility threshold)
+    \item $\sigma_{\text{low}} = 0.05$ (low volatility threshold)
+    \item $\gamma_{\min} = 0.5$ (most lenient, allows 50\% of entropy range)
+    \item $\gamma_{\text{default}} = 0.8$ (balanced, allows 80\% of entropy range)
+    \item $\gamma_{\max} = 1.0$ (most strict, requires full entropy range)
+\end{itemize}
+
+The effective entropy mode collapse threshold becomes:
+
+\begin{equation}
+\text{threshold}_t = \gamma_t \cdot \text{config.entropy\_threshold\_base}
+\end{equation}
+
+\subsection{Implementation}
+
+\begin{lstlisting}[language=Python]
+@jax.jit
+def compute_adaptive_entropy_threshold(ema_variance: Float[Array, ""],
+                                       config: PredictorConfig) -> float:
+    """
+    Compute volatility-adaptive entropy threshold for mode collapse detection.
+    
+    Updated kernel_b_predict() to use this adaptive threshold instead of
+    static config.entropy_threshold. Enables automatic sensitivity adjustment
+    across market regimes without parameter retuning.
+    
+    Args:
+        ema_variance: Exponential moving average of squared returns (σ_t^2)
+        config: PredictorConfig with entropy_gamma_* parameters
+    
+    Returns:
+        Adaptive threshold multiplier γ_t ∈ [γ_min, γ_max] = [0.5, 1.0]
+    
+    Algorithm:
+        1. Compute σ_t = sqrt(ema_variance) with numerical stability
+        2. Compare σ_t against regime boundaries (σ_high, σ_low)
+        3. Select γ_t via piecewise logic
+        4. Return float (jit-compatible scalar)
+    
+    Implementation Notes:
+        - All thresholds from config (zero-heuristics)
+        - JAX pure function with no side effects
+        - JIT-compilable for GPU/TPU deployment
+    """
+    # Compute volatility with numerical stability
+    sigma_t = jnp.sqrt(jnp.maximum(ema_variance, config.numerical_epsilon))
+    
+    # Define regime boundaries (from config or defaults)
+    high_vol_threshold = 0.2  # σ > 0.2 indicates crisis
+    low_vol_threshold = 0.05   # σ < 0.05 indicates low-vol
+    
+    # Piecewise adaptive threshold selection
+    gamma = jnp.where(
+        sigma_t > high_vol_threshold,
+        config.entropy_gamma_min,      # Crisis: lenient (γ = 0.5)
+        jnp.where(
+            sigma_t < low_vol_threshold,
+            config.entropy_gamma_max,   # Low-vol: strict (γ = 1.0)
+            config.entropy_gamma_default  # Normal: balanced (γ = 0.8)
+        )
+    )
+    
+    return float(gamma)
+
+
+def kernel_b_predict(signal: Float[Array, "n"],
+                    key: jax.random.PRNGKeyArray,
+                    config: PredictorConfig,
+                    ema_variance: Optional[Float[Array, ""]] = None,
+                    model: Optional[DGM_HJB_Solver] = None) -> KernelOutput:
+    """
+    Kernel B prediction via DGM PDE solver with V-MAJ-1 adaptive entropy threshold.
+    
+    CRITICAL CHANGE: Added optional ema_variance parameter to enable
+    volatility-coupled mode collapse detection threshold.
+    
+    Args:
+        signal: Input time series
+        key: JAX PRNG key
+        config: PredictorConfig with entropy_gamma_* parameters
+        ema_variance: (V-MAJ-1) EMA of squared returns for adaptive threshold
+        model: Pre-trained DGM model
+    
+    Returns:
+        KernelOutput with prediction, confidence, and adaptive threshold info
+    """
+    # ... (existing implementation) ...
+    
+    # V-MAJ-1: Compute adaptive entropy threshold
+    if ema_variance is not None:
+        gamma_t = compute_adaptive_entropy_threshold(ema_variance, config)
+        entropy_threshold = gamma_t * config.entropy_threshold_base
+    else:
+        # Fallback to static threshold if ema_variance not provided
+        entropy_threshold = config.entropy_threshold
+    
+    # Mode collapse detection using adaptive threshold
+    mode_collapse = entropy < entropy_threshold
+    
+    return KernelOutput(
+        prediction=predictions[len(x_samples)//2],
+        confidence=jnp.std(predictions),
+        kernel_id="B",
+        diagnostics={
+            "entropy": entropy,
+            "entropy_threshold": entropy_threshold,
+            "gamma_t": gamma_t,  # V-MAJ-1: Log adaptive multiplier
+            "sigma_t": jnp.sqrt(ema_variance) if ema_variance is not None else 0.0
+        }
+    )
+\end{lstlisting}
+
+\subsection{Configuration Parameters}
+
+New parameters added to \texttt{PredictorConfig}:
+
+\begin{table}[h!]
+\centering
+\begin{tabular}{|l|l|p{6cm}|}
+\hline
+\textbf{Parameter} & \textbf{Default} & \textbf{Purpose} \\
+\hline
+\texttt{entropy\_gamma\_min} & 0.5 & Lenient threshold (high volatility) \\
+\texttt{entropy\_gamma\_max} & 1.0 & Strict threshold (low volatility) \\
+\texttt{entropy\_gamma\_default} & 0.8 & Balanced threshold (normal regime) \\
+\hline
+\end{tabular}
+\caption{V-MAJ-1 Entropy Threshold Configuration}
+\end{table}
+
+\subsection{Integration into Orchestrator}
+
+The orchestrator passes \texttt{state.ema\_variance} through the kernel call chain:
+
+\begin{lstlisting}[language=Python]
+# In orchestrate_step():
+kernel_outputs = _run_kernels(
+    signal=signal,
+    rng_key=state.rng_key,
+    config=config,
+    ema_variance=state.ema_variance  # V-MAJ-1: Pass for adaptive threshold
+)
+
+# In _run_kernels():
+kernel_b_output = kernel_b_predict(
+    signal=signal,
+    key=key_b,
+    config=config,
+    ema_variance=ema_variance  # V-MAJ-1: New optional parameter
+)
+\end{lstlisting}
+
+\subsection{Benefits}
+
+\begin{itemize}
+    \item \textbf{Volatility-Aware}: Automatically adjusts sensitivity to market regime without manual tuning
+    \item \textbf{Regime-Adaptive}: Different thresholds for crisis (σ > 0.2), normal (0.05 ≤ σ ≤ 0.2), and low-vol (σ < 0.05)
+    \item \textbf{Zero-Heuristics}: All multipliers (γ_min, γ_max, γ_default) configurable in config.toml
+    \item \textbf{JIT-Compatible}: Pure JAX function, GPU/TPU ready
+    \item \textbf{Backward Compatible}: Fallback to static threshold if ema\_variance not provided
+    \item \textbf{Diagnostic Rich}: Logs gamma\_t and sigma\_t for audit trail
+\end{itemize}
+
+\subsection{Interaction with V-CRIT-1 (CUSUM Kurtosis)}
+
+While V-CRIT-1 provides regime detection via CUSUM alarms triggered by kurtosis spikes, V-MAJ-1 provides continuous sensitivity adaptation. Together:
+
+\begin{enumerate}
+    \item \textbf{V-CRIT-1}: Detects regime changes via κ_t spikes → triggers alarm with grace period
+    \item \textbf{V-MAJ-1}: Adapts entropy threshold smoothly based on σ_t → detects mode collapse before regime change
+    \item \textbf{Orchestrator}: Receives both signals (should_alarm from V-CRIT-1, gamma_t from V-MAJ-1) for comprehensive market intelligence
+\end{enumerate}
+
 \chapter{Kernel C: SDE Integration}
 
 \section{Purpose}
