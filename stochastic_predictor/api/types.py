@@ -105,6 +105,7 @@ class PredictorConfig:
     kernel_b_r: float = 0.05                    # Drift rate parameter (HJB Hamiltonian)
     kernel_b_sigma: float = 0.2                 # Dispersion coefficient (HJB diffusion term)
     kernel_b_horizon: float = 1.0               # Prediction horizon (HJB integration time)
+    kernel_b_spatial_range_factor: float = 0.5  # Spatial sampling range factor (replaces hardcoded 0.5/1.5)
     
     # Kernel C Parameters (SDE)
     kernel_c_mu: float = 0.0                    # Drift (mean reversion rate)
@@ -112,6 +113,7 @@ class PredictorConfig:
     kernel_c_beta: float = 0.0                  # Skewness parameter (-1 <= beta <= 1)
     kernel_c_horizon: float = 1.0               # Prediction horizon (integration time)
     kernel_c_dt0: float = 0.01                  # Initial time step (adaptive stepping)
+    sde_initial_dt_factor: float = 10.0         # Safety factor for dt0 (dtmax / sde_initial_dt_factor)
     
     # Kernel D Parameters (Signatures)
     kernel_d_depth: int = 3                     # Log-signature truncation depth (L)
@@ -120,6 +122,8 @@ class PredictorConfig:
     # Base/Validation Parameters
     base_min_signal_length: int = 32            # Minimum required signal length
     signal_normalization_method: str = "zscore"  # Method: 'zscore' or 'minmax'
+    numerical_epsilon: float = 1e-10            # Stability epsilon (divisions, logs, stiffness)
+    warmup_signal_length: int = 100             # Representative signal length for JIT warm-up
     
     # Validation Constraints (Phase 5: Zero-Heuristics)
     validation_finite_allow_nan: bool = False         # Allow NaN in finite validation

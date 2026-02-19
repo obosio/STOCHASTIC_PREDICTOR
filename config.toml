@@ -61,6 +61,8 @@ kernel_d_confidence_scale = 0.1         # Scaling factor for signature-based con
 # Base/Validation Parameters
 base_min_signal_length = 32             # Minimum required signal length
 signal_normalization_method = "zscore"  # Normalization method: 'zscore' or 'minmax'
+numerical_epsilon = 1e-10               # Unified stability epsilon (divisions, logs, stiffness)
+warmup_signal_length = 100              # Representative signal length for JIT warm-up
 
 # Kernel A (RKHS - Reproducing Kernel Hilbert Space)
 wtmm_buffer_size = 128                  # Sliding memory buffer
@@ -91,6 +93,7 @@ sde_pid_atol = 1e-6                         # Absolute tolerance for PID control
 sde_pid_dtmin = 1e-5                        # Minimum time step
 sde_pid_dtmax = 0.1                         # Maximum time step
 sde_solver_type = "heun"                    # Solver type: "euler" or "heun"
+sde_initial_dt_factor = 10.0                # Safety factor for dt0 calculation (dtmax / factor)
 
 # Kernel B (DGM - Deep Galerkin Method for HJB PDE)
 dgm_width_size = 64                     # Hidden layer width for DGM network
@@ -101,6 +104,7 @@ kernel_b_r = 0.05                       # Drift rate parameter (HJB Hamiltonian)
 kernel_b_sigma = 0.2                    # Dispersion coefficient (HJB diffusion term)
 kernel_b_horizon = 1.0                  # Prediction horizon (integration time)
 kernel_b_spatial_samples = 100          # Number of spatial sample points for entropy computation
+kernel_b_spatial_range_factor = 0.5     # Spatial sampling range factor (±factor around current_state)
 
 [io]
 # Data feed parameters (domain-agnostic: applies to any external data source)

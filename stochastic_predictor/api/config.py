@@ -183,6 +183,8 @@ FIELD_TO_SECTION_MAP: Dict[str, str] = {
     "kernel_d_alpha": "kernels",
     "base_min_signal_length": "kernels",
     "signal_normalization_method": "kernels",
+    "numerical_epsilon": "kernels",
+    "warmup_signal_length": "kernels",
     
     # Circuit Breaker & Regime Detection
     "holder_threshold": "orchestration",
@@ -218,9 +220,11 @@ FIELD_TO_SECTION_MAP: Dict[str, str] = {
     "sde_pid_dtmin": "kernels",
     "sde_pid_dtmax": "kernels",
     "sde_solver_type": "kernels",
+    "sde_initial_dt_factor": "kernels",
     
     # Phase 6: Kernel B Hyperparameters (Zero-Heuristics)
     "kernel_b_spatial_samples": "kernels",
+    "kernel_b_spatial_range_factor": "kernels",
     "kernel_ridge_lambda": "kernels",
     "sde_diffusion_sigma": "kernels",
     

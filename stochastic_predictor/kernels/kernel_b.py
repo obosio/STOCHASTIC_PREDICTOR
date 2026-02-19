@@ -181,7 +181,7 @@ def compute_entropy_dgm(
     # Shannon entropy (discrete approximation)
     # H = -∑ p_i log(p_i) * Δx
     # Add small epsilon to avoid log(0)
-    hist_safe = hist + 1e-10
+    hist_safe = hist + config.numerical_epsilon
     entropy = -jnp.sum(hist * jnp.log(hist_safe)) * bin_width
     
     return entropy
@@ -328,8 +328,8 @@ def kernel_b_predict(
     # Compute entropy for mode collapse detection
     # Sample spatial domain around current state
     x_samples = jnp.linspace(
-        current_state * 0.5,
-        current_state * 1.5,
+        current_state * (1.0 - config.kernel_b_spatial_range_factor),
+        current_state * (1.0 + config.kernel_b_spatial_range_factor),
         config.kernel_b_spatial_samples
     )[:, None]  # Shape (kernel_b_spatial_samples, 1)
     

@@ -67,8 +67,7 @@ def estimate_stiffness(
     
     # Stiffness ratio: drift strength / diffusion strength
     # Add small epsilon to prevent division by zero
-    epsilon = 1e-10
-    stiffness = drift_jacobian_norm / (jnp.sqrt(diffusion_variance) + epsilon)
+    stiffness = drift_jacobian_norm / (jnp.sqrt(diffusion_variance) + config.numerical_epsilon)
     
     return float(stiffness)
 
@@ -222,13 +221,13 @@ def solve_sde(
         dtmax=config.sde_pid_dtmax
     )
     
-    # Solve SDE (dt0 from config: dtmax/10 as initial step)
+    # Solve SDE (dt0 from config: dtmax/sde_initial_dt_factor as initial step)
     solution = diffrax.diffeqsolve(
         terms,
         solver_obj,
         t0=t0,
         t1=t1,
-        dt0=config.sde_pid_dtmax / 10.0,
+        dt0=config.sde_pid_dtmax / config.sde_initial_dt_factor,
         y0=y0,
         args=args,
         stepsize_controller=stepsize_controller,

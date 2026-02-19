@@ -52,8 +52,8 @@ def warmup_kernel_a(config: PredictorConfig, key: PRNGKeyArray) -> float:
     """
     from stochastic_predictor.kernels.kernel_a import kernel_a_predict
     
-    # Create dummy signal (minimum length from config)
-    signal_length = max(config.base_min_signal_length, 100)
+    # Create dummy signal (representative length from config)
+    signal_length = config.warmup_signal_length
     dummy_signal = jnp.linspace(0.0, 1.0, signal_length)
     
     # Execute once to compile
@@ -86,7 +86,7 @@ def warmup_kernel_b(config: PredictorConfig, key: PRNGKeyArray) -> float:
     """
     from stochastic_predictor.kernels.kernel_b import kernel_b_predict
     
-    signal_length = max(config.base_min_signal_length, 100)
+    signal_length = config.warmup_signal_length
     dummy_signal = jnp.linspace(0.0, 1.0, signal_length)
     
     start = time.perf_counter()
@@ -120,7 +120,7 @@ def warmup_kernel_c(config: PredictorConfig, key: PRNGKeyArray) -> float:
     """
     from stochastic_predictor.kernels.kernel_c import kernel_c_predict
     
-    signal_length = max(config.base_min_signal_length, 100)
+    signal_length = config.warmup_signal_length
     dummy_signal = jnp.linspace(0.0, 1.0, signal_length)
     
     start = time.perf_counter()
@@ -152,7 +152,7 @@ def warmup_kernel_d(config: PredictorConfig, key: PRNGKeyArray) -> float:
     """
     from stochastic_predictor.kernels.kernel_d import kernel_d_predict
     
-    signal_length = max(config.base_min_signal_length, 100)
+    signal_length = config.warmup_signal_length
     dummy_signal = jnp.linspace(0.0, 1.0, signal_length)
     
     start = time.perf_counter()

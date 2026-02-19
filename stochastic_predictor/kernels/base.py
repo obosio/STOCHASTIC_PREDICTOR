@@ -182,7 +182,8 @@ def compute_signal_statistics(
 @jax.jit
 def normalize_signal(
     signal: Float[Array, "n"],
-    method: str
+    method: str,
+    epsilon: float = 1e-10
 ) -> Float[Array, "n"]:
     """
     Normalize signal to zero mean and unit variance.
@@ -191,6 +192,7 @@ def normalize_signal(
         signal: Input time series
         method: Normalization method (from config.signal_normalization_method - REQUIRED)
                Options: 'zscore' or 'minmax'
+        epsilon: Small constant to prevent division by zero (from config.numerical_epsilon)
     
     Returns:
         Normalized signal
@@ -202,7 +204,7 @@ def normalize_signal(
         mean = jnp.mean(signal)
         std = jnp.std(signal)
         # Avoid division by zero
-        std_safe = jnp.where(std < 1e-10, 1.0, std)
+        std_safe = jnp.where(std < epsilon, 1.0, std)
         return (signal - mean) / std_safe
     
     elif method == "minmax":
@@ -210,7 +212,7 @@ def normalize_signal(
         max_val = jnp.max(signal)
         range_val = max_val - min_val
         # Avoid division by zero
-        range_safe = jnp.where(range_val < 1e-10, 1.0, range_val)
+        range_safe = jnp.where(range_val < epsilon, 1.0, range_val)
         return (signal - min_val) / range_safe
     
     else:

@@ -221,7 +221,7 @@ def kernel_a_predict(
         >>> confidence = result.confidence
     """
     # Step 1: Normalize signal (z-score)
-    signal_normalized = normalize_signal(signal, method="zscore")
+    signal_normalized = normalize_signal(signal, method="zscore", epsilon=config.numerical_epsilon)
     
     # Step 2: Compute signal statistics (for diagnostics)
     stats = compute_signal_statistics(signal)
