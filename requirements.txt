@@ -1,0 +1,74 @@
+# Golden Master - Dependency Pinning (FROZEN)
+# Universal Stochastic Predictor Implementation
+# Version: v1.0.0-Diamond-Spec
+# Date: 18 de febrero de 2026
+
+# CRITICAL: Use == for all packages
+# Prohibition: >= and pip install -U are forbidden
+# Rationale: See doc/Predictor_Estocastico_Python.tex §2.1
+
+# ==================== Core XLA ==================== #
+# Motor fundamental de computación diferenciable con soporte GPU/TPU
+jax==0.4.20
+jaxlib==0.4.20
+
+# ==================== Neural Networks ==================== #
+# Framework pythónico para Ramas B (Fokker-Planck, DGM) y C (Neural ODEs)
+equinox==0.11.2
+
+# ==================== SDE/ODE Solvers ==================== #
+# Solvers diferenciables para ecuaciones diferenciales estocásticas (Rama C)
+# Soporta Euler-Maruyama, esquemas implícitos, transición dinámica según rigidez
+diffrax==0.4.1
+
+# ==================== Type Annotations ==================== #
+# Type hints para JAX: tipado estático con jax arrays y operaciones
+jaxtyping==0.3.9
+
+# ==================== Optimal Transport ==================== #
+# Transporte óptimo diferenciable: algoritmo JKO, Sinkhorn con regularización acoplada a volatilidad
+ott-jax==0.4.5
+
+# ==================== Log-Signatures (Rama D) ==================== #
+# Cálculo robusto de signatures para rough paths analysis
+# Procesos con baja regularidad de Hölder (H ≤ 1/2)
+signax==0.1.4
+
+# ==================== Wavelet Analysis (SIA) ==================== #
+# Transformada wavelet continua para multifractal analysis (WTMM)
+# Detección de singularidades locales y espectro de singularidades
+PyWavelets==1.4.1
+
+# ==================== Scientific Computing ==================== #
+# Fundaciones matemáticas: operaciones numéricas, funciones especiales
+numpy==1.24.0
+scipy==1.10.0
+
+# ==================== Data Manipulation ==================== #
+# Manejo de series temporales y datos estructurados
+pandas==2.0.0
+
+# ==================== Visualization (Development Only) ==================== #
+matplotlib==3.7.0
+seaborn==0.12.0
+
+# ==================== Development & Testing ==================== #
+# Testing framework con cobertura
+pytest==7.3.0
+pytest-cov==4.1.0
+
+# Code quality tools
+black==23.0.0
+flake8==6.0.0
+mypy==1.0.0
+isort==5.12.0
+
+# ==================== Documentation ==================== #
+# Sphinx para documentación automática (opcional, futuro)
+# sphinx==7.0.0
+
+# ==================== CONSTRAINTS ==================== #
+# - All versions MUST match Golden Master exactly (== operator required)
+# - Any version divergence detected by CI/CD triggers failure BEFORE pytest
+# - See doc/Predictor_Estocastico_Tests_Python.tex §1.1 for pre-test validation
+# - See doc/Predictor_Estocastico_Python.tex §1 for justification of each package

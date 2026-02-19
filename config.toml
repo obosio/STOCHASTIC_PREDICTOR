@@ -1,0 +1,41 @@
+# Configuration for Universal Stochastic Predictor
+
+[core]
+# JAX configuration
+jax_platforms = "cpu"  # Change to "gpu" or "tpu" as needed
+jax_default_dtype = "float32"
+
+# Numerical precision
+float_precision = 32
+
+[orchestration]
+# CUSUM grace period (in steps, see doc/Predictor_Estocastico_API_Python.tex §3.2)
+cusum_grace_period = 20
+cusum_threshold = 5.0
+
+# Entropy monitoring
+entropy_window = 100
+entropy_threshold = 0.8
+
+# Sinkhorn parameters (volatility-coupled, see doc/Predictor_Estocastico_Implementacion.tex §2.4)
+sinkhorn_epsilon_min = 0.01
+sinkhorn_epsilon_0 = 0.1
+sinkhorn_alpha = 0.5  # Coupling coefficient to volatility
+
+[kernels]
+# SDE scheme switching stiffness thresholds (Rama C, see doc/Predictor_Estocastico_Teoria.tex §2.3.3)
+stiffness_low = 100  # Below: use explicit Euler-Maruyama
+stiffness_high = 1000  # Above: use implicit trapezial
+
+# Integration parameters
+sde_dt = 0.01  # Time step
+sde_numel_integrations = 100
+
+[io]
+# Market feed parameters
+market_feed_timeout = 30  # seconds
+market_feed_max_retries = 3
+
+# Snapshot parameters
+snapshot_atomic_fsync = true
+snapshot_compression = "none"  # or "gzip", "brotli"
