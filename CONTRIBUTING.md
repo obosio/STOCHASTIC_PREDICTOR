@@ -33,7 +33,7 @@ Este repositorio contiene **únicamente la especificación técnica** (documento
 4. **Compila locally** con `./doc/compile.sh` para verificar LaTeX válido
 5. **Commit** con mensaje descriptivo:
 
-   ```
+   ```bash
    docs: Corrige notación de matriz en Python.tex §2.1
    docs: Amplía análisis WTMM en Teoria.tex §3.3
    docs: Aclara período de gracia CUSUM en API_Python.tex

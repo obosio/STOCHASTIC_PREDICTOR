@@ -27,7 +27,7 @@ Este repositorio contiene **únicamente la especificación técnica** (7 documen
 
 ### Golden Master (Dependency Pinning Obligatorio)
 
-```
+```bash
 JAX          == 0.4.20
 Equinox      == 0.11.2
 Diffrax      == 0.4.1
@@ -43,13 +43,13 @@ Python       == 3.10.12
 
 Para futuras implementaciones:
 
-```
+```bash
 stochastic_predictor/
-├── api/          # Façade, config, load shedding
-├── core/         # JKO, Sinkhorn, monitoring
-├── kernels/      # Motores XLA (A,B,C,D)
-├── io/           # I/O física, snapshots atómicos
-└── tests/        # Validación externa
+|-- api/          # Façade, config, load shedding
+|-- core/         # JKO, Sinkhorn, monitoring
+|-- kernels/      # Motores XLA (A,B,C,D)
+|-- io/           # I/O física, snapshots atómicos
+`-- tests/        # Validación externa
 ```
 
 Ver [Python.tex §2](doc/Predictor_Estocastico_Python.tex).
@@ -79,7 +79,7 @@ Ver [Tests_Python.tex §1.1](doc/Predictor_Estocastico_Tests_Python.tex).
 7 documentos LaTeX compilados a PDFs en `doc/pdf/`:
 
 | Documento | Líneas | Contenido |
-|-----------|--------|----------|
+| --------- | -------- | ---------- |
 | Teoria.tex | 500+ | Fundamentación matemática, procesos estocásticos, transporte óptimo |
 | Implementacion.tex | 800+ | Algoritmos, dinámica de Sinkhorn acoplada a volatilidad |
 | Python.tex | 1700+ | Stack JAX/Python, arquitectura 5 capas, especificaciones técnicas |
@@ -111,9 +111,10 @@ cd doc
 
 ## 🚀 Estado Actual
 
-**FASE: Especificación Técnica Completa (Diamond Level)**
+### FASE: Especificación Técnica Completa (Diamond Level)
 
 ✅ Disponible:
+
 - 7 documentos LaTeX especificación exhaustiva
 - 1.73 MB PDFs compilados con índices y referencias
 - Stack tecnológico justificado y especificado
@@ -122,6 +123,7 @@ cd doc
 - Procedimientos CI/CD pre-test especificados
 
 ❌ No incluido:
+
 - Código de implementación
 - Tests ejecutables
 - Entorno virtual pre-configurado
