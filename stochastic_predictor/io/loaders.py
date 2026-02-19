@@ -12,6 +12,7 @@ from stochastic_predictor.io.validators import (
     compute_staleness_ns,
     detect_catastrophic_outlier,
     detect_frozen_signal,
+    detect_frozen_recovery,  # V-MAJ-6: Import recovery detector
     is_stale,
 )
 
@@ -65,6 +66,29 @@ def evaluate_ingestion(
 
     history_with_new = np.concatenate([signal_history, np.array([magnitude], dtype=np.float64)])
     frozen = detect_frozen_signal(history_with_new, config.frozen_signal_min_steps)
+    
+    # V-MAJ-6: Check for frozen signal recovery
+    # If frozen, but variance has recovered above threshold, lift the frozen flag
+    in_recovery = False
+    if frozen:
+        # Use EMA variance from state as variance history proxy
+        ema_variance_scalar = float(state.ema_variance)
+        # Build variance history from residual buffer std
+        residual_buffer = np.asarray(state.residual_buffer, dtype=np.float64)
+        residual_variance = float(np.var(residual_buffer)) if residual_buffer.size > 0 else 1e-10
+        
+        # Check if variance has recovered: recent_var > ratio_threshold * baseline_var
+        in_recovery = detect_frozen_recovery(
+            variance_history=[residual_variance],  # Single recent measurement
+            historical_variance=float(np.maximum(residual_variance, 1e-10)),
+            ratio_threshold=config.frozen_signal_recovery_ratio,
+            consecutive_steps=config.frozen_signal_recovery_steps,
+        )
+        
+        # If in recovery, lift the frozen flag
+        if in_recovery:
+            frozen = False
+    
     if frozen:
         events.append(
             FrozenSignalAlarmEvent(
