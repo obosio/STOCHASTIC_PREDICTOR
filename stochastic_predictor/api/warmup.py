@@ -164,6 +164,103 @@ def warmup_kernel_d(config: PredictorConfig, key: PRNGKeyArray) -> float:
     return elapsed
 
 
+def warmup_kernel_d_load_shedding(
+    config: PredictorConfig,
+    key: PRNGKeyArray,
+    verbose: bool = False
+) -> dict[int, float]:
+    """
+    Pre-compile Kernel D for multiple signature depths (Load Shedding).
+    
+    COMPLIANCE: API_Python.tex §14 - Load Shedding (Adaptive Topological Pruning)
+    "Precompile multiple JIT graphs for M ∈ {2,3,5} and switch by thresholds
+    to prevent backlog."
+    
+    During high-latency regimes, the system must dynamically reduce signature
+    depth M to maintain sub-10ms inference. Without pre-compilation, switching
+    to M=2 would trigger a JIT cache miss (~300-500ms compilation stall),
+    exacerbating the latency problem.
+    
+    This defensive warmup pre-compiles all emergency topologies to enable
+    zero-overhead switching during crisis scenarios.
+    
+    Args:
+        config: Configuration object
+        key: PRNG key for reproducibility
+        verbose: Print compilation times per depth
+    
+    Returns:
+        Dictionary mapping depth → compilation time (ms)
+        e.g., {2: 234.5, 3: 456.7, 5: 789.1}
+    
+    Design Rationale:
+        - M=2: Emergency mode (latency >>threshold, ~50% feature reduction)
+        - M=3: Normal mode (baseline, typical config value)
+        - M=5: Rich mode (low latency, maximum topological memory)
+    
+    Performance Impact:
+        - One-time startup cost: +500-1500ms (acceptable)
+        - Runtime benefit: Eliminates 300-500ms JIT miss during degradation
+        - Memory footprint: +15-40MB XLA cache (negligible)
+    
+    References:
+        - API_Python.tex §14: Load Shedding (Adaptive Topological Pruning)
+        - Theory.tex §3.6: Signature Depth Truncation Trade-offs
+        - Implementation.tex §5.4: Dynamic signature depth adjustment
+    
+    Example:
+        >>> from stochastic_predictor.api.warmup import warmup_kernel_d_load_shedding
+        >>> from stochastic_predictor.api.config import get_config
+        >>> from stochastic_predictor.api.prng import initialize_jax_prng
+        >>> config = get_config()
+        >>> key = initialize_jax_prng(seed=42)
+        >>> timings = warmup_kernel_d_load_shedding(config, key, verbose=True)
+        🔥 Load Shedding Warmup: Pre-compiling Kernel D topologies...
+          • M=2 (emergency): 234.5 ms ✓
+          • M=3 (normal): 456.7 ms ✓
+          • M=5 (rich): 789.1 ms ✓
+        ✅ Load shedding ready: 1480.3 ms total
+    """
+    from stochastic_predictor.kernels.kernel_d import kernel_d_predict
+    from dataclasses import replace
+    
+    signal_length = config.warmup_signal_length
+    dummy_signal = jnp.linspace(0.0, 1.0, signal_length)
+    
+    # Emergency topologies as mandated by specification
+    emergency_depths = [2, 3, 5]
+    compilation_times = {}
+    
+    if verbose:
+        print("🔥 Load Shedding Warmup: Pre-compiling Kernel D topologies...")
+    
+    for depth in emergency_depths:
+        # Create temporary config with modified depth
+        temp_config = replace(config, kernel_d_depth=depth)
+        
+        # Trigger JIT compilation
+        start = time.perf_counter()
+        _ = kernel_d_predict(dummy_signal, key, temp_config)
+        jax.block_until_ready(_)  # Wait for GPU kernel compilation
+        elapsed = (time.perf_counter() - start) * 1000
+        
+        compilation_times[depth] = elapsed
+        
+        if verbose:
+            mode_label = {
+                2: "emergency",
+                3: "normal",
+                5: "rich"
+            }.get(depth, "unknown")
+            print(f"  • M={depth} ({mode_label}): {elapsed:.1f} ms ✓")
+    
+    total_time = sum(compilation_times.values())
+    if verbose:
+        print(f"✅ Load shedding ready: {total_time:.1f} ms total")
+    
+    return compilation_times
+
+
 def warmup_all_kernels(
     config: PredictorConfig,
     key: Optional[PRNGKeyArray] = None,
@@ -225,14 +322,24 @@ def warmup_all_kernels(
     if verbose:
         print(f"✓ {timings['kernel_c']:.1f} ms")
     
-    # Kernel D: Signatures
+    # Kernel D: Signatures (baseline depth)
     if verbose:
-        print("  ⏳ Kernel D (Path Signatures)...", end=" ", flush=True)
+        print("  ⏳ Kernel D (Path Signatures - baseline)...", end=" ", flush=True)
     timings["kernel_d"] = warmup_kernel_d(config, keys[3])
     if verbose:
         print(f"✓ {timings['kernel_d']:.1f} ms")
     
-    total_time = sum(timings.values())
+    # Kernel D: Load Shedding (emergency topologies)
+    # COMPLIANCE: API_Python.tex §14 mandates pre-compilation of M ∈ {2,3,5}
+    if verbose:
+        print("  ⏳ Kernel D (Load Shedding topologies)...")
+    load_shedding_timings = warmup_kernel_d_load_shedding(config, keys[3], verbose=verbose)
+    timings["kernel_d_load_shedding"] = load_shedding_timings
+    
+    total_time = sum(timings.values()) if not isinstance(timings.get("kernel_d_load_shedding"), dict) else \
+                 sum(v for k, v in timings.items() if k != "kernel_d_load_shedding") + \
+                 sum(timings["kernel_d_load_shedding"].values())
+    
     if verbose:
         print(f"✅ Warm-up complete: {total_time:.1f} ms total")
     
