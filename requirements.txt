@@ -50,7 +50,7 @@ PyWavelets==1.4.1
 # ==================== Scientific Computing ==================== #
 # Mathematical foundations: numerical operations, special functions
 numpy==1.24.0
-scipy==1.10.0
+scipy==1.11.4
 
 # ==================== Data Manipulation ==================== #
 # Time series management and structured data
