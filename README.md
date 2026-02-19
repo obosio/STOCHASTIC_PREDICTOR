@@ -2,7 +2,8 @@
 
 ![License](https://img.shields.io/badge/license-MIT-blue.svg)
 ![Status](https://img.shields.io/badge/status-Level%204%20Autonomy%20Complete-brightgreen.svg)
-![Version](https://img.shields.io/badge/version-v2.1.0-brightgreen.svg)
+![Version](https://img.shields.io/badge/version-v2.1.0--RC1-yellow.svg)
+![Release](https://img.shields.io/badge/release-Release%20Candidate-orange.svg)
 
 ## Description
 
@@ -35,7 +36,12 @@ This repository contains:
 - `impl/v2.0.2` - Phase 2 Complete: Kernels A, B, C, D (RKHS, DGM, SDE, Signatures)
 - `impl/v2.0.3` - Phase 3 Complete: Core Orchestration (JKO, Sinkhorn)
 - `impl/v2.0.4` - Phase 4 Complete: I/O Layer (ingestion, snapshots, telemetry, credentials)
-- `impl/v2.1.0` - Auto-Tuning Migration Complete: Learning to Learn architecture (3-layer auto-parametrization) [CURRENT]
+- `impl/v2.1.0-RC1` - Release Candidate 1: XLA Compliance & Golden Master Enforcement [CURRENT]
+  - **Critical Fixes**: XLA control flow violations in Kernel C (ConcretizationTypeError resolution)
+  - **Type System**: Full JAX Array/bool compatibility for vmap purity
+  - **Golden Master**: Enforced OTT-JAX==0.4.5 for Optimal Transport
+  - **Pydantic V2**: Full migration from @validator → @field_validator
+  - **Ready for Production Testing**: All VSCode errors resolved, comprehensive audit passed
 - `impl/v2.5.x` - Pending: Phase 5 - Tests and hardening
 - `impl/v3.0.0` - Pending: First production-ready version
 

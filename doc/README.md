@@ -1,7 +1,7 @@
 # Documentation - Implementation Branch
 
-**Version**: v2.0.4-Phase4-Complete
-**Status**: Phase 4 (I/O) Complete
+**Version**: v2.1.0-RC1
+**Status**: Release Candidate 1 (Production-Ready)
 **Branch**: `implementation/base-jax`
 
 ## Current Structure
@@ -70,6 +70,17 @@ doc/                                  # Documentation root
     - Policies: catastrophic outlier rejection, frozen signal detection, TTL staleness, binary serialization (msgpack), hash-verified snapshots, credential injection
     - Critical Features: Zero-heuristics (no implicit defaults), 64-bit precision enforcement, layer isolation (PRNG in API)
     - Orchestrator Integration: evaluate_ingestion() gate, IngestionDecision flags, degraded mode support
+  - **`impl/v2.1.0-RC1`** (commit a2bb60c)
+    - Release Candidate 1: XLA Compliance & Golden Master Enforcement
+    - **Critical Fixes**: 5 blocking issues resolved
+      - XLA control flow violations in Kernel C (jax.lax.cond refactoring)
+      - Type system incompatibility in orchestrator PyTree
+      - Tuple unpacking arity mismatch in Kernel C drift
+      - Golden Master dependency violation (OTT-JAX enforcement)
+      - Pydantic V2 validation migration (@field_validator)
+    - **Status**: 100% VSCode error compliance, 13-point audit passed
+    - **Ready for**: Intensive production testing, load testing, chaos engineering
+    - See [CHANGELOG.md](../CHANGELOG.md) and [RELEASE_NOTES.md](../RELEASE_NOTES.md) for details
 
 - **`pdf/specification/`**: Compiled specification PDFs
 
@@ -79,6 +90,7 @@ doc/                                  # Documentation root
   - `Implementation_v2.0.2_Kernels.pdf` (v2.0.2)
   - `Implementation_v2.0.3_Core.pdf` (v2.0.3)
   - `Implementation_v2.0.4_IO.pdf` (v2.0.4)
+  - **v2.1.0-RC1**: Critical maintenance release (no new PDF; see CHANGELOG.md)
 
 - **`compile.sh`**: Dynamic LaTeX compiler (processes any folder in `latex/`)
 
