@@ -1,5 +1,6 @@
 # ==================== Credentials & Secrets (CRITICAL) ====================
-# See: doc/Predictor_Estocastico_IO.tex §2.2 - Credential Injection Pattern
+# Security policy: doc/Predictor_Estocastico_IO.tex §2.2 (inherited specification reference)
+# Environment variable injection pattern required (see .env.example)
 .env
 .env.local
 .env.*.local

@@ -1,144 +1,153 @@
-# Documentation - Implementation Phase
+# Documentation - Implementation Branch
 
-## 📂 Structure
+## 📂 Current Structure
 
+```bash
+doc/                                  # Documentation root
+|-- compile.sh                        # Dynamic LaTeX compiler (agnóstico de carpetas)
+|-- .latexmkrc                        # LaTeX config
+|-- latex/                            # Source LaTeX documents
+|   |-- specification/                # Specification documents (REFERENCE ONLY)
+|   |   |-- Predictor_Estocastico_*.tex   # 7 files total
+|   |   └-- ...
+|   └-- implementation/               # Ready for implementation docs
+|
+|-- pdf/                              # Compiled PDFs (auto-generated, git-ignored)
+|   |-- specification/                # Generated from latex/specification/
+|   |   └-- Predictor_Estocastico_*.pdf
+|   └-- implementation/               # Will generate from latex/implementation/
+|
+`-- .build/                           # Build artifacts (git-ignored)
 ```
-doc/
-├── README.md                          # This file
-├── compile.sh                         # LaTeX compiler (original for specification)
-├── *.tex                              # Specification files (for reference)
-├── .build/                            # Build artifacts (git-ignored)
-├── pdf/                               # Compiled PDFs
-│   ├── Predictor_Estocastico_*.pdf   # Specification PDFs
-│   └── Implementation_*.pdf           # Implementation documentation (when added)
-│
-└── implementation/                    # Implementation documentation folder (future)
-    ├── architecture/                  # Design decisions, trade-offs
-    ├── api/                           # API documentation (generated from docstrings)
-    └── changelog/                     # Implementation progress
-```
 
-## 📋 Current State
+## 📌 Important: This is the Implementation Branch
 
-**Branch**: `implementation/base-jax`  
-**Status**: Code infrastructure initialized, documentation in progress
+**Location**: `doc/` in `implementation/base-jax` branch  
+**Status**: Inherited specification files serve as theory reference for code development
 
-### Inherited Specification (Reference Only)
+## ⚠️ What This Directory Contains
 
-All specification `.tex` files are present in `doc/` for docstring cross-references:
-- `Predictor_Estocastico_Teoria.tex` - Mathematical theory
-- `Predictor_Estocastico_Python.tex` - Implementation guide
-- etc.
+### ✅ Present
 
-Python code should reference these:
+- **`latex/specification/`**: 7 Specification `.tex` files (reference only)
+  - Predictor_Estocastico_Teoria.tex
+  - Predictor_Estocastico_Python.tex
+  - Predictor_Estocastico_Tests_Python.tex
+  - 4 more
+
+- **`latex/implementation/`**: Ready for new implementation documentation (currently empty)
+
+- **`pdf/specification/`**: Auto-generated compiled PDFs (git-ignored)
+
+- **`pdf/implementation/`**: Will be auto-generated when `.tex` files are added
+
+- **`compile.sh`**: Dynamic LaTeX compiler (processes ANY folder in `latex/`)
+
+### ❌ NOT Present (Don't Create Here)
+
+- Direct `.tex` files in `doc/` root (moved to `latex/` subfolder)
+- Direct PDFs in `doc/pdf/` root (organized in phase subfolders)
+- `architecture/`, `api/`, `changelog/` subdirectories
+
+**Reason**:
+
+- Implementation documentation lives in **code docstrings**, not separate `.tex` files
+- PDFs are organized hierarchically by phase for scalability
+
+## 📖 Implementation Documentation Strategy
+
+Documentation for implementation is NOT in `doc/` but in:
+
+1. **Python docstrings** (primary):
+
+   ```python
+   # stochastic_predictor/kernels/kernel_c.py
+   """Itô/Lévy kernel.
+   
+   Theory: See doc/Predictor_Estocastico_Teoria.tex §2.3.3
+   Implementation: See doc/Predictor_Estocastico_Python.tex §3
+   """
+   ```
+
+2. **GitHub Issues** (architecture decisions)
+
+3. **Commit messages** (rationale for choices)
+
+4. **Top-level README.md** (this repo's main README)
+
+## 🔗 Referencing Specification from Code
+
+When implementing a feature, always reference the specifications:
+
 ```python
-def integrate_rama_c(x):
-    """Itô/Lévy integration.
+def estimate_holder_exponent(ts):
+    """Estimate Hölder exponents using WTMM.
     
-    References:
-        See doc/Predictor_Estocastico_Teoria.tex §2.3.3
+    Reference:
+        Mathematical foundation: doc/Predictor_Estocastico_Teoria.tex §3.2
+        Implementation guide: doc/Predictor_Estocastico_Python.tex §2.3
     """
 ```
 
-### Code Structure (Implemented)
+This creates a trace from code back to theory.
 
-✅ 5-tier Clean Architecture:
-- `stochastic_predictor/api/` - Exposure layer
-- `stochastic_predictor/core/` - Orchestration
-- `stochastic_predictor/kernels/` - XLA motors
-- `stochastic_predictor/io/` - Physical I/O
-- `tests/` - External validation
+## 🧹 Compilation
 
-✅ Configuration:
-- `requirements.txt` - Golden Master (frozen dependencies)
-- `config.toml` - Runtime parameters
-- `.env.example` - Credential template
-
-### Next Steps
-
-1. **Architecture documentation**: Create `doc/implementation/architecture/`
-   - 5-tier layer rationale
-   - Design decisions
-   - Trade-offs made
-
-2. **API documentation**: `doc/implementation/api/`
-   - Generated from Python docstrings (future Sphinx)
-   - Examples and tutorials
-
-3. **Changelog**: `doc/implementation/changelog/`
-   - Feature implementation log
-   - GitHub issues cross-reference
-
-## 🔗 Cross-Referencing
-
-### Spec ↔ Implementation Strategy
-
-Each implementation module should link to specification:
-
-```python
-# stochastic_predictor/kernels/kernel_c.py
-"""
-Itô/Lévy prediction kernel (Rama C).
-
-Mathematical foundation:
-    doc/Predictor_Estocastico_Teoria.tex §2.3.3
-    
-Implementation guide:
-    doc/Predictor_Estocastico_Python.tex §3.2
-
-Dynamic SDE scheme transition:
-    doc/Predictor_Estocastico_Teoria.tex §2.3.3
-"""
-```
-
-This allows:
-- ✅ Precise specification references
-- ✅ Traceability from code to theory
-- ✅ Hardware-parity test debugging (compare impl against spec)
-
-## 📖 Adding Implementation Documentation
-
-Example: Document Sinkhorn implementation decisions
-
-```bash
-# Create new documentation file
-cat > doc/implementation/architecture/sinkhorn-design.md << 'EOF'
-# Sinkhorn Dynamics - Implementation Design
-
-## Specification Reference
-See: doc/Predictor_Estocastico_Implementacion.tex §2.4
-
-## Design Decision: Volatility Coupling
-...
-EOF
-
-# Or add to LaTeX for PDF integration
-touch doc/implementation/Implementation_Sinkhorn.tex
-```
-
-## 🚀 Compilation
-
-Compile specification PDFs (not changed):
+The `compile.sh` script is **dynamic** - it automatically detects and compiles ANY folder in `latex/`:
 
 ```bash
 cd doc
-./compile.sh Predictor_Estocastico_Python
-
-# Or all specification
-./compile.sh --all
+./compile.sh help              # Show help
+./compile.sh --all             # Compile all documents in all latex/ folders
+./compile.sh --all --force     # Force recompile (ignore timestamps)
+./compile.sh <filename>.tex    # Compile specific file
+./compile.sh clean             # Clean build artifacts
 ```
 
-## 📐 Version Control Strategy
+### How It Works
 
-- **main**: Specification + API (immutable)
-- **implementation/base-jax**: Code + implementation docs (active)
+1. **Reads**: `latex/specification/`, `latex/implementation/`, or any folder you create
+2. **Mirrors**: Creates corresponding folders in `pdf/`
+3. **Generates**: Compiles `.tex` → `.pdf` in proper locations
+4. **Cleans**: Removes orphaned PDFs if source `.tex` is deleted
 
-Both branches inherit specification for reference but:
-- **main**: No code, only theory
-- **implementation/base-jax**: Code + implementation-specific docs
+### Example: Adding New Documentation
+
+```bash
+# 1. Create new .tex file
+mkdir -p latex/research
+echo "\\documentclass{article} \\begin{document} Test \\end{document}" > latex/research/my_doc.tex
+
+# 2. Compile (script auto-detects)
+./compile.sh --all
+
+# 3. Result: pdf/research/my_doc.pdf is created automatically
+```
+
+**Never commit** PDFs - they're auto-generated and git-ignored.
+
+## 📋 Branch Strategy
+
+| Branch                    | Content     | Editable                   |
+| ------------------------- | ----------- | -------------------------- |
+| `main`                    | Spec only   | ❌ No (immutable v1.0.0)   |
+| `implementation/base-jax` | Spec + Code | ✅ Code yes, Spec ref only |
+
+This `doc/` folder in `implementation/base-jax`:
+
+- Inherited specification (read reference)
+- Do NOT modify `.tex` files
+- Do NOT push changes to specification
+
+## ✨ Best Practice
+
+Keep `doc/` minimal. Real documentation is in:
+
+- **docstrings**: Theory ↔ code links
+- **README files**: Architecture overview
+- **Comments**: Why (not what - code shows that)
 
 ---
 
-**Last Updated**: 18 de febrero de 2026  
-**Branch**: implementation/base-jax  
-**Phase**: 🚀 Implementation Active
+**Status**: ✅ Clean reference, ready for implementation  
+**Edits**: Only code changes, not documentation structure

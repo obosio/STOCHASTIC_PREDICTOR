@@ -37,7 +37,7 @@ PyWavelets   == 1.4.1
 Python       == 3.10.12
 ```
 
-**Restricción crítica**: Versiones congeladas con `==`. Prohibido `>=` o `-U`. Ver [Python.tex §2.1](doc/Predictor_Estocastico_Python.tex).
+**Restricción crítica**: Versiones congeladas con `==`. Prohibido `>=` o `-U`. Ver [Python.tex §2.1](doc/latex/specification/Predictor_Estocastico_Python.tex).
 
 ### Arquitectura de 5 Capas Obligatoria
 
@@ -52,7 +52,7 @@ stochastic_predictor/
 `-- tests/        # Validación externa
 ```
 
-Ver [Python.tex §2](doc/Predictor_Estocastico_Python.tex).
+Ver [Python.tex §2](doc/latex/specification/Predictor_Estocastico_Python.tex).
 
 ### Políticas de Seguridad
 
@@ -60,7 +60,7 @@ Ver [Python.tex §2](doc/Predictor_Estocastico_Python.tex).
 - **Obligatorio**: Inyección de variables de entorno (`.env`)
 - **Regla `.gitignore`**: `.env`, `secrets/`, `*.log`
 
-Ver [IO.tex §2.2](doc/Predictor_Estocastico_IO.tex).
+Ver [IO.tex §2.2](doc/latex/specification/Predictor_Estocastico_IO.tex).
 
 ### Validación de Entorno CI/CD
 
@@ -72,11 +72,11 @@ ACTUAL_JAX=$(python -c "import jax; print(jax.__version__)")
 [[ "$EXPECTED_JAX" == "$ACTUAL_JAX" ]] || exit 1
 ```
 
-Ver [Tests_Python.tex §1.1](doc/Predictor_Estocastico_Tests_Python.tex).
+Ver [Tests_Python.tex §1.1](doc/latex/specification/Predictor_Estocastico_Tests_Python.tex).
 
 ## 📚 Documentación
 
-7 documentos LaTeX compilados a PDFs en `doc/pdf/`:
+7 documentos LaTeX compilados a PDFs en `doc/pdf/specification/`:
 
 | Documento | Líneas | Contenido |
 | --------- | -------- | ---------- |
@@ -88,26 +88,35 @@ Ver [Tests_Python.tex §1.1](doc/Predictor_Estocastico_Tests_Python.tex).
 | Tests_Python.tex | 1623+ | Suite de tests, validación CI/CD, entorno |
 | Pruebas.tex | 400+ | Casos de prueba adicionales |
 
-### Compilación
+### Compilación (Automática)
+
+The `compile.sh` script automatically detects and compiles all LaTeX source files:
 
 ```bash
 cd doc
 
-# Mostrar opciones
-./compile.sh
+# Ver opciones
+./compile.sh help
 
-# Compilar documentos modificados
+# Compilar documentos con cambios
 ./compile.sh --all
 
-# Forzar recompilación total
+# Forzar recompilación total (ignora timestamps)
 ./compile.sh --all --force
 
 # Compilar documento específico
-./compile.sh Predictor_Estocastico_Python
+./compile.sh Predictor_Estocastico_Python.tex
 
-# Limpiar artefactos
+# Limpiar artefactos de compilación
 ./compile.sh clean
 ```
+
+**Estructura automática:**
+
+- Fuente: `latex/specification/*.tex` → Compilado: `pdf/specification/*.pdf`
+- El script es agnóstico - funciona con cualquier carpeta en `latex/`
+
+Para detalles, ver [doc/README.md](doc/README.md).
 
 ## 🚀 Estado Actual
 
