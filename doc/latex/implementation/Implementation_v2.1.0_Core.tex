@@ -57,7 +57,7 @@
 \section{Tag Information}
 \begin{itemize}
     \item \textbf{Tag}: \texttt{impl/v2.1.0}
-    \item \textbf{Commit}: \texttt{03a06ef} (+ pending V-MAJ fixes)
+    \item \textbf{Commit}: \texttt{03a06ef} (+ GAP-6.3 wiring pending)
     \item \textbf{Status}: Level 4 Autonomy compliance (V-MAJ-1, V-MAJ-2, V-MAJ-3 implemented)
 \end{itemize}
 
@@ -76,7 +76,7 @@ Phase 3 covers:
 \section{Design Principles}
 
 \begin{itemize}
-    \item \textbf{Zero-Heuristics Policy}: All parameters injected via \texttt{PredictorConfig}
+    \item \textbf{Zero-Heuristics Policy}: Core orchestration parameters injected via \texttt{PredictorConfig}
     \item \textbf{JAX-Native}: Stateless functions compatible with JIT/vmap
     \item \textbf{Determinism}: Bit-exact reproducibility under configured XLA settings
     \item \textbf{Volatility Coupling}: Dynamic regularization tied to EWMA variance
@@ -220,7 +220,7 @@ from .sinkhorn import SinkhornResult, compute_sinkhorn_epsilon
 \section{Compliance Checklist}
 
 \begin{itemize}
-    \item \textbf{Zero-Heuristics}: All parameters injected via config
+    \item \textbf{Zero-Heuristics}: Core orchestration parameters injected via config
     \item \textbf{Volatility Coupling}: Implemented per specification
     \item \textbf{Simplex Validation}: Config-driven tolerance enforced
     \item \textbf{JAX-Native}: Pure functions and stateless modules
@@ -640,9 +640,9 @@ degraded_mode_recovery_counter: int = 0
 
 \textbf{Tag}: \texttt{impl/v2.1.0-autotuning}  
 \textbf{Date}: February 19, 2026  
-\textbf{Status}: Complete for adaptive orchestration; meta-optimization config wiring pending
+\textbf{Status}: Adaptive orchestration complete; meta-optimization config wiring pending
 
-This chapter documents the completion of the 3-layer auto-tuning architecture per MIGRATION\_AUTOTUNING\_v1.0.md specification. Adaptive orchestration is fully automated; meta-optimization range wiring to config remains pending.
+This chapter documents the completion of the 3-layer auto-tuning architecture per MIGRATION\_AUTOTUNING\_v1.0.md specification. Adaptive orchestration is automated; meta-optimization range wiring remains pending.
 
 \section{Three-Layer Architecture}
 
@@ -879,13 +879,13 @@ optimizer.save_study("io/snapshots/deep_tuning_campaign_001.pkl")
 \textbf{Requirement}: Checkpoint writes must not block telemetry emission or main compute thread
 
 \paragraph{Problem}
-The synchronous \texttt{save\_study()} method blocks the calling thread during disk I/O (pickle serialization + SHA-256 computation + fsync). For large studies (500 trials, multi-MB pickles), this can introduce 100-500ms stalls, delaying telemetry emission and disrupting real-time prediction pipelines.
+The synchronous \texttt{save\_study()} method blocks the calling thread during disk I/O (pickle serialization + SHA-256 computation). For large studies (500 trials, multi-MB pickles), this can introduce 100-500ms stalls, delaying telemetry emission and disrupting real-time prediction pipelines.
 
 \paragraph{Solution}
 Implemented \texttt{AsyncMetaOptimizer} wrapper class using \texttt{ThreadPoolExecutor} for non-blocking I/O operations:
 
 \begin{enumerate}
-    \item \textbf{Thread Pool}: 2-worker ThreadPoolExecutor for background save/load
+    \item \textbf{Thread Pool}: 2-worker ThreadPoolExecutor for background saves; async load uses a one-off executor
     \item \textbf{Async Save}: \texttt{save\_study\_async()} returns \texttt{Future} immediately
     \item \textbf{Async Load}: \texttt{load\_study\_async()} returns \texttt{Future[AsyncMetaOptimizer]}
     \item \textbf{Wait API}: \texttt{wait\_all\_saves()} for synchronization when needed
@@ -926,6 +926,28 @@ class AsyncMetaOptimizer:
             future.result(timeout=timeout)
         self._pending_saves.clear()
     
+    @classmethod
+    def load_study_async(
+        cls,
+        path: str,
+        walk_forward_evaluator,
+        meta_config=None,
+        base_config=None,
+        max_workers: int = 2,
+    ) -> Future:
+        """Load TPE checkpoint asynchronously (returns Future)."""
+        executor = ThreadPoolExecutor(max_workers=1)
+        def _load():
+            sync_optimizer = BayesianMetaOptimizer.load_study(
+                path, walk_forward_evaluator, meta_config, base_config
+            )
+            async_optimizer = cls(
+                walk_forward_evaluator, meta_config, base_config, max_workers
+            )
+            async_optimizer.optimizer = sync_optimizer
+            return async_optimizer
+        return executor.submit(_load)
+
     def shutdown(self, wait=True) -> None:
         """Shutdown thread pool executor."""
         self.executor.shutdown(wait=wait)
@@ -1112,7 +1134,7 @@ Layer 1 (JKO Reset) & 100\% & 100\% (unchanged) \\
 Layer 2 (Adaptive Thresholds) & 85\% & 100\% (+ stop\_gradient) \\
 Layer 3 (Meta-Optimization) & 95\% & 100\% (exported) \\
 Level 4 Autonomy (V-CRIT violations) & 0\% (7/7 missing) & \textbf{100\%} (7/7 resolved) \\
-\textbf{Overall System} & \textbf{42\%} & \textbf{100\%} ✅ \\
+\textbf{Overall System} & \textbf{42\%} & \textbf{98\%} (GAP-6.3 pending) \\
 \hline
 \end{tabular}
 \caption{Level 4 Autonomy Compliance Progress}
@@ -1328,7 +1350,7 @@ with open("io/snapshots/deep_tuning_summary.txt", "w") as f:
 
 \section{Overview}
 
-\textbf{Tag}: \texttt{impl/v2.2.0-autotuning-complete}  
+\textbf{Tag}: Planned \texttt{impl/v2.2.0-autotuning-complete}  
 \textbf{Date}: February 19, 2026  
 \textbf{Status}: GAP-6.3 pending (meta-optimization defaults not yet config-driven)
 
@@ -1398,15 +1420,11 @@ class MetaOptimizationConfig:
     # ... 18 more hardcoded defaults
 \end{lstlisting}
 
-This violated the zero-heuristics principle (all metaparameters must be config-driven).
+This violates the zero-heuristics principle (all metaparameters must be config-driven). A dedicated loader to map \texttt{config.toml} into \texttt{MetaOptimizationConfig} is still pending.
 
 \subsection{Current Status}
 
-\texttt{MetaOptimizationConfig} still defines default ranges in code. A \texttt{[meta\_optimization]} section exists in \texttt{config.toml}, but values are not yet wired into \texttt{MetaOptimizationConfig}. This remains a pending refactor to fully eliminate hardcoded defaults.
-
-\subsection{Planned Solution}
-
-Create a dedicated config loader that maps \texttt{[meta\_optimization]} into \texttt{MetaOptimizationConfig} and removes hardcoded defaults.
+\texttt{MetaOptimizationConfig} is not yet populated from \texttt{config.toml}; the defaults remain active until the planned loader is implemented.
 
 \begin{verbatim}
 [meta_optimization]
@@ -1418,19 +1436,55 @@ wtmm_buffer_size_max = 512
 wtmm_buffer_size_step = 64
 besov_cone_c_min = 1.0
 besov_cone_c_max = 3.0
+dgm_width_size_min = 32
+dgm_width_size_max = 256
+dgm_width_size_step = 32
+dgm_depth_min = 2
+dgm_depth_max = 6
+dgm_entropy_num_bins_min = 20
+dgm_entropy_num_bins_max = 100
+stiffness_low_min = 50.0
+stiffness_low_max = 500.0
+stiffness_high_min = 500.0
+stiffness_high_max = 5000.0
+sde_dt_min = 0.001
+sde_dt_max = 0.1
+sde_numel_integrations_min = 50
+sde_numel_integrations_max = 200
+sde_diffusion_sigma_min = 0.05
+sde_diffusion_sigma_max = 0.5
+kernel_ridge_lambda_min = 1e-8
+kernel_ridge_lambda_max = 1e-3
 
 # Sensitivity parameters (medium impact)
 cusum_k_min = 0.1
 cusum_k_max = 1.0
+cusum_h_min = 2.0
+cusum_h_max = 10.0
+cusum_grace_period_steps_min = 5
+cusum_grace_period_steps_max = 100
 sinkhorn_alpha_min = 0.1
 sinkhorn_alpha_max = 1.0
+sinkhorn_epsilon_min_min = 0.001
+sinkhorn_epsilon_min_max = 0.1
+sinkhorn_epsilon_0_min = 0.05
+sinkhorn_epsilon_0_max = 0.5
 volatility_alpha_min = 0.05
 volatility_alpha_max = 0.3
+learning_rate_min = 0.001
+learning_rate_max = 0.1
+entropy_window_min = 50
+entropy_window_max = 500
+entropy_threshold_min = 0.5
+entropy_threshold_max = 0.95
+holder_threshold_min = 0.2
+holder_threshold_max = 0.65
 
 # Optimization control (TPE)
 n_trials = 50
 n_startup_trials = 10
 multivariate = true
+enable_deep_tuning = false
 
 # Walk-forward validation
 train_ratio = 0.7
@@ -1772,8 +1826,8 @@ def compute_adaptive_jko_params(
             - learning_rate: Adaptive JKO flow step size
     
     Design Rationale:
-        - Low volatility (σ² ≈ 0.001): Large window (→1000), small LR (→2e-6)
-        - High volatility (σ² ≈ 0.1): Small window (→10), larger LR (→2e-4)
+        - Low volatility (σ² ≈ 0.001): Large window (capped at 500), small LR (≈1.6e-4 with ε=0.1)
+        - High volatility (σ² ≈ 0.1): Small window (→10), larger LR (≈1.6e-2 with ε=0.1)
         - Prevents JKO divergence in high-volatility regimes
     """
     # Relaxation time T_rlx ∝ L²/σ²
@@ -1796,24 +1850,18 @@ def compute_adaptive_jko_params(
 
 \subsection{Integration Pattern}
 
-Parameters are updated after each volatility estimate:
+Parameters are updated per step and injected into fusion:
 
 \begin{lstlisting}[language=Python]
-# In orchestrator.py (future integration)
-# After volatility estimation from EMA variance
-current_volatility_sq = state.ema_variance
-
-# Compute adaptive JKO parameters
-new_window, new_lr = compute_adaptive_jko_params(
-    current_volatility_sq,
-    sinkhorn_epsilon=config.sinkhorn_epsilon_0
+# In orchestrator.py
+adaptive_entropy_window, adaptive_learning_rate = compute_adaptive_jko_params(
+    float(state.ema_variance),
+    sinkhorn_epsilon=float(config.sinkhorn_epsilon_0),
 )
-
-# Update configuration (requires dynamic update mechanism)
-updated_config = replace(
+fusion_config = replace(
     config,
-    entropy_window=new_window,
-    learning_rate=new_lr
+    learning_rate=adaptive_learning_rate,
+    entropy_window=adaptive_entropy_window,
 )
 \end{lstlisting}
 
@@ -1821,13 +1869,13 @@ updated_config = replace(
 
 \textbf{Low-volatility regime:}
 \begin{itemize}
-    \item σ² = 0.001 → window = 1000, lr = 2e-6
+    \item σ² = 0.001 → window = 500 (cap), lr ≈ 1.6e-4 (ε=0.1)
     \item Effect: Large entropy window captures long-term dynamics
 \end{itemize}
 
 \textbf{High-volatility regime:}
 \begin{itemize}
-    \item σ² = 0.1 → window = 10, lr = 2e-4
+    \item σ² = 0.1 → window = 10, lr ≈ 1.6e-2 (ε=0.1)
     \item Effect: Small window adapts quickly, higher learning rate for faster convergence
 \end{itemize}
 
@@ -1869,11 +1917,11 @@ V-MAJ-3 (JKO Flow Params) & ✅ Implemented & orchestrator.py \\
 \caption{Level 4 Autonomy - Adaptive Functions Implementation}
 \end{table}
 
-\textbf{Note:} Integration into the orchestration loop requires a dynamic configuration update mechanism (to be implemented in future phase). Current implementation provides the foundational utility functions for Level 4 autonomy compliance.
+\textbf{Note:} Adaptive functions are integrated in \texttt{orchestrate\_step()} via per-step config replacements.
 
 \chapter{Phase 3 Summary}
 
-Phase 3 delivers a concrete orchestration layer for Wasserstein fusion and JKO weight updates. All critical violations are now fully implemented and documented:
+Phase 3 delivers a concrete orchestration layer for Wasserstein fusion and JKO weight updates. Critical violations are implemented; meta-optimization config wiring (GAP-6.3) remains pending:
 
 \begin{itemize}
     \item \textbf{V-CRIT-1 (Legacy)}: CUSUM kurtosis adaptation + grace period fundamentals ✅
@@ -1890,17 +1938,17 @@ Phase 3 delivers a concrete orchestration layer for Wasserstein fusion and JKO w
     \item \textbf{V-CRIT-7 (Level 4 Autonomy)}: Audit trail (io/mutations.log) ✅
 \end{itemize}
 
-\textbf{Level 4 Autonomy Status}: 100\% complete (v2.1.0) - System fully autonomous
+\textbf{Level 4 Autonomy Status}: Core orchestration complete; meta-optimization defaults not yet config-driven (GAP-6.3 pending)
 
 \textbf{Autonomous Closed-Loop Workflow}:
 \[
 \text{Optimize (500 trials)} \to \text{Mutate Config (atomic)} \to \text{Hot-Reload (mtime)} \to \text{Continue Operation}
 \]
 
-No manual intervention required over weeks/months of continuous operation.
+No manual intervention required over weeks/months of continuous operation, aside from GAP-6.3 meta-optimization config wiring.
 
 \section{Phase 4 Integration Note}
 
-In Phase 4, the orchestration pipeline is extended with ingestion validation and IO gates. The \texttt{orchestrate\_step()} function signature is updated to accept observation metadata (\texttt{ProcessState}, \texttt{now\_ns}) and integrates the ingestion gate prior to kernel execution. See \texttt{Implementation\_v2.1.0\_IO.tex} for complete documentation.
+Phase 4 extends the orchestration pipeline with ingestion validation and IO gates. The \texttt{orchestrate\_step()} signature now accepts observation metadata (\texttt{ProcessState}, \texttt{now\_ns}) and integrates the ingestion gate prior to kernel execution. See \texttt{Implementation\_v2.1.0\_IO.tex} for complete documentation.
 
 \end{document}
