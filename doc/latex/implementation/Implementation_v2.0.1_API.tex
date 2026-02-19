@@ -749,6 +749,7 @@ Atomic (4 buffers) & 50 $\mu$s & 1.5 $\mu$s & 33x \\
     \item \textbf{Functional Purity}: Returns new \texttt{InternalState}, original unchanged
     \item \textbf{Zero-Copy}: Uses \texttt{dynamic\_slice} + \texttt{concatenate} (XLA-optimized)
     \item \textbf{GPU-Friendly}: No host-device transfers (all operations on GPU if using JAX backend)
+    \item \textbf{VRAM Savings}: Aggressive \texttt{stop\_gradient} on buffer stats to prevent gradient tracking
     \item \textbf{JIT-Compilable}: All functions decorated with \texttt{@jax.jit}
     \item \textbf{Type-Safe}: Full \texttt{jaxtyping} annotations for shape verification
 \end{itemize}

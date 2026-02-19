@@ -171,6 +171,7 @@ Completed (Phase 1-3: Foundations + Kernels + Core):
   - `validation.py` (467 lines): input/output domain validation
   - `schemas.py` (330 lines): Pydantic models for serialization (ProcessStateSchema, PredictionResultSchema, TelemetryDataSchema)
   - `config.py` (220 lines): ConfigManager singleton with config.toml injection
+  - `state_buffer.py`: stop_gradient on buffer stats to reduce VRAM
 - **Kernels layer materialized**:
   - `kernels/base.py`: normalization and shared utilities
   - `kernel_a.py`: RKHS (Gaussian kernel ridge)

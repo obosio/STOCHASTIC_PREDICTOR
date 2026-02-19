@@ -58,10 +58,12 @@ def update_signal_history(
         - API_Python.tex §3.1: Rolling Window Management
         - Python.tex §6.2.1: dynamic_update_slice Pattern
     """
-    N = state.signal_history.shape[0]
+    history = lax.stop_gradient(state.signal_history)
+    new_value = lax.stop_gradient(new_value)
+    N = history.shape[0]
     
     # Shift left: [x[1], x[2], ..., x[N-1], 0.0]
-    shifted = lax.dynamic_slice(state.signal_history, start_indices=(1,), slice_sizes=(N - 1,))
+    shifted = lax.dynamic_slice(history, start_indices=(1,), slice_sizes=(N - 1,))
     
     # Prepare new value as array
     new_val_array = jnp.atleast_1d(new_value)
@@ -93,9 +95,11 @@ def update_residual_buffer(
     References:
         - API_Python.tex §3.2: Residual Tracking
     """
-    N = state.residual_buffer.shape[0]
-    
-    shifted = lax.dynamic_slice(state.residual_buffer, start_indices=(1,), slice_sizes=(N - 1,))
+    buffer = lax.stop_gradient(state.residual_buffer)
+    new_residual = lax.stop_gradient(new_residual)
+    N = buffer.shape[0]
+
+    shifted = lax.dynamic_slice(buffer, start_indices=(1,), slice_sizes=(N - 1,))
     new_res_array = jnp.atleast_1d(new_residual)
     updated_buffer = jnp.concatenate([shifted, new_res_array])
     
@@ -127,7 +131,9 @@ def batch_update_signal_history(
     References:
         - API_Python.tex §3.3: Batch Updates
     """
-    N = state.signal_history.shape[0]
+    history = lax.stop_gradient(state.signal_history)
+    new_values = lax.stop_gradient(new_values)
+    N = history.shape[0]
     M = new_values.shape[0]
     
     if M >= N:
@@ -136,7 +142,7 @@ def batch_update_signal_history(
     else:
         # Shift left by M positions, append M new values
         shifted = lax.dynamic_slice(
-            state.signal_history,
+            history,
             start_indices=(M,),
             slice_sizes=(N - M,)
         )
@@ -171,8 +177,12 @@ def update_cusum_statistics(
         - Python.tex §5.3: Degradation Detection
     """
     # CUSUM update equations
-    g_plus_new = jnp.maximum(0.0, state.cusum_g_plus + new_residual - cusum_k)
-    g_minus_new = jnp.maximum(0.0, state.cusum_g_minus - new_residual - cusum_k)
+    cusum_g_plus = lax.stop_gradient(state.cusum_g_plus)
+    cusum_g_minus = lax.stop_gradient(state.cusum_g_minus)
+    new_residual = lax.stop_gradient(new_residual)
+
+    g_plus_new = jnp.maximum(0.0, cusum_g_plus + new_residual - cusum_k)
+    g_minus_new = jnp.maximum(0.0, cusum_g_minus - new_residual - cusum_k)
     
     return replace(
         state,
@@ -205,7 +215,10 @@ def update_ema_variance(
         - Teoria.tex §3.3: Volatility Monitoring
         - Python.tex §5.2: EWMA Estimation
     """
-    variance_new = alpha * (new_value ** 2) + (1.0 - alpha) * state.ema_variance
+    ema_variance = lax.stop_gradient(state.ema_variance)
+    new_value = lax.stop_gradient(new_value)
+
+    variance_new = alpha * (new_value ** 2) + (1.0 - alpha) * ema_variance
     
     return replace(state, ema_variance=variance_new)
 

@@ -49,6 +49,7 @@ doc/                                  # Documentation root
     - Tag: `impl/v2.0.1` (commit 4757710)
     - API Layer Complete: full foundational API
     - Modules: types.py (347 LoC), prng.py (301 LoC), validation.py (467 LoC), schemas.py (330 LoC), config.py (220 LoC)
+    - State buffer stats use stop_gradient to reduce VRAM
     - Total 1,665 LoC (test infrastructure reserved for v3.x.x)
     - 16KB, comprehensive API documentation
   - **`Implementation_v2.0.2_Kernels.tex`**
