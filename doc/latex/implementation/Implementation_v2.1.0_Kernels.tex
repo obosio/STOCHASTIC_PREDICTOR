@@ -125,77 +125,75 @@ def compute_gram_matrix(X: Float[Array, "n d"],
     return jnp.exp(-squared_dist / (2.0 * bandwidth ** 2))
 
 
-def kernel_ridge_regression(X_train: Float[Array, "n d"],
-                           y_train: Float[Array, "n"],
-                           X_test: Float[Array, "m d"],
-                           config: PredictorConfig) -> tuple:
+def kernel_ridge_regression(
+    X_train: Float[Array, "n d"],
+    y_train: Float[Array, "n"],
+    X_test: Float[Array, "m d"],
+    config: PredictorConfig
+) -> tuple[Float[Array, "m"], Float[Array, "m"]]:
     """
     Kernel Ridge Regression prediction with uncertainty.
     
-    UNIFIED CONFIG INJECTION: All parameters from config (v2.2.0+)
-    - config.kernel_a_bandwidth: Gaussian kernel bandwidth
-    - config.kernel_ridge_lambda: Ridge regularization parameter
-    - config.kernel_a_min_variance: Minimum variance clipping threshold
+    Zero-Heuristics: All parameters from config.
     """
-    K = compute_gram_matrix(X_train, config.kernel_a_bandwidth)
-    K_regularized = K + config.kernel_ridge_lambda * jnp.eye(K.shape[0])
-    
-    # Solve K_reg @ alpha = y
-    alpha = jnp.linalg.solve(K_regularized, y_train)
-    
-    # Predict on test set (vectorized broadcasting - v2.2.0 optimization)
+    K_train = compute_gram_matrix(X_train, config.kernel_a_bandwidth)
+    K_reg = K_train + config.kernel_ridge_lambda * jnp.eye(K_train.shape[0])
+    alpha = jnp.linalg.solve(K_reg, y_train)
     diff_test = X_test[:, None, :] - X_train[None, :, :]
-    squared_dist = jnp.sum(diff_test ** 2, axis=-1)
-    K_test = jnp.exp(-squared_dist / (2.0 * config.kernel_a_bandwidth ** 2))
-    
-    predictions = K_test @ alpha
-    variances = jnp.maximum(
-        jnp.var(K_test, axis=1),
-        config.kernel_a_min_variance  # From config (NOT hardcoded)
-    )
-    
-    return predictions, variances
+    squared_dist_test = jnp.sum(diff_test ** 2, axis=-1)
+    K_test = jnp.exp(-squared_dist_test / (2.0 * config.kernel_a_bandwidth ** 2))
+    y_pred = K_test @ alpha
+    k_test_diag = jnp.ones(X_test.shape[0])
+    K_inv_K_test_T = jnp.linalg.solve(K_reg, K_test.T)
+    variances = k_test_diag - jnp.sum(K_test * K_inv_K_test_T.T, axis=1)
+    variances = jnp.maximum(variances, config.kernel_a_min_variance)
+    return y_pred, variances
 
 
 @jax.jit
-def kernel_a_predict(signal: Float[Array, "n"],
-                    key: jax.random.PRNGKeyArray,
-                    config: PredictorConfig) -> KernelOutput:
+def kernel_a_predict(
+    signal: Float[Array, "n"],
+    key: jax.random.PRNGKeyArray,
+    config: PredictorConfig
+) -> KernelOutput:
     """
-    Kernel A prediction (UNIFIED CONFIG INJECTION v2.2.0+).
-    
-    Args:
-        signal: Input time series
-        key: JAX PRNG key (compatibility, unused)
-        config: PredictorConfig (ALL parameters)
-    
-    Config Parameters:
-        - kernel_a_bandwidth, kernel_a_embedding_dim
-        - kernel_a_min_variance, kernel_ridge_lambda
+    Kernel A prediction for smooth Gaussian processes.
     """
-    signal_norm = normalize_signal(signal)
-    X_embedded = create_embedding(signal_norm, config)
-    
+    signal_normalized = normalize_signal(
+        signal,
+        method="zscore",
+        epsilon=config.numerical_epsilon
+    )
+    stats = compute_signal_statistics(signal)
+    X_embedded = create_embedding(signal_normalized, config)
     X_train = X_embedded[:-1]
-    y_train = signal_norm[config.kernel_a_embedding_dim:-1]
-    X_test = signal_norm[-1:].reshape(1, 1)
-    
-    # Ridge regression with config.kernel_ridge_lambda (NOT hardcoded)
-    pred, conf = kernel_ridge_regression(
-        X_train, y_train, X_test,
-        bandwidth=config.kernel_a_bandwidth,
-        ridge_lambda=config.kernel_ridge_lambda  # From config
+    y_train = signal_normalized[config.kernel_a_embedding_dim:-1]
+    X_test = X_embedded[-1:]
+    y_pred_norm, variances = kernel_ridge_regression(
+        X_train, y_train, X_test, config
     )
-    
+    prediction = y_pred_norm[0] * stats["std"] + stats["mean"]
+    confidence = jnp.sqrt(variances[0]) * stats["std"]
+    holder_exponent_estimate = extract_holder_exponent_wtmm(
+        signal_normalized, config
+    )
+    diagnostics = {
+        "kernel_type": "A_Hilbert_RKHS",
+        "bandwidth": config.kernel_a_bandwidth,
+        "embedding_dim": config.kernel_a_embedding_dim,
+        "n_training_points": X_train.shape[0],
+        "signal_mean": stats["mean"],
+        "signal_std": stats["std"],
+        "holder_exponent": float(holder_exponent_estimate)
+    }
+    prediction, diagnostics = apply_stop_gradient_to_diagnostics(
+        prediction, diagnostics
+    )
     return KernelOutput(
-        prediction=pred[0],
-        confidence=conf[0],
-        kernel_id="A",
-        diagnostics={}
+        prediction=prediction,
+        confidence=confidence,
+        metadata=diagnostics
     )
-    
-    # Apply stop_gradient to diagnostics (only return prediction+confidence)
-    return apply_stop_gradient_to_diagnostics(output)
 \end{lstlisting}
 
 \section{Configuration Parameters}
@@ -495,8 +493,7 @@ def kernel_b_predict(signal: Float[Array, "n"],
     return KernelOutput(
         prediction=predictions[len(x_samples)//2],  # Center prediction
         confidence=jnp.std(predictions),
-        kernel_id="B",
-        diagnostics={"entropy": entropy}
+        metadata={"entropy": entropy}
     )
 \end{lstlisting}
 
@@ -697,8 +694,7 @@ def kernel_b_predict(signal: Float[Array, "n"],
     return KernelOutput(
         prediction=predictions[len(x_samples)//2],
         confidence=jnp.std(predictions),
-        kernel_id="B",
-        diagnostics={
+        metadata={
             "entropy": entropy,
             "entropy_threshold": entropy_threshold,
             "gamma_t": gamma_t,  # V-MAJ-1: Log adaptive multiplier
@@ -1098,8 +1094,7 @@ def kernel_c_predict(signal: Float[Array, "n"],
     return KernelOutput(
         prediction=x_final,
         confidence=confidence,
-        kernel_id="C",
-        diagnostics={}
+        metadata={}
     )
 \end{lstlisting}
 
@@ -1164,7 +1159,18 @@ def kernel_d_predict(signal: Float[Array, "n"], key: jax.random.PRNGKeyArray, co
     path = create_path_augmentation(signal)
     logsig = compute_log_signature(path, config)
     prediction, confidence = predict_from_signature(logsig, signal[-1], config)
-    return KernelOutput(prediction=prediction, confidence=confidence, kernel_id="D", diagnostics={})
+    diagnostics = {
+        "kernel_type": "D_Signature_Rough_Paths",
+        "signature_depth": config.kernel_d_depth,
+        "signature_dim": logsig.shape[0],
+        "signature_norm": jnp.linalg.norm(logsig),
+        "path_length": path.shape[0],
+        "last_value": signal[-1]
+    }
+    prediction, diagnostics = apply_stop_gradient_to_diagnostics(
+        prediction, diagnostics
+    )
+    return KernelOutput(prediction=prediction, confidence=confidence, metadata=diagnostics)
 \end{lstlisting}
 
 \section{Configuration Parameters}
@@ -1181,11 +1187,19 @@ def kernel_d_predict(signal: Float[Array, "n"], key: jax.random.PRNGKeyArray, co
 
 \begin{lstlisting}[language=Python]
 @jax.jit
-def normalize_signal(signal: Float[Array, "n"]) -> Float[Array, "n"]:
-    """Normalize signal (z-score by default)."""
+def normalize_signal(
+    signal: Float[Array, "n"],
+    method: str,
+    epsilon: float = 1e-10
+) -> Float[Array, "n"]:
+    """Normalize signal (zscore or minmax) with stability epsilon."""
     mean = jnp.mean(signal)
     std = jnp.std(signal)
-    return (signal - mean) / (std + 1e-8)
+    if method == "minmax":
+        min_val = jnp.min(signal)
+        max_val = jnp.max(signal)
+        return (signal - min_val) / (max_val - min_val + epsilon)
+    return (signal - mean) / (std + epsilon)
 
 
 @jax.jit
@@ -1201,28 +1215,25 @@ def compute_signal_statistics(signal: Float[Array, "n"]) -> dict:
 
 
 @jax.jit
-def apply_stop_gradient_to_diagnostics(output: KernelOutput) -> KernelOutput:
+def apply_stop_gradient_to_diagnostics(
+    prediction: Float[Array, "..."],
+    diagnostics: dict
+) -> tuple[Float[Array, "..."], dict]:
     """
     Prevent diagnostic tensors from contributing to gradients.
     
     Improves computational efficiency by stopping gradient flow
     through non-differentiable diagnostic branches.
     """
-    return KernelOutput(
-        prediction=output.prediction,
-        confidence=output.confidence,
-        kernel_id=output.kernel_id,
-        diagnostics=jax.lax.stop_gradient(output.diagnostics)
-    )
+    diagnostics_stopped = jax.tree_map(jax.lax.stop_gradient, diagnostics)
+    return prediction, diagnostics_stopped
 
 
-@dataclass(frozen=True)
-class KernelOutput:
+class KernelOutput(NamedTuple):
     """Standardized kernel output."""
-    prediction: float
-    confidence: float
-    kernel_id: str
-    diagnostics: dict
+    prediction: Float[Array, "..."]
+    confidence: Float[Array, "..."]
+    metadata: dict
 \end{lstlisting}
 
 \chapter{Orchestration}
@@ -1293,7 +1304,7 @@ if low_entropy:
 else:
     mode_collapse_counter = 0
 
-# Warning threshold: config-driven (v2.2.0 - no hardcoded values)
+# Warning threshold: config-driven (v2.1.0 - no hardcoded values)
 mode_collapse_warning_threshold = max(
     config.mode_collapse_min_threshold,
     int(config.entropy_window * config.mode_collapse_window_ratio)
@@ -1380,16 +1391,13 @@ def detect_regime_change(cusum_stats: float,
 \hline
 Module & LOC \\
 \hline
-kernel\_a.py & 288 \\
-kernel\_b.py & 412 \\
-kernel\_c.py & 520 \\
-kernel\_d.py & 310 \\
-base.py & 245 \\
-orchestration/jko.py & 180 \\
-orchestration/cusum.py & 210 \\
-orchestration/fusion.py & 165 \\
+kernel\_a.py & 564 \\
+kernel\_b.py & 429 \\
+kernel\_c.py & 350 \\
+kernel\_d.py & 230 \\
+base.py & 220 \\
 \hline
-\textbf{Total Kernel Layer} & \textbf{2,330} \\
+\textbf{Total Kernel Layer} & \textbf{1,793} \\
 \hline
 \end{tabular}
 \end{table}
@@ -1484,12 +1492,12 @@ As of Audit v2.1.6 (February 19, 2026):
 \begin{center}
 \textbf{Phase 2 Implementation Status: CERTIFIED OPERATIONAL}
 
-\textit{Achieved: Nivel Diamante (Diamond Level) - Maximum Technical Rigor}
+\textit{Achieved: Diamond Level - Maximum Technical Rigor}
 \end{center}
 
-\chapter{Performance Optimization (Audit v2.2.0)}
+\chapter{Performance Optimization (Audit v2.1.0)}
 
-Following certification at Nivel Esmeralda (Audit v2.1.7), the Lead Implementation Auditor performed a comprehensive line-by-line inspection to identify residual technical debt blocking Nivel Diamante certification. All observations have been remediated.
+Following certification at Emerald Level (Audit v2.1.7), the Lead Implementation Auditor performed a comprehensive line-by-line inspection to identify residual technical debt blocking Diamond Level certification. All observations have been remediated.
 
 \section{Semantic Purification}
 
@@ -1590,7 +1598,7 @@ K_test = jnp.exp(-squared_dist_test / (2.0 * bandwidth ** 2))
 
 \subsection{Refactored Signatures (All Kernels)}
 
-\textbf{Before v2.2.0 (Inconsistent)}:
+\textbf{Before v2.1.0 (Inconsistent)}:
 \begin{lstlisting}[language=Python]
 # Kernel A - 6 parameters (fragmented)
 kernel_a_predict(signal, key, ridge_lambda, bandwidth, embedding_dim, min_variance)
@@ -1604,7 +1612,7 @@ compute_log_signature(signal, depth)
 predict_from_signature(logsig, last_value, alpha, config)
 \end{lstlisting}
 
-\textbf{After v2.2.0 (Unified)}:
+\textbf{After v2.1.0 (Unified)}:
 \begin{lstlisting}[language=Python]
 # ALL KERNELS: Consistent 3-parameter pattern
 kernel_a_predict(signal, key, config)  # ✓
@@ -1643,13 +1651,13 @@ DGM_HJB_Solver(key, config)  # ✓
 
 \textbf{Backward Compatibility}: Breaking change (signatures modified). Requires coordinated update with orchestration layer in Phase 3.
 
-\section{Certification Status (Audit v2.2.0)}
+\section{Certification Status (Audit v2.1.0)}
 
 \begin{table}[h!]
 \centering
 \begin{tabular}{|l|c|c|}
 \hline
-\textbf{Compliance Metric} & \textbf{v2.1.7 (Esmeralda)} & \textbf{v2.2.0 (Diamante)} \\
+\textbf{Compliance Metric} & \textbf{v2.1.7 (Emerald)} & \textbf{v2.1.0 (Diamond)} \\
 \hline
 Domain Agnosticism & 95\% & 100\% ✓ \\
 Zero-Heuristics Enforcement & 95\% & 100\% ✓ \\
@@ -1657,15 +1665,15 @@ JAX Vectorization Best Practices & 90\% & 100\% ✓ \\
 Golden Master Compliance & 99\% & 100\% ✓ \\
 API Coherence (Config Injection) & 50\% & 100\% ✓ \\
 \hline
-\textbf{Overall Certification} & \textbf{Esmeralda} & \textbf{Diamante} ✓ \\
+\textbf{Overall Certification} & \textbf{Emerald} & \textbf{Diamond} ✓ \\
 \hline
 \end{tabular}
 \end{table}
 
 \begin{center}
-\textbf{Phase 2 Implementation Status: CERTIFIED DIAMANTE}
+\textbf{Phase 2 Implementation Status: CERTIFIED DIAMOND}
 
-\textit{Achieved: Nivel Diamante (Diamond Level) - Maximum Technical Rigor}
+\textit{Achieved: Diamond Level - Maximum Technical Rigor}
 
 \textit{Date: February 19, 2026}
 \end{center}
@@ -1675,9 +1683,9 @@ API Coherence (Config Injection) & 50\% & 100\% ✓ \\
 
 \section{Audit Context}
 
-Following Audit v2 certification (February 19, 2026), three critical hallazgos (findings) were identified and remediated to achieve full Diamond Level compliance. This chapter documents the technical findings and implemented resolutions.
+Following Audit v2 certification (February 19, 2026), three critical findings were identified and remediated to achieve full Diamond Level compliance. This chapter documents the technical findings and implemented resolutions.
 
-\section{Hallazgo 1: Precision Conflict (Global Configuration)}
+\section{Finding 1: Precision Conflict (Global Configuration)}
 
 \subsection{Finding}
 
@@ -1710,7 +1718,7 @@ float_precision = 64           # Must match jax_enable_x64 for Malliavin stabili
 
 \textbf{Rationale}: Global precision must be consistent across bootstrap configuration and runtime parameter files.
 
-\section{Hallazgo 2: Static SDE Solver Selection}
+\section{Finding 2: Static SDE Solver Selection}
 
 \subsection{Finding}
 
@@ -1781,7 +1789,7 @@ def select_stiffness_solver(stiffness: float, config):
     \item \texttt{stiffness\_high = 1000}: Threshold for adaptive $\to$ implicit transition
 \end{itemize}
 
-\section{Hallazgo 3: PRNG Implementation Not Enforced}
+\section{Finding 3: PRNG Implementation Not Enforced}
 
 \subsection{Finding}
 
@@ -1833,7 +1841,7 @@ Bit-exact reproducibility & Partial & Complete (CPU/GPU/TPU) ✓ \\
 
 \section{Authorization for JKO Orchestrator Integration}
 
-With all critical hallazgos resolved, the system achieves full Diamond Spec compliance. Authorization granted to proceed with:
+With all critical findings resolved, the system achieves full Diamond Spec compliance. Authorization granted to proceed with:
 
 \begin{itemize}
     \item \textbf{core/}: JKO Flow implementation (Wasserstein gradient descent)
@@ -1845,7 +1853,7 @@ With all critical hallazgos resolved, the system achieves full Diamond Spec comp
 
 \textbf{Date}: February 19, 2026
 
-\textbf{Auditor Approval}: APROBADO for production integration
+\textbf{Auditor Approval}: APPROVED for production integration
 
 
 \chapter{Zero-Heuristics Final Compliance - Magic Number Elimination}
@@ -1855,7 +1863,7 @@ With all critical hallazgos resolved, the system achieves full Diamond Spec comp
 Following initial Diamond Level certification, a comprehensive code audit revealed hardcoded magic numbers scattered across 4 kernel files, violating the Zero-Heuristics policy established in Phase 1. The certification was REJECTED with the directive:
 
 \begin{center}
-\textit{"Se rechaza la certificación Diamond hasta que los épsilons numéricos y los factores de muestreo sean inyectados vía config.toml"}
+\textit{"Diamond certification is rejected until numeric epsilons and sampling factors are injected via config.toml"}
 \end{center}
 
 \section{Magic Numbers Identified}
@@ -2117,16 +2125,16 @@ Diamond Level certification & REJECTED & APPROVED ✓ \\
 
 \textbf{Compliance Level}: 100\% (6/6 magic numbers eliminated)
 
-\textbf{Authorization}: Cleared for JKO Orchestrator integration (core/jko.py, core/sinkhorn.py, core/fusion.py)
+\textbf{Authorization}: Cleared for JKO Orchestrator integration (core/orchestrator.py, core/sinkhorn.py, core/fusion.py)
 
-\textbf{Audit Verdict}: \textit{CERTIFICACIÓN DIAMOND OTORGADA - NIVEL MÁXIMO DE RIGOR TÉCNICO}
+\textbf{Audit Verdict}: \textit{DIAMOND CERTIFICATION GRANTED - MAXIMUM TECHNICAL RIGOR}
 
 
 \chapter{Zero-Heuristics Residual Compliance - Final Audit Sweep}
 
 \section{Post-Certification Audit Context}
 
-Following Diamond Level certification (commit e38541b), a final comprehensive audit sweep detected 3 residual magic numbers in validation and kernel logic layers. These violations were classified as "Spec Violation (Magic Numbers en Validación y Kernels)" requiring immediate remediation before production authorization.
+Following Diamond Level certification (commit e38541b), a final comprehensive audit sweep detected 3 residual magic numbers in validation and kernel logic layers. These violations were classified as "Spec Violation (Magic Numbers in Validation and Kernels)" requiring immediate remediation before production authorization.
 
 \section{Residual Magic Numbers Identified}
 
@@ -2294,7 +2302,7 @@ Diamond Level certification & APPROVED & REVALIDATED ✓ \\
 
 \textbf{Authorization}: Production deployment CLEARED - No hardcoded heuristics remaining
 
-\textbf{Audit Verdict}: \textit{CERTIFICACIÓN DIAMOND REVALIDADA - COMPLIANCE TOTAL ALCANZADA}
+\textbf{Audit Verdict}: \textit{DIAMOND CERTIFICATION REVALIDATED - FULL COMPLIANCE ACHIEVED}
 
 \section{Adaptive SDE Stiffness-Based Solver Selection (P2.2)}
 
@@ -2514,7 +2522,7 @@ def kernel_c_predict(
     key: Array,
     config
 ) -> KernelOutput:
-    """Kernel C: Itô/Lévy SDE integration with P2.2 adaptive stiffness."""
+    """Kernel C: Ito/Levy SDE integration with P2.2 adaptive stiffness."""
     
     # Extract current state
     y0 = jnp.array([signal[-1]])

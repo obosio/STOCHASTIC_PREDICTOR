@@ -63,7 +63,7 @@ Phase 1 covers:
     \item \textbf{Type System} (\texttt{types.py}): Core immutable dataclasses for configuration and predictions
     \item \textbf{Configuration Management} (\texttt{config.py}): Singleton ConfigManager with TOML-based parameter injection
     \item \textbf{Validation Framework} (\texttt{validation.py}): Domain-specific validation and sanitization logic
-    \item \textbf{Random Number Generation} (\texttt{random.py}): JAX-based PRNG utilities
+    \item \textbf{Random Number Generation} (\texttt{prng.py}): JAX-based PRNG utilities
     \item \textbf{Schema Definitions} (\texttt{schemas.py}): Pydantic models for API contracts
 \end{itemize}
 
@@ -86,7 +86,7 @@ The \texttt{types.py} module defines all immutable data structures using frozen 
 
 \subsection{Purpose}
 
-\texttt{PredictorConfig} is the system hyperparameter vector (denoted $\Lambda$ in the specification). It contains all configurable parameters for orchestration, kernels, validation, and I/O. Total: \textbf{47 fields}.
+\texttt{PredictorConfig} is the system hyperparameter vector (denoted $\Lambda$ in the specification). It contains all configurable parameters for orchestration, kernels, validation, and I/O. Total: \textbf{93 fields}.
 
 \subsection{Core Configuration Fields}
 
@@ -193,11 +193,10 @@ log_sig_depth: int = 3                     # Log-signature truncation
 \begin{lstlisting}[language=Python]
 @dataclass(frozen=True)
 class ProcessState:
-    """Single observation from stochastic process."""
-    timestamp: float            # Observation time (ns)
-    price: float                # Observation value
-    volume: float               # Associated volume/energy
-    volatility_estimate: float  # Auxiliary measure
+    """Predictor operational input (domain-agnostic)."""
+    magnitude: Float[Array, "1"]   # y_t: Observed magnitude
+    reference: Float[Array, "1"]   # y_reference: Baseline magnitude
+    timestamp_ns: int              # Unix Epoch (nanoseconds)
 \end{lstlisting}
 
 \subsection{PredictionResult}
@@ -255,7 +254,7 @@ class ConfigManager:
 
 \section{FIELD\_TO\_SECTION\_MAP (Single Source of Truth)}
 
-Automated field-to-section mapping ensures all 47 config parameters have defined placement:
+Automated field-to-section mapping ensures all 93 config parameters have defined placement:
 
 \begin{lstlisting}[language=Python]
 FIELD_TO_SECTION_MAP = {
@@ -700,35 +699,42 @@ result = validate_finite(array,
 result = validate_finite(array, allow_nan=False, allow_inf=False)
 \end{lstlisting}
 
-\chapter{Random Number Generation (random.py)}
+\chapter{Random Number Generation (prng.py)}
 
 \section{JAX PRNG Infrastructure}
 
-The \texttt{random.py} module provides deterministic sampling via JAX's threefry2x32 PRNG:
+The \texttt{prng.py} module provides deterministic sampling via JAX's threefry2x32 PRNG:
 
 \begin{lstlisting}[language=Python]
-def initialize_jax_prng(seed: int) -> PRNGKeyArray:
+def initialize_jax_prng(seed: int = 42) -> PRNGKeyArray:
     """Create root PRNGKey from seed."""
 
-def split_key(key: PRNGKeyArray) -> tuple[PRNGKeyArray, PRNGKeyArray]:
-    """Cryptographic key splitting for parallel RNG streams."""
+def split_key(key: PRNGKeyArray, num: int = 2) -> tuple[PRNGKeyArray, ...]:
+    """Split a key into multiple independent subkeys."""
 
-def uniform_samples(key: PRNGKeyArray, n: int) -> Array:
-    """Generate n uniform [0, 1) samples."""
+def split_key_like(key: PRNGKeyArray, target_shape: Sequence[int]) -> tuple[PRNGKeyArray, PRNGKeyArray]:
+    """Split a key and produce a batch of subkeys with a target shape."""
 
-def normal_samples(key: PRNGKeyArray, n: int, 
-                  loc: float = 0.0, scale: float = 1.0) -> Array:
-    """Generate n Gaussian samples."""
+def uniform_samples(key: PRNGKeyArray, shape: Sequence[int],
+                   minval: float = 0.0, maxval: float = 1.0) -> Array:
+    """Generate uniform samples in [minval, maxval)."""
 
-def exponential_samples(key: PRNGKeyArray, n: int, 
+def normal_samples(key: PRNGKeyArray, shape: Sequence[int], 
+                  mean: float = 0.0, std: float = 1.0) -> Array:
+    """Generate Gaussian samples."""
+
+def exponential_samples(key: PRNGKeyArray, shape: Sequence[int], 
                        rate: float = 1.0) -> Array:
-    """Generate n exponential samples."""
+    """Generate exponential samples."""
+
+def check_prng_state(key: PRNGKeyArray) -> dict[str, Any]:
+    """Inspect PRNG key shape, dtype, and implementation."""
 \end{lstlisting}
 
 \section{Reproducibility Verification}
 
 \begin{lstlisting}[language=Python]
-def verify_determinism(seed: int, n_trials: int = 10) -> bool:
+def verify_determinism(seed: int = 42, n_trials: int = 3) -> bool:
     """Verify identical output across multiple runs."""
 \end{lstlisting}
 
@@ -743,10 +749,13 @@ def verify_determinism(seed: int, n_trials: int = 10) -> bool:
 \begin{lstlisting}[language=Python]
 class ProcessStateSchema(BaseModel):
     """API contract for process observations."""
-    timestamp_utc: datetime
-    price: float = Field(..., gt=0)
-    volume: float = Field(..., ge=0)
-    volatility_proxy: Optional[float] = None
+    magnitude: Float[Array, "1"]
+    timestamp_utc: datetime = Field(description="Observation time (UTC)")
+    state_tag: Optional[str] = Field(default=None, description="Process state label (e.g., 'high_variance', 'stationary', 'trending')")
+    dispersion_proxy: Optional[Float[Array, "1"]] = Field(
+        default=None,
+        description="Realized dispersion estimate for Sinkhorn coupling"
+    )
 \end{lstlisting}
 
 \subsection{PredictionResultSchema}
@@ -796,10 +805,10 @@ Module & LOC \\
 types.py & 347 \\
 config.py & 220 \\
 validation.py & 467 \\
-random.py & 301 \\
+prng.py & 305 \\
 schemas.py & 330 \\
 \hline
-\textbf{Total API Layer} & \textbf{1,665} \\
+\textbf{Total API Layer} & \textbf{1,669} \\
 \hline
 \end{tabular}
 \end{table}
@@ -810,7 +819,7 @@ schemas.py & 330 \\
     \item ✓ 100\% English code (no Spanish identifiers)
     \item ✓ Full type hints with dimensional consistency
     \item ✓ No hardcoded hyperparameters (zero-heuristics policy)
-    \item ✓ All 47 config fields mapped via \texttt{FIELD\_TO\_SECTION\_MAP}
+    \item ✓ All 93 config fields mapped via \texttt{FIELD\_TO\_SECTION\_MAP}
     \item ✓ Immutable frozen dataclasses for thread-safety
     \item ✓ Environment variable overrides (\texttt{USP\_SECTION\_\_KEY})
     \item ✓ Pydantic v2 strict validation
@@ -1182,7 +1191,7 @@ mag_f64, ts, meta = sanitize_external_observation(
 )
 
 # Safe to create ProcessState (guaranteed float64)
-obs = ProcessState(magnitude=mag_f64, timestamp_ns=ts, metadata=meta)
+obs = ProcessState(magnitude=mag_f64, reference=mag_f64, timestamp_ns=ts)
 \end{lstlisting}
 
 \textbf{Function 3}: \texttt{cast\_array\_to\_float64()} - With warnings
@@ -1226,7 +1235,7 @@ async def ingest_observation_from_api(api_url: str) -> ProcessState:
     )
     
     # 3. Create ProcessState (guaranteed float64, no runtime warnings)
-    obs = ProcessState(magnitude=mag_f64, timestamp_ns=ts_ns, metadata=meta)
+    obs = ProcessState(magnitude=mag_f64, reference=mag_f64, timestamp_ns=ts_ns)
     
     # 4. Validate (optional additional checks)
     config = get_config()
