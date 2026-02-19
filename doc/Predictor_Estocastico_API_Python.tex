@@ -2133,4 +2133,541 @@ Esto permite \textbf{mantener throughput} incluso en crisis extremas (ej. flash 
 
 El Load Shedding Dinámico es \textbf{esencial} para sistemas H.F. que operan en mercados volátiles. Sin esta lógica, eventos de cisne negro producirían backlog infinito y obsolescencia de predicciones. La degradación topológica $(M=5 \to 3 \to 2)$ sacrifica resolución no-lineal profunda pero garantiza que el sistema \textbf{nunca se sature}, priorizando latencia sobre precisión extrema cuando es necesario.
 
+\section{Telemetría de Jitter (Gatillo Preciso para Load Shedding)}
+
+\textbf{Problema de Precisión en Detección de Saturación:}
+
+El Load Shedding descrito en la sección anterior utiliza \textbf{EWMA de latencia media} como gatillo. Sin embargo, existe un problema sutil:
+
+\[
+\text{EWMA}(\text{latencia}) = \alpha \cdot L_t + (1-\alpha) \cdot \text{EWMA}_{t-1}
+\]
+
+Esta métrica captura la \textit{tendencia central} de la latencia, pero \textbf{ignora la variabilidad} (jitter). En un sistema que procesa frames de mercado a frecuencia variable, la \textit{varianza} de la latencia es crítica:
+
+\textbf{Escenario Problemático:}
+
+\begin{itemize}
+    \item Tick \#100: Latencia = 0.8ms (rápido, Rama D con $M=5$)
+    \item Tick \#101: Latencia = 22ms (lento, GC de JAX o swap de memoria)
+    \item Tick \#102: Latencia = 0.9ms (rápido nuevamente)
+    \item Tick \#103: Latencia = 25ms (lento, conflicto de I/O)
+    \item ...
+\end{itemize}
+
+\textbf{EWMA observado}: $\sim 6$--$8$ms (promedio)  
+\textbf{Jitter observado}: $\sigma_{\text{latencia}} \sim 10$--$12$ms (desviación estándar)
+
+El sistema parece \textit{nominalmente aceptable} según EWMA, pero el \textbf{jitter catastrófico} indica que el sistema está \textit{al borde del colapso}. En algunos ticks excede 20ms → backlog se acumula → predicciones obsoletas.
+
+\textbf{Criterio de Nyquist para Jitter:}
+
+En teoría de muestreo, el límite de Nyquist establece que para reconstruir una señal con frecuencia $f$, se requiere muestreo a $\geq 2f$. En nuestro contexto:
+
+\[
+\text{Tick-Rate}_{\text{entrada}} = \frac{1}{\text{besov\_nyquist\_interval\_ns}}
+\]
+
+Si el \textbf{jitter de latencia} (varianza) excede el 80\% del tick-rate, el sistema está en riesgo de perder sincronización:
+
+\[
+\text{Jitter}_{\text{threshold}} = 0.8 \times \text{besov\_nyquist\_interval\_ns}
+\]
+
+\textbf{Razón:} Si la desviación estándar de latencia es $\sim 80$ms y el tick-rate es 100ms, entonces:
+\begin{itemize}
+    \item $\mu_{\text{latencia}} - \sigma_{\text{latencia}} = 50 - 80 = -30$ms (algunos ticks son instantáneos)
+    \item $\mu_{\text{latencia}} + \sigma_{\text{latencia}} = 50 + 80 = 130$ms (algunos ticks exceden el tiempo disponible)
+\end{itemize}
+
+Esto garantiza que al menos algunas predicciones serán \textit{obsoletas}, violando SLA de latencia.
+
+\textbf{Solución: Telemetría de Alta Resolución con \texttt{perf\_counter\_ns}}
+
+Python 3.7+ proporciona \texttt{time.perf\_counter\_ns()}, un reloj monotónico de alta resolución (nanosegundos) que no se ve afectado por ajustes de NTP o cambios de zona horaria:
+
+\begin{lstlisting}[language=Python]
+import time
+import jax.numpy as jnp
+from collections import deque
+from typing import Deque, Dict
+
+class JitterMonitor:
+    """
+    Monitor de varianza de latencia (jitter) para detección precisa de saturación.
+    Complementa el EWMA de latencia con métrica de dispersión.
+    """
+    def __init__(self, 
+                 window_size: int = 100, 
+                 nyquist_interval_ns: int = 100_000_000,  # 100ms
+                 jitter_threshold_ratio: float = 0.8):
+        """
+        Args:
+            window_size: Tamaño de ventana deslizante para calcular jitter
+            nyquist_interval_ns: Intervalo mínimo entre ticks (Nyquist limit)
+            jitter_threshold_ratio: Umbral de jitter como fracción del Nyquist (ej. 0.8 = 80%)
+        """
+        self.window_size = window_size
+        self.nyquist_interval_ns = nyquist_interval_ns
+        self.jitter_threshold_ns = jitter_threshold_ratio * nyquist_interval_ns
+        
+        # Historial de latencias (ventana deslizante)
+        self.latency_history: Deque[int] = deque(maxlen=window_size)
+        
+        # Estadísticas acumuladas
+        self.total_predictions = 0
+        self.jitter_violations = 0
+        self.max_latency_observed_ns = 0
+        
+    def record_latency(self, latency_ns: int) -> Dict:
+        """
+        Registra latencia de predicción y calcula jitter.
+        
+        Returns:
+            Dict con métricas: jitter_ns, mean_ns, std_ns, violation, etc.
+        """
+        self.latency_history.append(latency_ns)
+        self.total_predictions += 1
+        self.max_latency_observed_ns = max(self.max_latency_observed_ns, latency_ns)
+        
+        # Calcular estadísticas solo si hay suficiente historia
+        if len(self.latency_history) < 10:
+            return {
+                "jitter_ns": 0,
+                "mean_ns": latency_ns,
+                "std_ns": 0,
+                "violation": False,
+                "degradation_recommended": False
+            }
+        
+        # Convertir a array numpy para cálculo eficiente
+        latencies = jnp.array(list(self.latency_history), dtype=jnp.float64)
+        
+        mean_latency = jnp.mean(latencies)
+        std_latency = jnp.std(latencies)  # Desviación estándar = jitter
+        
+        # Criterio de violación: jitter > 80% del tick-rate
+        violation = std_latency > self.jitter_threshold_ns
+        
+        if violation:
+            self.jitter_violations += 1
+        
+        # Recomendación de degradación (combina jitter + media)
+        degradation_recommended = (
+            violation or 
+            (mean_latency > 0.7 * self.nyquist_interval_ns and std_latency > 0.5 * self.nyquist_interval_ns)
+        )
+        
+        return {
+            "jitter_ns": float(std_latency),
+            "mean_ns": float(mean_latency),
+            "std_ns": float(std_latency),
+            "violation": bool(violation),
+            "degradation_recommended": bool(degradation_recommended),
+            "nyquist_limit_ns": self.nyquist_interval_ns,
+            "jitter_threshold_ns": self.jitter_threshold_ns,
+            "jitter_ratio": float(std_latency / self.nyquist_interval_ns) if self.nyquist_interval_ns > 0 else 0.0
+        }
+    
+    def get_summary_stats(self) -> Dict:
+        """Devuelve resumen estadístico completo."""
+        if len(self.latency_history) == 0:
+            return {"status": "NO_DATA"}
+        
+        latencies = jnp.array(list(self.latency_history), dtype=jnp.float64)
+        
+        return {
+            "total_predictions": self.total_predictions,
+            "jitter_violations": self.jitter_violations,
+            "violation_rate": self.jitter_violations / self.total_predictions if self.total_predictions > 0 else 0.0,
+            "mean_latency_ms": float(jnp.mean(latencies) / 1e6),
+            "std_latency_ms": float(jnp.std(latencies) / 1e6),
+            "min_latency_ms": float(jnp.min(latencies) / 1e6),
+            "max_latency_ms": float(jnp.max(latencies) / 1e6),
+            "p50_latency_ms": float(jnp.percentile(latencies, 50) / 1e6),
+            "p95_latency_ms": float(jnp.percentile(latencies, 95) / 1e6),
+            "p99_latency_ms": float(jnp.percentile(latencies, 99) / 1e6),
+            "max_latency_ever_ms": float(self.max_latency_observed_ns / 1e6)
+        }
+\end{lstlisting}
+
+\textbf{Integración con Load Shedding:}
+
+El \texttt{JitterMonitor} complementa al \texttt{AdaptiveSignatureOrchestrator}, proporcionando señal de degradación más precisa:
+
+\begin{lstlisting}[language=Python]
+class AdaptiveSignatureOrchestrator_WithJitter:
+    """
+    Versión mejorada con telemetría de jitter.
+    """
+    def __init__(self, config: PredictorConfig):
+        self.config = config
+        self.tick_rate_ns = config.besov_nyquist_interval_ns
+        
+        # Orquestador original (EWMA de latencia)
+        self.signature_graphs = {
+            2: jax.jit(lambda path: compute_signature(path, depth=2)),
+            3: jax.jit(lambda path: compute_signature(path, depth=3)),
+            5: jax.jit(lambda path: compute_signature(path, depth=5)),
+        }
+        self.current_depth = 5
+        self.ewma_latency_ns = 0.0
+        self.ewma_alpha = 0.3
+        
+        # NUEVO: Monitor de jitter
+        self.jitter_monitor = JitterMonitor(
+            window_size=100,
+            nyquist_interval_ns=self.tick_rate_ns,
+            jitter_threshold_ratio=0.8
+        )
+        
+        # Histéresis mejorada
+        self.degradation_threshold = 0.7
+        self.recovery_threshold = 0.5
+        
+    def compute_adaptive_signature(self, path: jnp.ndarray) -> jnp.ndarray:
+        """
+        Calcula signature con profundidad adaptativa basada en EWMA + JITTER.
+        """
+        signature_fn = self.signature_graphs[self.current_depth]
+        
+        # Medir latencia con reloj de alta resolución
+        t_start = time.perf_counter_ns()
+        result = signature_fn(path)
+        jax.block_until_ready(result)  # Forzar sincronización GPU
+        t_end = time.perf_counter_ns()
+        
+        latency_ns = t_end - t_start
+        
+        # Actualizar EWMA (como antes)
+        if self.ewma_latency_ns == 0.0:
+            self.ewma_latency_ns = float(latency_ns)
+        else:
+            self.ewma_latency_ns = (
+                self.ewma_alpha * latency_ns + 
+                (1 - self.ewma_alpha) * self.ewma_latency_ns
+            )
+        
+        # NUEVO: Actualizar monitor de jitter
+        jitter_metrics = self.jitter_monitor.record_latency(latency_ns)
+        
+        # DECISIÓN DE DEGRADACIÓN (criterio combinado: EWMA + Jitter)
+        latency_ratio = self.ewma_latency_ns / self.tick_rate_ns
+        jitter_violation = jitter_metrics["violation"]
+        jitter_ratio = jitter_metrics["jitter_ratio"]
+        
+        # Degradación agresiva si jitter es alto
+        if jitter_violation and jitter_ratio > 1.0:
+            # Jitter crítico: degradar directamente a M=2
+            self.current_depth = 2
+        elif latency_ratio >= 1.0 or jitter_metrics["degradation_recommended"]:
+            # Latencia crítica O jitter recomendado: degradar a M=2
+            self.current_depth = 2
+        elif latency_ratio >= self.degradation_threshold or jitter_ratio > 0.6:
+            # Advertencia: degradar a M=3
+            self.current_depth = min(self.current_depth, 3)
+        elif latency_ratio < self.recovery_threshold and jitter_ratio < 0.3:
+            # Recuperación: ambos indicadores saludables
+            self.current_depth = min(5, self.current_depth + 1)
+        
+        return result
+    
+    def get_telemetry(self) -> Dict:
+        """Devuelve métricas combinadas: EWMA + Jitter."""
+        jitter_summary = self.jitter_monitor.get_summary_stats()
+        
+        return {
+            "current_depth": self.current_depth,
+            "ewma_latency_ms": self.ewma_latency_ns / 1e6,
+            "tick_rate_ms": self.tick_rate_ns / 1e6,
+            "latency_ratio": self.ewma_latency_ns / self.tick_rate_ns,
+            "jitter_ms": jitter_summary.get("std_latency_ms", 0.0),
+            "jitter_ratio": (jitter_summary.get("std_latency_ms", 0.0) * 1e6) / self.tick_rate_ns,
+            "jitter_violations": jitter_summary.get("jitter_violations", 0),
+            "violation_rate": jitter_summary.get("violation_rate", 0.0),
+            "p99_latency_ms": jitter_summary.get("p99_latency_ms", 0.0),
+            "status": (
+                "DEGRADED_CRITICAL" if self.current_depth == 2 else
+                "DEGRADED" if self.current_depth < 5 else
+                "NOMINAL"
+            )
+        }
+\end{lstlisting}
+
+\textbf{Análisis de Métricas Combinadas:}
+
+\begin{table}[h]
+\centering
+\begin{tabular}{|l|c|c|c|c|}
+\hline
+\textbf{Escenario} & \textbf{EWMA (ms)} & \textbf{Jitter (ms)} & \textbf{Decisión} & \textbf{$M$} \\
+\hline
+Nominal estable & 0.8 & 0.1 & Mantener & 5 \\
+Alta media, bajo jitter & 12.0 & 2.0 & Degradar (EWMA) & 3 \\
+Baja media, alto jitter & 5.0 & 25.0 & Degradar (Jitter) & 2 \\
+Crisis combinada & 18.0 & 30.0 & Degradar crítico & 2 \\
+Recuperación gradual & 6.0 & 3.0 & Mantener degradado & 3 \\
+Recuperación completa & 0.9 & 0.2 & Escalar a nominal & 5 \\
+\hline
+\end{tabular}
+\end{table}
+
+\textbf{Ventajas del Criterio Dual (EWMA + Jitter):}
+
+\begin{enumerate}
+    \item \textbf{Detección Temprana}: Jitter alto detecta problemas antes de que EWMA cruce umbral
+    \item \textbf{Robustez a Outliers}: EWMA suaviza spikes, jitter los captura
+    \item \textbf{Prevención de Flapping}: Criterio de recuperación requiere AMBOS indicadores saludables
+    \item \textbf{Granularidad}: Jitter permite 3 niveles de degradación (5→3→2) en vez de binario
+    \item \textbf{Visibilidad Operacional}: P99 latency expuesto para alertas de producción
+\end{enumerate}
+
+\textbf{Implementación de Medición Precisa:}
+
+\begin{lstlisting}[language=Python]
+class UniversalPredictor_WithJitterMonitoring:
+    def __init__(self, config: PredictorConfig):
+        self.config = config
+        self.orchestrator = AdaptiveSignatureOrchestrator_WithJitter(config)
+        # ...resto de inicialización...
+    
+    def predict_next(self, observation: MarketObservation) -> PredictionResult:
+        """
+        Predicción con telemetría de jitter de alta resolución.
+        """
+        # Tiempo de predicción TOTAL (incluye todos los kernels)
+        t_prediction_start = time.perf_counter_ns()
+        
+        # 1. Validar entrada
+        if not observation.validate_domain():
+            return self._fallback_prediction(observation)
+        
+        # 2. Construir path incremental
+        path = self._build_path(observation)
+        
+        # 3. Compute signature con profundidad adaptativa (ya mide internamente)
+        signature = self.orchestrator.compute_adaptive_signature(path)
+        
+        # 4. Resto de kernels (A, B, C)
+        # ...
+        
+        # 5. Orquestador (fusión + JKO)
+        predicted_value = self.orchestrator.predict_step(observation.price)
+        
+        # MEDIR LATENCIA TOTAL
+        t_prediction_end = time.perf_counter_ns()
+        total_latency_ns = t_prediction_end - t_prediction_start
+        
+        # Obtener telemetría
+        telemetry = self.orchestrator.get_telemetry()
+        
+        # Logging condicional (solo si jitter es alto)
+        if telemetry["jitter_ratio"] > 0.6:
+            self.logger.warning(
+                f"[JITTER ALERT] Ratio={telemetry['jitter_ratio']:.2f}, "
+                f"P99={telemetry['p99_latency_ms']:.2f}ms, "
+                f"Depth={telemetry['current_depth']}"
+            )
+        
+        return PredictionResult(
+            predicted_next=predicted_value,
+            confidence=self._compute_confidence(signature),
+            metadata={
+                "signature_depth": telemetry["current_depth"],
+                "ewma_latency_ms": telemetry["ewma_latency_ms"],
+                "jitter_ms": telemetry["jitter_ms"],
+                "jitter_ratio": telemetry["jitter_ratio"],
+                "p99_latency_ms": telemetry["p99_latency_ms"],
+                "total_latency_ns": total_latency_ns,
+                "system_status": telemetry["status"]
+            }
+        )
+\end{lstlisting}
+
+\textbf{Test de Jitter con Carga Variable:}
+
+\begin{lstlisting}[language=Python]
+def test_jitter_detection_under_variable_load():
+    """
+    Simula carga con latencia variable (jitter) para validar detección.
+    """
+    import random
+    
+    config = PredictorConfig(
+        log_sig_depth=5,
+        besov_nyquist_interval_ns=100_000_000  # 100ms
+    )
+    predictor = UniversalPredictor_WithJitterMonitoring(config)
+    
+    # Simular 200 predicciones con patrones de latencia diferentes
+    latencies_observed = []
+    depths_observed = []
+    
+    for i in range(200):
+        # FASE 1 (i < 50): Latencia estable (0.8-1.2ms)
+        if i < 50:
+            simulated_processing_time_ns = random.uniform(800_000, 1_200_000)
+        
+        # FASE 2 (50 <= i < 100): Jitter alto (0.5-30ms)
+        elif i < 100:
+            simulated_processing_time_ns = random.uniform(500_000, 30_000_000)
+        
+        # FASE 3 (100 <= i < 150): Latencia alta constante (15-20ms)
+        elif i < 150:
+            simulated_processing_time_ns = random.uniform(15_000_000, 20_000_000)
+        
+        # FASE 4 (150 <= i < 200): Recuperación gradual (1-3ms)
+        else:
+            simulated_processing_time_ns = random.uniform(1_000_000, 3_000_000)
+        
+        # Simular predicción
+        observation = MarketObservation(
+            price=jnp.array([random.normal()]),
+            target=jnp.array([0.0]),
+            timestamp_ns=time.time_ns()
+        )
+        
+        # Inyectar latencia artificial
+        time.sleep(simulated_processing_time_ns / 1e9)
+        
+        result = predictor.predict_next(observation)
+        
+        latencies_observed.append(result.metadata["total_latency_ns"] / 1e6)
+        depths_observed.append(result.metadata["signature_depth"])
+    
+    # Assertions
+    # FASE 1: Sistema debe mantener M=5 (jitter bajo)
+    assert all(d == 5 for d in depths_observed[10:50]), "Debería mantener M=5 en fase estable"
+    
+    # FASE 2: Sistema debe degradar por jitter alto
+    assert any(d < 5 for d in depths_observed[60:100]), "Debería degradar por jitter alto"
+    
+    # FASE 3: Sistema debe degradar por latencia alta
+    assert all(d <= 3 for d in depths_observed[120:150]), "Debería degradar a M<=3 por latencia alta"
+    
+    # FASE 4: Sistema debe recuperar gradualmente
+    final_depth = depths_observed[-10:]
+    assert any(d >= 4 for d in final_depth), "Debería recuperar hacia M=5"
+    
+    # Estadísticas finales
+    telemetry = predictor.orchestrator.get_telemetry()
+    
+    print("[✓] Jitter detection test PASSED")
+    print(f"    Jitter violations: {telemetry['jitter_violations']}")
+    print(f"    Violation rate: {telemetry['violation_rate']:.2%}")
+    print(f"    P99 latency: {telemetry['p99_latency_ms']:.2f}ms")
+    print(f"    Final depth: {telemetry['current_depth']}")
+    print(f"    Final jitter ratio: {telemetry['jitter_ratio']:.2f}")
+\end{lstlisting}
+
+\textbf{Dashboard de Monitoreo (Prometheus + Grafana):}
+
+\begin{lstlisting}[language=Python]
+from prometheus_client import Histogram, Gauge, Counter
+
+class UniversalPredictor_WithMetrics:
+    def __init__(self, config: PredictorConfig):
+        # ...inicialización...
+        
+        # Métricas de latencia
+        self.latency_histogram = Histogram(
+            'predictor_latency_seconds',
+            'Latency distribution of predictions',
+            buckets=[0.001, 0.005, 0.010, 0.050, 0.100, 0.500, 1.0]
+        )
+        
+        # Métricas de jitter
+        self.jitter_gauge = Gauge(
+            'predictor_jitter_milliseconds',
+            'Standard deviation of latency (jitter)'
+        )
+        self.jitter_ratio_gauge = Gauge(
+            'predictor_jitter_ratio',
+            'Jitter as ratio of Nyquist limit'
+        )
+        self.jitter_violations_counter = Counter(
+            'predictor_jitter_violations_total',
+            'Total number of jitter threshold violations'
+        )
+        
+        # Métricas de profundidad
+        self.signature_depth_gauge = Gauge(
+            'predictor_signature_depth',
+            'Current signature computation depth (M)'
+        )
+    
+    def predict_next(self, observation: MarketObservation) -> PredictionResult:
+        with self.latency_histogram.time():
+            result = self._predict_internal(observation)
+        
+        # Actualizar métricas de jitter
+        telemetry = self.orchestrator.get_telemetry()
+        self.jitter_gauge.set(telemetry["jitter_ms"])
+        self.jitter_ratio_gauge.set(telemetry["jitter_ratio"])
+        self.signature_depth_gauge.set(telemetry["current_depth"])
+        
+        if telemetry["jitter_ratio"] > 0.8:
+            self.jitter_violations_counter.inc()
+        
+        return result
+\end{lstlisting}
+
+\textbf{Alertas Operacionales (Recomendadas):}
+
+\begin{lstlisting}
+# prometheus_alerts.yml
+groups:
+- name: predictor_latency
+  interval: 30s
+  rules:
+  - alert: PredictorHighJitter
+    expr: predictor_jitter_ratio > 0.8
+    for: 1m
+    labels:
+      severity: warning
+    annotations:
+      summary: "High jitter detected in predictor"
+      description: "Jitter ratio {{ $value }} exceeds 80% of Nyquist limit"
+  
+  - alert: PredictorJitterCritical
+    expr: predictor_jitter_ratio > 1.2
+    for: 30s
+    labels:
+      severity: critical
+    annotations:
+      summary: "Critical jitter in predictor"
+      description: "Jitter ratio {{ $value }} exceeds Nyquist limit, predictions may be stale"
+  
+  - alert: PredictorDegraded
+    expr: predictor_signature_depth < 5
+    for: 5m
+    labels:
+      severity: info
+    annotations:
+      summary: "Predictor operating in degraded mode"
+      description: "Signature depth reduced to {{ $value }} due to load"
+\end{lstlisting}
+
+\textbf{Conclusión:}
+
+La \textbf{Telemetría de Jitter} es complemento esencial al Load Shedding basado en EWMA:
+
+\begin{itemize}
+    \item \textbf{EWMA solo}: Captura tendencia central, pero \textit{ignora} volatilidad
+    \item \textbf{Jitter solo}: Detecta variabilidad, pero puede ser \textit{ruidoso} en régimen estable
+    \item \textbf{EWMA + Jitter}: Combinación robusta que detecta \textit{tanto} sobrecarga sostenida como spikes intermitentes
+\end{itemize}
+
+El uso de \texttt{time.perf\_counter\_ns()} garantiza precisión de nanosegundos sin overhead significativo (<50ns por llamada). El criterio de umbral al 80\% del límite de Nyquist proporciona margen de seguridad antes de que el backlog se vuelva irrecuperable.
+
+En producción, esta telemetría debe exponerse a Prometheus/Grafana para:
+\begin{enumerate}
+    \item Dashboards en tiempo real de salud del sistema
+    \item Alertas automáticas cuando jitter excede umbrales
+    \item Análisis post-mortem de incidentes de latencia
+    \item Ajuste dinámico de \texttt{jitter\_threshold\_ratio} según carga de mercado
+\end{enumerate}
+
+Sin monitoreo de jitter, el sistema puede operar en \textit{modo degradado silencioso}, donde algunas predicciones son rápidas y otras lentas, promediando a un valor \textit{aparentemente} aceptable, pero violando SLA de latencia en percentiles altos (P95, P99).
+
 \end{document}
