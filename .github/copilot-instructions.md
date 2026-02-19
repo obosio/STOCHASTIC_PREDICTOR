@@ -123,14 +123,14 @@ get_errors()
 git add README.md doc/README.md stochastic_predictor/*/README.md
 
 # 4. Commit README updates
-git commit -m "docs: Update READMEs for vX.Y.Z-<Phase>"
+git commit -m "docs: Update READMEs for vX.Y.Z"
 
 # 5. Only then create the tag
-git tag impl/vX.Y.Z-<PhaseName> -m "Implementation vX.Y.Z-<PhaseName>: <Description>"
+git tag impl/vX.Y.Z -m "Implementation vX.Y.Z: <Description>"
 
 # 6. Push both commits and tags
 git push origin <branch>
-git push origin impl/vX.Y.Z-<PhaseName>
+git push origin impl/vX.Y.Z
 ```
 
 **Reference Standard**: Previous commits like cf46ff4 and 3976210 show proper README updates before tagging.
