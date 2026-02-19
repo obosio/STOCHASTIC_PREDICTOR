@@ -44,15 +44,18 @@ def initialize_state(
 
     signal_history = signal[-min_length:]
     residual_buffer = jnp.zeros_like(signal_history)
+    residual_window = jnp.zeros(config.residual_window_size)  # For kurtosis tracking
     rho = jnp.full((KernelType.N_KERNELS,), 1.0 / KernelType.N_KERNELS)
 
     return InternalState(
         signal_history=signal_history,
         residual_buffer=residual_buffer,
+        residual_window=residual_window,
         rho=rho,
         cusum_g_plus=jnp.array(0.0),
         cusum_g_minus=jnp.array(0.0),
         grace_counter=0,
+        adaptive_h_t=jnp.array(config.cusum_h),  # Initialize with static value
         ema_variance=jnp.array(0.0),
         kurtosis=jnp.array(0.0),
         holder_exponent=jnp.array(0.0),
@@ -70,6 +73,7 @@ def _run_kernels(
     rng_key: Array,
     config: PredictorConfig,
     freeze_kernel_d: bool = False,
+    ema_variance: Optional[Float[Array, ""]] = None,  # V-MAJ-1: Optional parameter for adaptive entropy threshold
 ) -> tuple[KernelOutput, KernelOutput, KernelOutput, KernelOutput]:
     """Execute kernels A-D with independent PRNG keys.
     
@@ -78,6 +82,7 @@ def _run_kernels(
         rng_key: JAX PRNG key.
         config: System configuration.
         freeze_kernel_d: If True, mark kernel D output as frozen (no weight update).
+        ema_variance: Optional EWMA variance for V-MAJ-1 adaptive entropy threshold
     
     Returns:
         Tuple of KernelOutput from kernels A, B, C, D.
@@ -87,7 +92,7 @@ def _run_kernels(
     """
     key_a, key_b, key_c, key_d = jax.random.split(rng_key, KernelType.N_KERNELS)
     output_a = kernel_a_predict(signal, key_a, config)
-    output_b = kernel_b_predict(signal, key_b, config)
+    output_b = kernel_b_predict(signal, key_b, config, ema_variance=ema_variance)  # V-MAJ-1: Pass ema_variance
     output_c = kernel_c_predict(signal, key_c, config)
     output_d = kernel_d_predict(signal, key_d, config)
     
@@ -147,7 +152,8 @@ def orchestrate_step(
         signal, 
         state.rng_key, 
         config, 
-        freeze_kernel_d=ingestion_decision.freeze_kernel_d
+        freeze_kernel_d=ingestion_decision.freeze_kernel_d,
+        ema_variance=state.ema_variance  # V-MAJ-1: Pass for adaptive entropy threshold
     )
 
     if degraded_mode or ingestion_decision.suspend_jko_update:
@@ -191,19 +197,43 @@ def orchestrate_step(
             config=config,
         )
 
+    # CAPA 1: Entropy reset on regime change (CUSUM alarm)
+    # Mandato: ρ → Softmax(0) = uniform simplex [0.25, 0.25, 0.25, 0.25]
+    # References: MIGRATION_AUTOTUNING_v1.0.md §2.1, Theory.tex §3.4
+    uniform_simplex = jnp.full((KernelType.N_KERNELS,), 1.0 / KernelType.N_KERNELS)
+    
+    # Apply entropy reset if regime changed AND not in grace period already
+    # (grace_counter starts at 0, gets set to grace_period_steps on alarm)
+    entropy_reset_triggered = regime_change_detected and (state.grace_counter == 0)
+    
+    # During grace period: freeze weights (no JKO update)
+    # After grace period or normal operation: use fused weights
+    in_grace_period = updated_state.grace_counter > 0
+    
+    if reject_observation:
+        final_rho = state.rho
+    elif entropy_reset_triggered:
+        final_rho = uniform_simplex  # Max entropy reset
+    elif in_grace_period:
+        final_rho = state.rho  # Freeze during grace period
+    else:
+        final_rho = updated_weights  # Normal JKO update
+
     updated_state = replace(
         updated_state,
-        rho=updated_weights if not reject_observation else state.rho,
+        rho=final_rho,
         dgm_entropy=jnp.asarray(kernel_outputs[KernelType.KERNEL_B].metadata.get("entropy_dgm", 0.0)),
         last_update_ns=timestamp_ns if not reject_observation else state.last_update_ns,
         rng_key=jax.random.split(state.rng_key, RNG_SPLIT_COUNT)[1],
     )
 
     # Grace period decay during normal operations (CUSUM reset is done in update_cusum_statistics)
+    # Note: grace_counter is already set in update_cusum_statistics when alarm triggers
+    # Here we just handle the decay (no need to touch rho again, already handled above)
     grace_counter = updated_state.grace_counter
     if grace_counter > 0:
         grace_counter -= 1
-        updated_state = replace(updated_state, grace_counter=grace_counter, rho=state.rho)
+        updated_state = replace(updated_state, grace_counter=grace_counter)
 
     emergency_mode = bool(updated_state.holder_exponent < config.holder_threshold)
     
@@ -211,16 +241,17 @@ def orchestrate_step(
     if reject_observation:
         emergency_mode = True
 
+    # Use adaptive threshold h_t (not static cusum_h) for telemetry
     prediction = PredictionResult(
         predicted_next=jnp.atleast_1d(fused_prediction),
         holder_exponent=updated_state.holder_exponent,
         cusum_drift=updated_state.cusum_g_plus,
-        distance_to_collapse=jnp.atleast_1d(config.cusum_h - updated_state.cusum_g_plus),
+        distance_to_collapse=jnp.atleast_1d(updated_state.adaptive_h_t - updated_state.cusum_g_plus),
         free_energy=jnp.atleast_1d(free_energy),
         kurtosis=updated_state.kurtosis,
         dgm_entropy=updated_state.dgm_entropy,
-        adaptive_threshold=jnp.atleast_1d(config.cusum_h),
-        weights=updated_weights,
+        adaptive_threshold=updated_state.adaptive_h_t,
+        weights=final_rho,  # Use final_rho (already computed above)
         sinkhorn_converged=jnp.atleast_1d(sinkhorn_converged),
         degraded_inference_mode=degraded_mode,
         emergency_mode=emergency_mode,

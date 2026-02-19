@@ -264,28 +264,74 @@ def loss_hjb(
 
 
 @jax.jit
+def compute_adaptive_entropy_threshold(
+    ema_variance: Float[Array, ""],
+    config
+) -> float:
+    """
+    Compute volatility-adaptive entropy threshold for mode collapse detection [V-MAJ-1].
+    
+    Threshold adapts to market regime:
+    - High volatility (σ > 0.2): γ = γ_min (lenient, easier to detect mode collapse)
+    - Normal volatility (σ ∈ [0.05, 0.2]): γ = γ_default (balanced)
+    - Low volatility (σ < 0.05): γ = γ_max (strict, harder to detect mode collapse)
+    
+    Args:
+        ema_variance: Current EMA variance (σ²)
+        config: PredictorConfig with entropy_gamma_* parameters
+    
+    Returns:
+        Scalar threshold ∈ [γ_min, γ_max]
+    
+    References:
+        - Theory.tex §2.2: Entropy-based Mode Collapse Detection
+    """
+    sigma_t = jnp.sqrt(jnp.maximum(ema_variance, config.numerical_epsilon))
+    
+    # Volatility regime classification
+    high_vol_threshold = 0.2
+    low_vol_threshold = 0.05
+    
+    # V-MAJ-1: Piecewise linear interpolation based on volatility
+    gamma = jnp.where(
+        sigma_t > high_vol_threshold,
+        config.entropy_gamma_min,  # Crisis: lenient
+        jnp.where(
+            sigma_t < low_vol_threshold,
+            config.entropy_gamma_max,  # Low-vol: strict
+            config.entropy_gamma_default  # Normal: balanced
+        )
+    )
+    
+    return float(gamma)
+
+
 def kernel_b_predict(
     signal: Float[Array, "n"],
     key: Array,
     config,
-    model: Optional[DGM_HJB_Solver] = None
+    model: Optional[DGM_HJB_Solver] = None,
+    ema_variance: Optional[Float[Array, ""]] = None  # V-MAJ-1: Optional parameter for adaptive threshold
 ) -> KernelOutput:
     """
-    Kernel B: DGM prediction for stochastic dynamics.
+    Kernel B: DGM prediction for stochastic dynamics [V-MAJ-1: Adaptive entropy threshold].
     
     Algorithm:
         1. Initialize or use provided DGM model
         2. Evaluate value function at current state
         3. Compute entropy for mode collapse detection
-        4. Return prediction with confidence
+        4. Use adaptive threshold based on volatility regime (V-MAJ-1)
+        5. Return prediction with confidence
     
     Args:
         signal: Input time series (current state trajectory)
         key: JAX PRNG key for model initialization (if needed)
         config: PredictorConfig with dgm_width_size, dgm_depth, kernel_b_r, 
                 kernel_b_sigma, kernel_b_horizon, dgm_entropy_num_bins, 
-                kernel_b_spatial_samples
+                kernel_b_spatial_samples, entropy_gamma_* (V-MAJ-1)
         model: Pre-trained DGM model (if None, creates dummy)
+        ema_variance: Optional EWMA variance for adaptive threshold [V-MAJ-1]
+                     If None, falls back to fixed entropy_threshold
     
     Returns:
         KernelOutput with prediction, confidence, and diagnostics
@@ -293,6 +339,7 @@ def kernel_b_predict(
     References:
         - Python.tex §2.2.2: Kernel B Full Algorithm
         - Implementacion.tex §3.2: DGM Prediction Pipeline
+        - Theory.tex §2.2: Entropy-based Mode Collapse Detection [V-MAJ-1]
     
     Note:
         In production, model should be pre-trained on historical data.
@@ -335,14 +382,22 @@ def kernel_b_predict(
     
     entropy_dgm = compute_entropy_dgm(model, t, x_samples, config)
     
-    # Check for mode collapse
-    mode_collapse = entropy_dgm < config.entropy_threshold
+    # Check for mode collapse [V-MAJ-1: Adaptive threshold]
+    if ema_variance is not None:
+        # V-MAJ-1: Use adaptive threshold based on volatility regime
+        entropy_threshold_adaptive = compute_adaptive_entropy_threshold(ema_variance, config)
+        mode_collapse = entropy_dgm < entropy_threshold_adaptive
+    else:
+        # Fallback: Use fixed threshold from config
+        entropy_threshold_adaptive = config.entropy_threshold
+        mode_collapse = entropy_dgm < entropy_threshold_adaptive
     
     # Diagnostics
     diagnostics = {
         "kernel_type": "B_DGM_Fokker_Planck",
         "value_function": value,
         "entropy_dgm": entropy_dgm,
+        "entropy_threshold_adaptive": entropy_threshold_adaptive,  # V-MAJ-1: Diagnostic
         "mode_collapse": mode_collapse,
         "r": config.kernel_b_r,
         "sigma": config.kernel_b_sigma,

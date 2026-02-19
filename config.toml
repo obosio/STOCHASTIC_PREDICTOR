@@ -26,9 +26,12 @@ sinkhorn_epsilon_0 = 0.1
 sinkhorn_alpha = 0.5  # Coupling coefficient to volatility
 sinkhorn_max_iter = 200  # Max Sinkhorn iterations (scan length)
 
-# Entropy monitoring
+# Entropy monitoring (adaptive threshold based on volatility regime)
 entropy_window = 100
-entropy_threshold = 0.8
+entropy_threshold = 0.8          # Deprecated: use entropy_gamma_* parameters
+entropy_gamma_min = 0.5          # Crisis mode: lenient mode collapse detection
+entropy_gamma_max = 1.0          # Low-vol mode: strict mode collapse detection
+entropy_gamma_default = 0.8      # Normal mode: balanced mode collapse detection
 
 # CUSUM grace period (in steps, see doc/Predictor_Estocastico_API_Python.tex §3.2)
 grace_period_steps = 20

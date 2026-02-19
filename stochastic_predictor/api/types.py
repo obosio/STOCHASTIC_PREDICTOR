@@ -48,7 +48,10 @@ class PredictorConfig:
     
     # Entropy Monitoring (Mode Collapse Detection)
     entropy_window: int = 100       # Sliding window for entropy computation
-    entropy_threshold: float = 0.8  # Minimum entropy threshold
+    entropy_threshold: float = 0.8  # Minimum entropy threshold (deprecated, use entropy_gamma_*)
+    entropy_gamma_min: float = 0.5  # Minimum gamma for crisis mode (lenient mode collapse detection)
+    entropy_gamma_max: float = 1.0  # Maximum gamma for low-volatility mode (strict mode collapse detection)
+    entropy_gamma_default: float = 0.8  # Default gamma for normal volatility regime
     
     # Kernel D (Log-Signatures)
     log_sig_depth: int = 3          # Truncation Depth (L)
@@ -427,6 +430,7 @@ class InternalState:
     cusum_g_plus: Float[Array, "1"]         # G^+: Positive drift accumulated
     cusum_g_minus: Float[Array, "1"]        # G^-: Negative drift accumulated
     grace_counter: int                      # Refractory period counter
+    adaptive_h_t: Float[Array, "1"]         # h_t: Kurtosis-adaptive CUSUM threshold
     
     # EWMA Volatility
     ema_variance: Float[Array, "1"]         # σ²_t: Exponential variance
