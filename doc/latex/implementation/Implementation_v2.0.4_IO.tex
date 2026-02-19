@@ -230,6 +230,74 @@ Credential helpers read from environment variables or .env files and raise expli
 
 The repository must exclude .env files and credential directories via .gitignore. Secrets must never be committed.
 
+\chapter{Orchestrator Integration}
+
+\section{Ingestion Gate in orchestrate\_step()}
+
+The core orchestration pipeline now integrates ingestion validation as a pre-kernel gate. The \texttt{orchestrate\_step()} function signature is extended to accept observation metadata:
+
+\begin{lstlisting}[language=Python]
+def orchestrate_step(
+    signal: Float[Array, "n"],
+    timestamp_ns: int,
+    state: InternalState,
+    config: PredictorConfig,
+    observation: ProcessState,
+    now_ns: int,
+) -> OrchestrationResult:
+    """Run a single orchestration step with IO ingestion validation."""
+\end{lstlisting}
+
+\subsection{Execution Flow}
+
+The ingestion gate operates as follows:
+
+\begin{enumerate}
+    \item \textbf{Input Validation}: Standard signal length and dtype checks.
+    \item \textbf{Ingestion Decision}: Call \texttt{evaluate\_ingestion()} with current state, observation, and configuration.
+    \item \textbf{Rejection Logic}: If \texttt{accept\_observation == False}, reject the entire observation without state update (emergency mode).
+    \item \textbf{Degradation Flags}: Apply \texttt{suspend\_jko\_update} and \texttt{freeze\_kernel\_d} flags to control fusion behavior.
+    \item \textbf{Kernel Execution}: Run kernels A-D; if \texttt{freeze\_kernel\_d == True}, mark kernel D output as frozen.
+    \item \textbf{Fusion Selection}: Skip JKO/Sinkhorn if degraded mode or \texttt{suspend\_jko\_update} is set.
+    \item \textbf{State Update}: Only update InternalState if observation is accepted.
+\end{enumerate}
+
+\subsection{Flag Semantics}
+
+The \texttt{IngestionDecision} object carries the following flags:
+
+\begin{itemize}
+    \item \textbf{accept\_observation}: If False, reject and preserve inertial state.
+    \item \textbf{suspend\_jko\_update}: If True, freeze weights and skip Sinkhorn.
+    \item \textbf{degraded\_mode}: If True, emit degraded inference mode prediction.
+    \item \textbf{freeze\_kernel\_d}: If True, mark kernel D output as frozen (no weight update).
+    \item \textbf{staleness\_ns}: Staleness in nanoseconds for audit logging.
+    \item \textbf{events}: Emitted validation events (outliers, frozen signals, staleness alarms).
+\end{itemize}
+
+\subsection{Early Return on Rejection}
+
+If an observation is rejected (catastrophic outlier), the orchestrator returns a degraded result without advancing the state:
+
+\begin{lstlisting}[language=Python]
+# If observation is rejected, skip state update entirely
+if reject_observation:
+    updated_state = state
+else:
+    updated_state = atomic_state_update(...)
+\end{lstlisting}
+
+\section{PRNG Constant}
+
+To eliminate magic numbers in PRNG splitting, we introduce a module-level constant:
+
+\begin{lstlisting}[language=Python]
+RNG_SPLIT_COUNT = 2
+rng_key = jax.random.split(state.rng_key, RNG_SPLIT_COUNT)[1]
+\end{lstlisting}
+
+This ensures clarity and maintainability.
+
 \chapter{Compliance Checklist}
 
 \begin{itemize}
@@ -241,6 +309,8 @@ The repository must exclude .env files and credential directories via .gitignore
     \item \textbf{Integrity}: Snapshot hashes verified before load
     \item \textbf{Config-Driven}: Intervals and destinations are injected
     \item \textbf{Module Coverage}: IO helpers implemented for validation, telemetry, snapshots, and credentials
+    \item \textbf{Orchestrator Integration}: IO ingestion gate integrated into \texttt{orchestrate\_step()}
+    \item \textbf{PRNG Constants}: Named constants replace magic numbers
 \end{itemize}
 
 \chapter{Phase 4 Summary}

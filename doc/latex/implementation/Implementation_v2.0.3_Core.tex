@@ -208,4 +208,8 @@ from .sinkhorn import SinkhornResult, compute_sinkhorn_epsilon, volatility_coupl
 
 Phase 3 delivers a concrete orchestration layer for Wasserstein fusion and JKO weight updates. The core layer is now physically present and ready for integration with the prediction pipeline.
 
+\section{Phase 4 Integration Note}
+
+In Phase 4, the orchestration pipeline is extended with ingestion validation and IO gates. The \texttt{orchestrate\_step()} function signature is updated to accept observation metadata (\texttt{ProcessState}, \texttt{now\_ns}) and integrates the ingestion gate prior to kernel execution. See \texttt{Implementation\_v2.0.4\_IO.tex} for complete documentation.
+
 \end{document}

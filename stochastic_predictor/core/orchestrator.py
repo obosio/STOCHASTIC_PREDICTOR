@@ -12,11 +12,14 @@ import jax.numpy as jnp
 from jaxtyping import Array, Float
 
 from stochastic_predictor.api.state_buffer import atomic_state_update, reset_cusum_statistics
-from stochastic_predictor.api.types import InternalState, KernelType, OperatingMode, PredictionResult, PredictorConfig
+from stochastic_predictor.api.types import InternalState, KernelType, OperatingMode, PredictionResult, PredictorConfig, ProcessState
 from stochastic_predictor.api.validation import validate_simplex
 from stochastic_predictor.core.fusion import FusionResult, fuse_kernel_outputs
+from stochastic_predictor.io.loaders import evaluate_ingestion
 from stochastic_predictor.kernels import kernel_a_predict, kernel_b_predict, kernel_c_predict, kernel_d_predict
 from stochastic_predictor.kernels.base import KernelOutput, validate_kernel_input
+
+RNG_SPLIT_COUNT = 2
 
 
 @dataclass(frozen=True)
@@ -66,14 +69,37 @@ def initialize_state(
 def _run_kernels(
     signal: Float[Array, "n"],
     rng_key: Array,
-    config: PredictorConfig
+    config: PredictorConfig,
+    freeze_kernel_d: bool = False,
 ) -> tuple[KernelOutput, KernelOutput, KernelOutput, KernelOutput]:
-    """Execute kernels A-D with independent PRNG keys."""
+    """Execute kernels A-D with independent PRNG keys.
+    
+    Args:
+        signal: Time series signal history.
+        rng_key: JAX PRNG key.
+        config: System configuration.
+        freeze_kernel_d: If True, mark kernel D output as frozen (no weight update).
+    
+    Returns:
+        Tuple of KernelOutput from kernels A, B, C, D.
+        
+    Note: freeze_kernel_d does not skip computation; it marks the output
+          so downstream fusion logic can handle it appropriately.
+    """
     key_a, key_b, key_c, key_d = jax.random.split(rng_key, KernelType.N_KERNELS)
     output_a = kernel_a_predict(signal, key_a, config)
     output_b = kernel_b_predict(signal, key_b, config)
     output_c = kernel_c_predict(signal, key_c, config)
     output_d = kernel_d_predict(signal, key_d, config)
+    
+    # Mark kernel D if frozen (no state update to its weight)
+    if freeze_kernel_d:
+        output_d = KernelOutput(
+            prediction=output_d.prediction,
+            confidence=output_d.confidence,
+            metadata={**output_d.metadata, "frozen": True},
+        )
+    
     return output_a, output_b, output_c, output_d
 
 
@@ -92,20 +118,40 @@ def orchestrate_step(
     signal: Float[Array, "n"],
     timestamp_ns: int,
     state: InternalState,
-    config: PredictorConfig
+    config: PredictorConfig,
+    observation: ProcessState,
+    now_ns: int,
 ) -> OrchestrationResult:
-    """Run a single orchestration step and update InternalState."""
+    """Run a single orchestration step with IO ingestion validation."""
     min_length = config.base_min_signal_length
     is_valid, msg = validate_kernel_input(signal, min_length)
     if not is_valid:
         raise ValueError(msg)
 
+    # Evaluate ingestion decision (outlier, frozen signal, staleness checks)
+    ingestion_decision = evaluate_ingestion(
+        state=state,
+        observation=observation,
+        now_ns=now_ns,
+        config=config,
+    )
+
     delta_ns = timestamp_ns - state.last_update_ns
-    degraded_mode = bool(delta_ns > config.staleness_ttl_ns)
+    staleness_degraded = bool(delta_ns > config.staleness_ttl_ns)
+    ingestion_degraded = ingestion_decision.degraded_mode
 
-    kernel_outputs = _run_kernels(signal, state.rng_key, config)
+    # Use ingestion decision flags to override or augment degraded mode
+    reject_observation = not ingestion_decision.accept_observation
+    degraded_mode = bool(staleness_degraded or ingestion_degraded or reject_observation)
 
-    if degraded_mode:
+    kernel_outputs = _run_kernels(
+        signal, 
+        state.rng_key, 
+        config, 
+        freeze_kernel_d=ingestion_decision.freeze_kernel_d
+    )
+
+    if degraded_mode or ingestion_decision.suspend_jko_update:
         predictions = jnp.array([ko.prediction for ko in kernel_outputs]).reshape(-1)
         updated_weights = state.rho
         fused_prediction = jnp.sum(updated_weights * predictions)
@@ -134,20 +180,24 @@ def orchestrate_step(
     current_value = signal[-1]
     residual = jnp.abs(current_value - fused_prediction)
 
-    updated_state = atomic_state_update(
-        state=state,
-        new_signal=current_value,
-        new_residual=residual,
-        cusum_k=config.cusum_k,
-        volatility_alpha=config.volatility_alpha,
-    )
+    # If observation is rejected, skip state update entirely (return unchanged state)
+    if reject_observation:
+        updated_state = state
+    else:
+        updated_state = atomic_state_update(
+            state=state,
+            new_signal=current_value,
+            new_residual=residual,
+            cusum_k=config.cusum_k,
+            volatility_alpha=config.volatility_alpha,
+        )
 
     updated_state = replace(
         updated_state,
-        rho=updated_weights,
+        rho=updated_weights if not reject_observation else state.rho,
         dgm_entropy=jnp.asarray(kernel_outputs[KernelType.KERNEL_B].metadata.get("entropy_dgm", 0.0)),
-        last_update_ns=timestamp_ns,
-        rng_key=jax.random.split(state.rng_key, 2)[1],
+        last_update_ns=timestamp_ns if not reject_observation else state.last_update_ns,
+        rng_key=jax.random.split(state.rng_key, RNG_SPLIT_COUNT)[1],
     )
 
     regime_change_detected = bool(updated_state.cusum_g_plus > config.cusum_h)
@@ -164,6 +214,10 @@ def orchestrate_step(
     updated_state = replace(updated_state, grace_counter=grace_counter)
 
     emergency_mode = bool(updated_state.holder_exponent < config.holder_threshold)
+    
+    # Override emergency mode if observation was rejected
+    if reject_observation:
+        emergency_mode = True
 
     prediction = PredictionResult(
         predicted_next=jnp.atleast_1d(fused_prediction),

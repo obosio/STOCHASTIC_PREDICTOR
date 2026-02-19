@@ -274,7 +274,7 @@ class PredictorConfigInjector:
         Create a PredictorConfig instance from config.toml using automated field mapping.
         
         Uses dataclass introspection to ensure all PredictorConfig fields are populated
-        from config.toml or environment variables, with dataclass defaults as fallback.
+        from config.toml or environment variables, without falling back to dataclass defaults.
         
         Architecture:
             1. Introspect PredictorConfig fields using dataclasses.fields()
@@ -313,12 +313,16 @@ class PredictorConfigInjector:
         for field in config_fields:
             field_name = field.name
             section = FIELD_TO_SECTION_MAP[field_name]
-            
-            # Get value from config.toml, fallback to dataclass default
-            default_value = field.default if field.default is not field.default_factory else None
-            value = self.config_manager.get(section, field_name, default_value)
-            
-            cfg_dict[field_name] = value
+
+            section_values = self.config_manager.get_section(section)
+            if field_name not in section_values:
+                raise ValueError(
+                    "Missing required config.toml entry: "
+                    f"[{section}].{field_name}. "
+                    "Diamond mode forbids dataclass defaults."
+                )
+
+            cfg_dict[field_name] = section_values[field_name]
         
         return PredictorConfig(**cfg_dict)
     
