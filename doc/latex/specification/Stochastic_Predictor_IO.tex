@@ -5,6 +5,8 @@
 \usepackage{geometry}
 \usepackage{array}
 \usepackage[english]{babel}
+\usepackage{algorithm}
+\usepackage{algpseudocode}
 \usepackage[hidelinks]{hyperref}
 
 \geometry{a4paper, margin=1in}
@@ -298,5 +300,247 @@ For hardware parity validation, log SHA-256 hashes of the weight vector $\rho$ a
     \item Logs are append-only and immutable.
     \item No raw signals or secrets are emitted in telemetry.
 \end{itemize}
+
+\section{Configuration Mutation Protocol (Autonomous Self-Calibration)}
+
+For the Universal Stochastic Predictor to achieve Level 4 autonomy (unsupervised operation), it must be capable of \textbf{self-modifying its configuration vector} $\Lambda$ in response to meta-optimization results without human intervention. This requires a secure, atomic, and auditable protocol for mutating the \texttt{config.toml} file on disk while preserving system integrity.
+
+\subsection{Motivation and Threat Model}
+
+The configuration vector $\Lambda$ governs critical numerical and algorithmic parameters. Unsafe mutation can lead to catastrophic failure modes:
+\begin{enumerate}
+    \item \textbf{Invalid Parameter Ranges:} Optimizer writes \texttt{cusum\_k = -1.5} (negative threshold), causing CUSUM detector to enter undefined behavior.
+    \item \textbf{Circular Dependencies:} Optimizer modifies \texttt{telemetry\_hash\_interval} or \texttt{snapshot\_path}, corrupting its own audit trail.
+    \item \textbf{Race Conditions:} Concurrent write by optimizer and manual operator edit causes partial file corruption.
+    \item \textbf{Loss of Rollback Capability:} Overwriting \texttt{config.toml} without backup prevents recovery from pathological configurations.
+\end{enumerate}
+
+The mutation protocol must guarantee:
+\begin{itemize}
+    \item \textbf{Atomicity:} Configuration updates are all-or-nothing (no partial writes visible to readers).
+    \item \textbf{Durability:} Successful writes survive process crashes and power failures.
+    \item \textbf{Auditability:} All mutations are logged with timestamp, triggering event, and parameter delta.
+    \item \textbf{Rollback:} Previous configurations are preserved for manual recovery.
+    \item \textbf{Invariant Protection:} Critical subsections are immutable to prevent self-corruption.
+\end{itemize}
+
+\subsection{Atomic TOML Update Algorithm}
+
+The configuration mutation follows a strict POSIX-compliant protocol to ensure filesystem-level atomicity:
+
+\begin{algorithm}
+\caption{Atomic Configuration Mutation}
+\begin{algorithmic}[1]
+\State \textbf{Input:} New configuration dictionary $\Lambda_{\text{new}}$, current config path $P_{\text{cfg}} = \texttt{config.toml}$
+\State \textbf{Output:} Success/Failure status, error diagnostics
+\State
+\State \textbf{Phase 1: Validation}
+\State $\Lambda_{\text{current}} \leftarrow \text{Load}(P_{\text{cfg}})$ \Comment{Parse existing TOML}
+\State $\Lambda_{\text{merged}} \leftarrow \text{Merge}(\Lambda_{\text{current}}, \Lambda_{\text{new}})$ \Comment{Apply updates}
+\State \textbf{Validate}$(\Lambda_{\text{merged}})$ \Comment{Check ranges, types, constraints}
+\If{validation fails}
+    \State \textbf{Error:} "Invalid parameter values, aborting mutation"
+    \State \Return \texttt{FAILURE}
+\EndIf
+\State
+\State \textbf{Phase 2: Immutable Backup}
+\State $P_{\text{bak}} \leftarrow P_{\text{cfg}} + \texttt{.bak}$
+\State $P_{\text{timestamp}} \leftarrow P_{\text{cfg}} + \texttt{.bak.} + \text{ISO8601\_timestamp}$
+\State \textbf{Copy}$(P_{\text{cfg}}, P_{\text{timestamp}})$ \Comment{Timestamped archive}
+\State \textbf{Copy}$(P_{\text{cfg}}, P_{\text{bak}})$ \Comment{Latest backup (overwrite)}
+\State
+\State \textbf{Phase 3: Atomic Write via Temporary File}
+\State $P_{\text{tmp}} \leftarrow P_{\text{cfg}} + \texttt{.tmp}$
+\State $\text{FD}_{\text{tmp}} \leftarrow \textbf{Open}(P_{\text{tmp}}, \text{O\_WRONLY | O\_CREAT | O\_EXCL})$
+\If{open fails (file exists)}
+    \State \textbf{Error:} "Concurrent mutation detected, aborting"
+    \State \Return \texttt{FAILURE}
+\EndIf
+\State \textbf{Write}$(\text{FD}_{\text{tmp}}, \text{Serialize}(\Lambda_{\text{merged}}))$ \Comment{TOML format}
+\State \textbf{Fsync}$(\text{FD}_{\text{tmp}})$ \Comment{Force kernel buffer flush to disk}
+\State \textbf{Close}$(\text{FD}_{\text{tmp}})$
+\State
+\State \textbf{Phase 4: Atomic Replacement (POSIX os.replace)}
+\State \textbf{Replace}$(P_{\text{tmp}}, P_{\text{cfg}})$ \Comment{Atomic inode swap}
+\State \Comment{On POSIX: \texttt{os.replace()} guarantees atomicity}
+\State \Comment{On Windows: \texttt{ReplaceFileW()} with backup flag}
+\State
+\State \textbf{Phase 5: Audit Logging}
+\State $\Delta \leftarrow \text{Diff}(\Lambda_{\text{current}}, \Lambda_{\text{merged}})$
+\State \textbf{Log}$(\texttt{io/mutations.log}, \{\text{timestamp}, \text{trigger}, \Delta\})$
+\State \Return \texttt{SUCCESS}
+\end{algorithmic}
+\end{algorithm}
+
+\subsection{Critical Implementation Details}
+
+\subsubsection{Fsync Requirement}
+
+The \texttt{fsync()} system call (POSIX) or \texttt{FlushFileBuffers()} (Windows) is \textbf{mandatory} after writing the temporary file. Without it, the write may reside in kernel page cache and be lost during power failure or system crash before the atomic replacement occurs.
+
+On Linux with ext4/xfs filesystems:
+\begin{itemize}
+    \item \texttt{fsync(fd)} flushes file data and metadata to disk.
+    \item \texttt{os.replace()} is implemented via \texttt{renameat2()} with \texttt{RENAME\_NOREPLACE} flag (kernel 3.15+), guaranteeing atomicity even on NFS.
+\end{itemize}
+
+\subsubsection{Concurrent Mutation Prevention}
+
+The use of \texttt{O\_EXCL} flag when creating \texttt{config.toml.tmp} ensures that if two processes attempt simultaneous mutations, only one succeeds. The losing process receives \texttt{EEXIST} error and must retry or abort.
+
+For production deployments, an additional file-based lock can be used:
+\begin{verbatim}
+# Acquire exclusive lock before mutation
+with open("config.toml.lock", "x") as lock:
+    perform_atomic_mutation()
+\end{verbatim}
+
+\subsubsection{Rollback Procedure}
+
+If the system exhibits pathological behavior after a configuration mutation (e.g., NaN detection, CUSUM alarm storm), the operator can manually rollback:
+\begin{verbatim}
+# Restore from backup
+cp config.toml.bak config.toml
+
+# Or restore from specific timestamp
+cp config.toml.bak.2026-02-19T14:32:05Z config.toml
+\end{verbatim}
+
+The system must be restarted after rollback to reload the configuration.
+
+\subsection{Invariant Protection: Locked Configuration Subsections}
+
+Not all configuration parameters are safe for autonomous mutation. The following subsections of \texttt{config.toml} are \textbf{strictly immutable} and must be excluded from the optimizer's search space:
+
+\subsubsection{Locked Subsections}
+
+\begin{enumerate}
+    \item \textbf{[io] Section:} I/O paths and serialization parameters
+    \begin{itemize}
+        \item \texttt{snapshot\_path}: Changing this path during runtime would orphan existing snapshots, breaking the ability to resume from checkpoints.
+        \item \texttt{telemetry\_buffer\_maxlen}: Modifying ring buffer size requires memory reallocation, violating JIT compilation assumptions.
+        \item \texttt{credentials\_vault\_path}: Altering credential paths could expose secrets or cause authentication failures.
+    \end{itemize}
+    \textbf{Justification:} These parameters define the system's I/O contract with external infrastructure. Mutation breaks persistence guarantees.
+    
+    \item \textbf{[security] Section:} Audit and validation parameters
+    \begin{itemize}
+        \item \texttt{telemetry\_hash\_interval\_steps}: Changing the hash interval would invalidate hardware parity validation protocols.
+        \item \texttt{snapshot\_integrity\_hash\_algorithm}: Switching from SHA-256 to CRC32 mid-session would cause all existing snapshots to fail validation.
+        \item \texttt{allowed\_mutation\_rate\_per\_hour}: Maximum number of config mutations per hour (prevents optimizer runaway).
+    \end{itemize}
+    \textbf{Justification:} The optimizer must not modify its own audit trail or disable its safety constraints (analogous to Asimov's Zeroth Law for AI systems).
+    
+    \item \textbf{[core] Section (Partial Lock):} Fundamental numerical precision
+    \begin{itemize}
+        \item \texttt{float\_precision}: Locked to 64. Switching to 32-bit would break Malliavin calculus and signature immutability.
+        \item \texttt{jax\_platform}: Locked (e.g., \texttt{"cpu"} or \texttt{"gpu"}). Changing platform mid-session invalidates XLA compilation cache.
+    \end{itemize}
+    \textbf{Justification:} These parameters define the computational substrate. Mutation requires full system recompilation.
+    
+    \item \textbf{[meta\_optimization] Section (Partial Lock):}
+    \begin{itemize}
+        \item \texttt{max\_deep\_tuning\_iterations}: Locked to prevent infinite optimization loops.
+        \item \texttt{checkpoint\_path}: Locked to preserve resumability of Deep Tuning.
+        \item \texttt{mutation\_protocol\_version}: Locked (semantic versioning of this protocol).
+    \end{itemize}
+    \textbf{Justification:} Prevents the optimizer from disabling its own termination criteria or corrupting its checkpoint state.
+\end{enumerate}
+
+\subsubsection{Mutable Subsections (Optimizer-Accessible)}
+
+The following subsections are \textbf{safe for autonomous mutation} and constitute the search space for Fast Tuning and Deep Tuning:
+
+\begin{itemize}
+    \item \textbf{[sensitivity]:} CUSUM thresholds, grace periods, EMA smoothing factors, entropy windows, learning rates.
+    \item \textbf{[kernels]:} DGM architecture (width, depth, activation), SDE solver thresholds (stiffness\_low, stiffness\_high), WTMM parameters (num\_scales, sigma, threshold).
+    \item \textbf{[orchestrator]:} Weight decay rates, mode collapse thresholds, frozen signal recovery ratios.
+    \item \textbf{[numerical]:} Sinkhorn epsilon, max iterations, signature depth (within safe range [3, 5]).
+\end{itemize}
+
+\subsection{Validation Schema}
+
+Before any mutation is committed, the merged configuration $\Lambda_{\text{merged}}$ must pass validation against a strict schema:
+
+\begin{verbatim}
+# Example validation rules (Python-like pseudocode)
+schema = {
+    "cusum_k": {"type": float, "range": [0.3, 1.5]},
+    "dgm_width_size": {"type": int, "range": [32, 256], 
+                       "constraint": "must be power of 2"},
+    "stiffness_low": {"type": float, "range": [50, 500],
+                      "constraint": "must be < stiffness_high"},
+    "float_precision": {"type": int, "locked": True, "value": 64},
+    "snapshot_path": {"type": str, "locked": True},
+    ...
+}
+
+def validate(config, schema):
+    for param, rules in schema.items():
+        if rules.get("locked") and config[param] != rules["value"]:
+            raise ConfigMutationError(f"{param} is immutable")
+        if not (rules["range"][0] <= config[param] <= rules["range"][1]):
+            raise ConfigMutationError(f"{param} out of safe range")
+        # Additional constraint checks...
+    return True
+\end{verbatim}
+
+\subsection{Mutation Audit Trail}
+
+All configuration mutations are logged to \texttt{io/mutations.log} in append-only mode:
+
+\begin{verbatim}
+[2026-02-19T14:32:05.123456Z] MUTATION_START
+  Trigger: DeepTuning_Iteration_127
+  Best_Objective: 0.0234 (MAPE)
+  Delta:
+    - cusum_k: 0.5 -> 0.72 (+0.22)
+    - dgm_width_size: 128 -> 256 (doubled)
+    - stiffness_low: 100 -> 143 (+43)
+  Validation: PASSED
+  Backup: config.toml.bak.2026-02-19T14:32:05Z
+  Status: SUCCESS
+
+[2026-02-19T15:45:12.987654Z] MUTATION_REJECTED
+  Trigger: FastTuning_Iteration_42
+  Delta:
+    - float_precision: 64 -> 32 (LOCKED)
+  Validation: FAILED (immutable parameter)
+  Status: ABORTED
+\end{verbatim}
+
+This log enables forensic analysis of configuration evolution and debugging of optimizer behavior.
+
+\subsection{Rate Limiting and Safety Guardrails}
+
+To prevent optimizer pathologies (e.g., thrashing between configurations), the mutation protocol enforces:
+
+\begin{itemize}
+    \item \textbf{Maximum Mutation Rate:} No more than $N_{\text{max}} = 10$ mutations per hour.
+    \item \textbf{Minimum Stability Period:} New configuration must run for at least $T_{\text{stable}} = 1000$ prediction steps before re-mutation allowed.
+    \item \textbf{Delta Magnitude Limit:} Parameter changes must satisfy:
+    \[
+    \left| \frac{\theta_{\text{new}} - \theta_{\text{old}}}{\theta_{\text{old}}} \right| \leq 0.5 \quad \text{(50\% max relative change)}
+    \]
+    Exception: Discrete parameters (e.g., \texttt{dgm\_depth}) can change by $\pm 1$ level.
+    \item \textbf{Rollback on Degradation:} If prediction RMSE increases by $> 30\%$ within 500 steps of mutation, automatically rollback to \texttt{config.toml.bak}.
+\end{itemize}
+
+\subsection{Integration with Meta-Optimization Workflow}
+
+The mutation protocol integrates with the tiered optimization framework (Deep Tuning + Fast Tuning) defined in \texttt{Stochastic\_Predictor\_Implementation.tex}:
+
+\begin{enumerate}
+    \item \textbf{Deep Tuning Phase:} After 500 iterations, the best configuration $\theta^*_{\text{deep}}$ is committed via atomic mutation to \texttt{[structural]} subsections.
+    \item \textbf{Fast Tuning Phase:} After 50 iterations, the best configuration $\theta^*_{\text{fast}}$ is committed to \texttt{[sensitivity]} subsections.
+    \item \textbf{Live Adaptation:} During production operation, if a regime shift is detected (CUSUM alarm + entropy spike), trigger Fast Tuning with current config as initialization. Upon completion, mutate \texttt{[sensitivity]} parameters.
+\end{enumerate}
+
+This creates a closed-loop autonomous system:
+\[
+\text{Deployment} \to \text{Monitor Performance} \to \text{Detect Degradation} \to \text{Trigger Optimization} \to \text{Mutate Config} \to \text{Reload System} \to \text{Monitor...}
+\]
+
+With the Configuration Mutation Protocol, the Universal Stochastic Predictor achieves \textbf{Level 4 Autonomy}: it can self-optimize and self-reconfigure without human intervention, while maintaining safety guarantees through locked invariants, atomic updates, and auditable mutation trails.
 
 \end{document}

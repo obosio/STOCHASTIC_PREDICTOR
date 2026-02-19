@@ -27,6 +27,7 @@ from jaxtyping import Array, Float
 from dataclasses import replace
 
 from stochastic_predictor.api.types import InternalState
+from stochastic_predictor.api.config import PredictorConfig
 
 
 @jax.jit
@@ -348,7 +349,7 @@ def atomic_state_update(
     state: InternalState,
     new_signal: Float[Array, ""],
     new_residual: Float[Array, ""],
-    config: "PredictorConfig"
+    config: PredictorConfig
 ) -> tuple[InternalState, bool]:
     """
     Perform atomic update of all state buffers simultaneously.

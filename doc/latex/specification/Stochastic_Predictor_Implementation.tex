@@ -577,19 +577,238 @@ Static validation methods (traditional K-Fold) are prohibited as they violate th
 \section{Derivative-Free Meta-Optimization (Bayesian Optimization)}
 Many hyperparameters are discrete (tree depth $M$, decision thresholds) or the error surface is noisy and non-convex, making gradient descent inapplicable.
 
-We prescribe the use of \textbf{Gaussian Processes (GP)} for efficient search of the next optimal candidate $\theta_{\text{next}}$:
+We prescribe the use of \textbf{Tree-structured Parzen Estimator (TPE)} for efficient search of the next optimal candidate $\theta_{\text{next}}$:
 \[
 \theta_{\text{next}} = \arg\max_{\theta \in \Theta} \text{Expected Improvement}(\theta | \mathcal{D}_{\text{obs}})
 \]
 The objective function is the negative return of Walk-Forward Validation ($-\mathcal{E}$). After $N$ iterations, the estimated global optimum $\theta^*$ is the candidate that empirically minimized the error $\mathcal{E}$.
 
+\subsection{Tiered Search Space Architecture}
+
+The hyperparameter space is stratified into two optimization regimes with fundamentally different computational budgets and persistence requirements:
+
+\subsubsection{Fast Tuning (Sensitivity Hyperparameters)}
+
+\textbf{Objective:} Rapid adaptation to regime shifts without structural topology changes.
+
+\textbf{Search Space Dimension:} $|\Theta_{\text{fast}}| = 6$ parameters:
 \begin{enumerate}
-    \item \textbf{Prior:} Define safe ranges (Section \thechapter.1) for each hyperparameter.
-    \item \textbf{Surrogate Model:} Train a GP on observed pairs $(\theta_i, \text{Performance}_i)$.
-    \item \textbf{Acquisition Function:} Select $\theta_{next}$ that maximizes the probability of improving the current best (balancing exploration vs exploitation).
-    \item \textbf{Costly Evaluation:} Run the full walk-forward protocol only for $\theta_{next}$.
+    \item \texttt{cusum\_k}: CUSUM drift magnitude threshold $\in [0.3, 1.5]$
+    \item \texttt{cusum\_grace\_period}: Post-alarm suppression window $\in [5, 50]$ steps
+    \item \texttt{sinkhorn\_epsilon}: Entropic regularization $\in [10^{-4}, 10^{-1}]$ (log-uniform)
+    \item \texttt{ema\_variance\_alpha}: EWMA smoothing factor $\in [0.05, 0.5]$
+    \item \texttt{entropy\_window}: Temporal horizon for entropy estimation $\in [20, 200]$ steps
+    \item \texttt{learning\_rate}: JKO flow step size $\in [10^{-4}, 10^{-1}]$ (log-uniform)
 \end{enumerate}
 
-This approach drastically reduces computational cost compared to grid search or random search in high-dimensional spaces, converging to the predictor's optimal "personality" in a few iterations.
+\textbf{Iteration Budget:} $N_{\text{fast}} \approx 50$ evaluations.
+
+\textbf{Execution Time:} $\sim 2$--$5$ hours on CPU (4 cores, walk-forward validation with $T_{\text{train}} = 5000$ samples).
+
+\textbf{Triggering Conditions:}
+\begin{itemize}
+    \item Deployment to a new asset class or market regime
+    \item Significant degradation in out-of-sample performance ($> 20\%$ increase in prediction RMSE)
+    \item Manual operator override for rapid recalibration
+\end{itemize}
+
+\textbf{Persistence:} Results stored in \texttt{config.toml} under \texttt{[sensitivity]} section. No intermediate state required (search completes in single session).
+
+\subsubsection{Deep Tuning (Structural Hyperparameters)}
+
+\textbf{Objective:} Optimize architectural topology and solver strategy for long-term deployment.
+
+\textbf{Search Space Dimension:} $|\Theta_{\text{deep}}| \geq 20$ parameters, including:
+\begin{enumerate}
+    \item \textbf{Kernel B (DGM Neural Architecture):}
+    \begin{itemize}
+        \item \texttt{dgm\_width\_size}: Network width $\in [32, 256]$ (discrete, powers of 2)
+        \item \texttt{dgm\_depth}: Number of hidden layers $\in [3, 8]$ (integer)
+        \item \texttt{dgm\_activation}: Activation function $\in \{\text{tanh}, \text{relu}, \text{swish}\}$ (categorical)
+        \item \texttt{dgm\_learning\_rate}: Adam optimizer learning rate $\in [10^{-5}, 10^{-2}]$ (log-uniform)
+    \end{itemize}
+    
+    \item \textbf{Kernel C (SDE Solver Strategy):}
+    \begin{itemize}
+        \item \texttt{stiffness\_low}: Low-stiffness threshold $\in [50, 500]$
+        \item \texttt{stiffness\_high}: High-stiffness threshold $\in [500, 5000]$
+        \item \texttt{sde\_pid\_rtol}: Relative tolerance for adaptive stepping $\in [10^{-6}, 10^{-3}]$ (log-uniform)
+        \item \texttt{sde\_pid\_atol}: Absolute tolerance $\in [10^{-8}, 10^{-4}]$ (log-uniform)
+    \end{itemize}
+    
+    \item \textbf{Kernel A (WTMM Configuration):}
+    \begin{itemize}
+        \item \texttt{wtmm\_num\_scales}: Number of wavelet scales $\in [8, 32]$ (integer)
+        \item \texttt{wtmm\_sigma}: Morlet wavelet parameter $\in [0.5, 2.0]$
+        \item \texttt{wtmm\_modulus\_threshold}: Maxima detection threshold $\in [0.01, 0.5]$
+    \end{itemize}
+    
+    \item \textbf{Orchestrator Meta-Strategy:}
+    \begin{itemize}
+        \item \texttt{weight\_decay\_rate}: Exponential decay for dormant kernels $\in [0.9, 0.999]$
+        \item \texttt{mode\_collapse\_variance\_threshold}: Minimum variance ratio $\in [0.1, 0.8]$
+        \item \texttt{frozen\_signal\_recovery\_ratio}: Threshold for stuck predictions $\in [0.5, 0.95]$
+    \end{itemize}
+    
+    \item \textbf{Global Numerical Precision:}
+    \begin{itemize}
+        \item \texttt{signature\_depth}: Truncation level $M \in [3, 5]$ (integer)
+        \item \texttt{max\_sinkhorn\_iterations}: Convergence budget $\in [50, 500]$ (integer)
+        \item \texttt{numerical\_epsilon}: Machine epsilon guard $\in [10^{-12}, 10^{-8}]$ (log-uniform)
+    \end{itemize}
+\end{enumerate}
+
+\textbf{Iteration Budget:} $N_{\text{deep}} \approx 500$ evaluations.
+
+\textbf{Execution Time:} $\sim 50$--$200$ hours on CPU (estimated 10--30 days of wall-clock time with interruptions).
+
+\textbf{Triggering Conditions:}
+\begin{itemize}
+    \item Initial system deployment (bootstrap calibration)
+    \item Quarterly recalibration for production systems
+    \item After major software version upgrades (e.g., JAX 0.4.20 $\to$ 0.5.x)
+    \item Systematic failure of Fast Tuning to restore performance
+\end{itemize}
+
+\subsection{Persistence and Resumability Protocol}
+
+Due to the prohibitive computational cost of Deep Tuning, the optimization process must support \textbf{interruption and resumption without loss of explored search space}.
+
+\subsubsection{TPE State Serialization Algorithm}
+
+The Tree-structured Parzen Estimator maintains internal state consisting of:
+\begin{itemize}
+    \item \textbf{Trial Database:} $\mathcal{D}_{\text{trials}} = \{(\theta_i, f(\theta_i), \text{status}_i)\}_{i=1}^N$ where $f(\theta_i)$ is the objective (walk-forward validation error) and $\text{status}_i \in \{\text{complete}, \text{failed}, \text{running}\}$.
+    \item \textbf{Parzen Estimators:} Two kernel density estimators (KDE) for "good" and "bad" trials:
+    \[
+    p_{\text{good}}(\theta) = \frac{1}{|L|} \sum_{i \in L} \mathcal{K}(\theta, \theta_i), \quad p_{\text{bad}}(\theta) = \frac{1}{|G|} \sum_{i \in G} \mathcal{K}(\theta, \theta_i)
+    \]
+    where $L$ is the set of top-$\gamma$ trials (typically $\gamma = 0.2$) and $G$ is the remainder.
+    \item \textbf{Random Seed State:} PRNG state to ensure deterministic reproducibility.
+\end{itemize}
+
+\begin{algorithm}
+\caption{TPE State Persistence Protocol}
+\begin{algorithmic}[1]
+\State \textbf{Serialization (Checkpoint):}
+\State \quad \textbf{Input:} Current TPE study object $S$, checkpoint path $P_{\text{ckpt}}$
+\State \quad Extract trial database: $\mathcal{D} \leftarrow S.\text{trials}$
+\State \quad Extract hyperparameter search space: $\Theta \leftarrow S.\text{search\_space}$
+\State \quad Extract best objective: $f^* \leftarrow \min_i f(\theta_i)$
+\State \quad Serialize to disk:
+\State \quad \quad $\text{pickle.dump}(\{\mathcal{D}, \Theta, f^*, \text{rng\_state}\}, P_{\text{ckpt}})$
+\State \quad Compute SHA-256 hash: $h \leftarrow \text{hash}(P_{\text{ckpt}})$
+\State \quad Save hash to metadata: $P_{\text{ckpt}}.\text{sha256} \leftarrow h$
+\State
+\State \textbf{Deserialization (Resume):}
+\State \quad \textbf{Input:} Checkpoint path $P_{\text{ckpt}}$
+\State \quad \textbf{Output:} Restored TPE study $S'$
+\State \quad Verify integrity: $h_{\text{disk}} \leftarrow \text{hash}(P_{\text{ckpt}})$
+\If{$h_{\text{disk}} \neq P_{\text{ckpt}}.\text{sha256}$}
+    \State \textbf{Error:} "Checkpoint corrupted, aborting resume"
+\EndIf
+\State \quad Deserialize: $\{\mathcal{D}, \Theta, f^*, \text{rng\_state}\} \leftarrow \text{pickle.load}(P_{\text{ckpt}})$
+\State \quad Reconstruct TPE study: $S' \leftarrow \text{TPE}(\Theta)$
+\State \quad Replay trials: $\forall (\theta_i, f_i) \in \mathcal{D}: S'.\text{add\_trial}(\theta_i, f_i)$
+\State \quad Restore RNG state: $\text{set\_seed}(\text{rng\_state})$
+\State \quad \Return $S'$
+\end{algorithmic}
+\end{algorithm}
+
+\subsubsection{Checkpoint Strategy}
+
+To balance disk I/O overhead with fault tolerance, checkpoints are emitted according to the following policy:
+\begin{itemize}
+    \item \textbf{Periodic Checkpoints:} Every $\Delta N = 10$ completed trials
+    \item \textbf{Best-Value Checkpoints:} Immediately upon discovering a new global optimum ($f(\theta_{\text{new}}) < f^*$)
+    \item \textbf{Manual Checkpoints:} On reception of signal \texttt{SIGUSR1} (allows operator-triggered save)
+    \item \textbf{Graceful Shutdown:} On \texttt{SIGTERM} or \texttt{SIGINT}, emit final checkpoint before termination
+\end{itemize}
+
+Checkpoint files are stored in \texttt{io/snapshots/} with naming convention:
+\[
+\texttt{deep\_tuning\_study\_<timestamp>\_iter<N>.pkl}
+\]
+where \texttt{<timestamp>} is ISO 8601 format and \texttt{<N>} is the iteration count.
+
+\subsubsection{Recovery and Validation}
+
+Upon resumption from checkpoint:
+\begin{enumerate}
+    \item \textbf{Integrity Check:} Verify SHA-256 hash matches to detect disk corruption
+    \item \textbf{Trial Replay:} Reconstruct the TPE surrogate model by replaying all completed trials
+    \item \textbf{Duplicate Prevention:} Check that no trials are duplicated (same $\theta$ sampled twice)
+    \item \textbf{Warm Start:} Continue from iteration $N+1$ without re-evaluating previous configurations
+    \item \textbf{Convergence Test:} If the improvement over the last $M_{\text{patience}} = 50$ trials is below $\delta = 10^{-4}$, declare convergence and terminate
+\end{enumerate}
+
+This protocol ensures that Deep Tuning can span weeks or months of interrupted computation (e.g., system reboots, power failures, manual intervention) without catastrophic loss of optimization progress.
+
+\subsection{Meta-Optimization Execution Workflow}
+
+The complete optimization lifecycle integrates both tiers:
+
+\begin{algorithm}
+\caption{Unified Meta-Optimization Workflow}
+\begin{algorithmic}[1]
+\State \textbf{Phase 1: Deep Tuning (Structural Calibration)}
+\If{checkpoint exists in \texttt{io/snapshots/}}
+    \State $S_{\text{deep}} \leftarrow \text{Resume}(\text{checkpoint})$
+\Else
+    \State $S_{\text{deep}} \leftarrow \text{NewTPEStudy}(\Theta_{\text{deep}})$
+\EndIf
+\For{$i = 1$ to $N_{\text{deep}}$}
+    \State $\theta_i \leftarrow S_{\text{deep}}.\text{suggest}()$
+    \State $f_i \leftarrow \text{WalkForwardValidation}(\theta_i)$
+    \State $S_{\text{deep}}.\text{report}(\theta_i, f_i)$
+    \If{$i \mod 10 = 0$ or $f_i < f^*$}
+        \State $\text{Checkpoint}(S_{\text{deep}})$
+    \EndIf
+\EndFor
+\State $\theta^*_{\text{deep}} \leftarrow \arg\min_i f_i$
+\State $\text{Save}(\theta^*_{\text{deep}}, \texttt{config.toml}[\text{structural}])$
+\State
+\State \textbf{Phase 2: Fast Tuning (Sensitivity Refinement)}
+\State Fix structural parameters to $\theta^*_{\text{deep}}$
+\State $S_{\text{fast}} \leftarrow \text{NewTPEStudy}(\Theta_{\text{fast}})$
+\For{$j = 1$ to $N_{\text{fast}}$}
+    \State $\theta_j \leftarrow S_{\text{fast}}.\text{suggest}()$
+    \State $f_j \leftarrow \text{WalkForwardValidation}(\theta^*_{\text{deep}} \cup \theta_j)$
+    \State $S_{\text{fast}}.\text{report}(\theta_j, f_j)$
+\EndFor
+\State $\theta^*_{\text{fast}} \leftarrow \arg\min_j f_j$
+\State $\text{Save}(\theta^*_{\text{fast}}, \texttt{config.toml}[\text{sensitivity}])$
+\State
+\State \textbf{Final Configuration:} $\theta^* = \theta^*_{\text{deep}} \cup \theta^*_{\text{fast}}$
+\State \Return $\theta^*$
+\end{algorithmic}
+\end{algorithm}
+
+\subsection{Objective Function Computation}
+
+The objective function for both tiers is the \textbf{mean absolute percentage error (MAPE)} aggregated over walk-forward validation folds:
+\[
+f(\theta) = \frac{1}{K} \sum_{k=1}^K \frac{1}{H} \sum_{h=1}^H \left| \frac{\hat{X}_{t_k+h}(\theta) - X_{t_k+h}}{X_{t_k+h}} \right|
+\]
+where $K$ is the number of walk-forward folds, $H$ is the prediction horizon, and $\hat{X}(\theta)$ is the predictor output under configuration $\theta$.
+
+Alternative objectives for specific use cases:
+\begin{itemize}
+    \item \textbf{Sharpe Ratio:} For financial trading systems, maximize risk-adjusted return
+    \item \textbf{Directional Accuracy:} For classification of trend direction (up/down)
+    \item \textbf{99th Percentile Error:} For safety-critical applications (penalize worst-case outliers)
+\end{itemize}
+
+\subsection{Computational Budget Management}
+
+To prevent runaway optimization costs:
+\begin{itemize}
+    \item \textbf{Maximum Wall-Clock Time:} Deep Tuning terminates after 7 days regardless of iteration count
+    \item \textbf{Early Stopping:} If no improvement over 50 consecutive trials, declare local optimum
+    \item \textbf{Resource Limits:} Cap memory usage at 16 GB RAM per trial (prevents VRAM exhaustion on large DGM networks)
+    \item \textbf{Parallel Evaluation:} For systems with GPU clusters, evaluate up to 4 trials in parallel (requires synchronization of checkpoint writes)
+\end{itemize}
+
+This tiered architecture ensures that the Universal Stochastic Predictor can achieve autonomous Level 4 operation: structural topology adapts to asset characteristics via Deep Tuning (quarterly), while sensitivity parameters continuously adapt to regime shifts via Fast Tuning (on-demand).
 
 \end{document}
