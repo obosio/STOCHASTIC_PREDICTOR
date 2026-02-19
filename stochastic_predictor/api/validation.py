@@ -502,6 +502,140 @@ def warn_if_invalid(
 
 
 # ═══════════════════════════════════════════════════════════════════════════
+# PRECISION ENFORCEMENT (FLOAT64 CASTING)
+# ═══════════════════════════════════════════════════════════════════════════
+
+def ensure_float64(
+    value: Union[float, int, Float[Array, "..."]]
+) -> Float[Array, "..."]:
+    """
+    Explicitly cast value to float64 to prevent precision degradation.
+    
+    Critical for maintaining consistency with jax_enable_x64 = True.
+    External data feeds (CSV, JSON, protobuf) may provide float32 data,
+    causing silent precision loss. This function enforces float64.
+    
+    Args:
+        value: Scalar or array to cast (int, float32, or float64)
+    
+    Returns:
+        JAX array with dtype=float64
+    
+    Example:
+        >>> import numpy as np
+        >>> from stochastic_predictor.api.validation import ensure_float64
+        >>> x_float32 = np.array([1.0, 2.0], dtype=np.float32)  # External source
+        >>> x_float64 = ensure_float64(x_float32)  # Explicit cast
+        >>> assert x_float64.dtype == jnp.float64
+    
+    References:
+        - API_Python.tex §5: Floating-Point Determinism
+        - __init__.py: jax_enable_x64 = True enforcement
+    """
+    return jnp.asarray(value, dtype=jnp.float64)
+
+
+def sanitize_external_observation(
+    magnitude: Union[float, Float[Array, "1"]],
+    timestamp_ns: int,
+    metadata: dict = None
+) -> tuple[Float[Array, "1"], int, dict]:
+    """
+    Sanitize external observation to enforce float64 precision.
+    
+    Ensures that data from external feeds (market APIs, sensors, CSV files)
+    undergoes explicit float64 casting BEFORE entering ProcessState.
+    
+    Prevents runtime precision degradation warnings and ensures bit-exact
+    reproducibility across different data sources.
+    
+    Args:
+        magnitude: Raw magnitude from external source (may be float32)
+        timestamp_ns: Unix timestamp in nanoseconds
+        metadata: Optional metadata dictionary
+    
+    Returns:
+        Tuple of (magnitude_f64, timestamp_ns, metadata_sanitized)
+    
+    Example:
+        >>> from stochastic_predictor.api.validation import sanitize_external_observation
+        >>> # External CSV data (float32 by default)
+        >>> raw_magnitude = 123.45  # Python float (float64)
+        >>> raw_timestamp = 1708531200000000000
+        >>> 
+        >>> # Sanitize before ProcessState creation
+        >>> mag_f64, ts, meta = sanitize_external_observation(raw_magnitude, raw_timestamp)
+        >>> 
+        >>> # Now safe to create ProcessState
+        >>> from stochastic_predictor.api.types import ProcessState
+        >>> obs = ProcessState(magnitude=mag_f64, timestamp_ns=ts, metadata=meta)
+    
+    References:
+        - Implementacion.tex §6.4: External Data Feed Integration
+        - types.py: ProcessState definition
+    """
+    # Cast magnitude to float64 explicitly
+    magnitude_f64 = ensure_float64(magnitude)
+    
+    # Ensure magnitude is at least 1D array
+    if magnitude_f64.ndim == 0:
+        magnitude_f64 = jnp.expand_dims(magnitude_f64, axis=0)
+    
+    # Sanitize metadata (ensure no float32 values in dict)
+    if metadata is not None:
+        metadata_sanitized = {}
+        for key, val in metadata.items():
+            if isinstance(val, (float, int, jnp.ndarray)):
+                metadata_sanitized[key] = float(ensure_float64(val))
+            else:
+                metadata_sanitized[key] = val
+    else:
+        metadata_sanitized = {}
+    
+    return magnitude_f64, timestamp_ns, metadata_sanitized
+
+
+def cast_array_to_float64(
+    array: Float[Array, "..."],
+    warn_if_downcast: bool = True
+) -> Float[Array, "..."]:
+    """
+    Cast JAX/NumPy array to float64 with optional downcast warning.
+    
+    Useful for internal buffers or intermediate computations that may
+    inadvertently use float32 (e.g., from external libraries).
+    
+    Args:
+        array: Input array (any dtype)
+        warn_if_downcast: Emit warning if casting from higher precision
+    
+    Returns:
+        Array with dtype=float64
+    
+    Example:
+        >>> import jax.numpy as jnp
+        >>> from stochastic_predictor.api.validation import cast_array_to_float64
+        >>> x_f32 = jnp.array([1.0, 2.0], dtype=jnp.float32)
+        >>> x_f64 = cast_array_to_float64(x_f32, warn_if_downcast=True)
+        >>> # Warning emitted: "Downcasting from float32 to float64..."
+    
+    References:
+        - __init__.py: jax_enable_x64 global configuration
+    """
+    if array.dtype == jnp.float64:
+        return array  # Already float64, no-op
+    
+    if warn_if_downcast and array.dtype in (jnp.float32, jnp.float16):
+        warnings.warn(
+            f"Casting array from {array.dtype} to float64. "
+            "Ensure external data sources provide float64 to avoid this overhead.",
+            RuntimeWarning
+        )
+    
+    return jnp.asarray(array, dtype=jnp.float64)
+
+
+# ═══════════════════════════════════════════════════════════════════════════
 # EXPORTS
 # ═══════════════════════════════════════════════════════════════════════════
 
@@ -521,4 +655,8 @@ __all__ = [
     # Sanitization
     "sanitize_array",
     "warn_if_invalid",
+    # Precision Enforcement (float64)
+    "ensure_float64",
+    "sanitize_external_observation",
+    "cast_array_to_float64",
 ]

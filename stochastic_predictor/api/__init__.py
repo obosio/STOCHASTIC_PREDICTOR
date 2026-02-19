@@ -52,6 +52,9 @@ from stochastic_predictor.api.validation import (
     validate_beta_stable,
     sanitize_array,
     warn_if_invalid,
+    ensure_float64,
+    sanitize_external_observation,
+    cast_array_to_float64,
 )
 
 from stochastic_predictor.api.schemas import (
@@ -76,6 +79,7 @@ from stochastic_predictor.api.warmup import (
     warmup_kernel_c,
     warmup_kernel_d,
     warmup_with_retry,
+    profile_warmup_and_recommend_timeout,
 )
 
 from stochastic_predictor.api.state_buffer import (
@@ -117,6 +121,9 @@ __all__ = [
     "validate_simplex",
     "validate_holder_exponent",
     "validate_alpha_stable",
+    "ensure_float64",
+    "sanitize_external_observation",
+    "cast_array_to_float64",
     "validate_beta_stable",
     "sanitize_array",
     "warn_if_invalid",
@@ -135,6 +142,7 @@ __all__ = [
     "warmup_all_kernels",
     "warmup_kernel_a",
     "warmup_kernel_b",
+    "profile_warmup_and_recommend_timeout",
     "warmup_kernel_c",
     "warmup_kernel_d",
     "warmup_with_retry",

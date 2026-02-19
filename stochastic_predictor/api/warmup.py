@@ -277,3 +277,98 @@ def warmup_with_retry(
     
     # Should never reach here
     raise RuntimeError("Warm-up loop exit anomaly")
+
+
+def profile_warmup_and_recommend_timeout(
+    config: PredictorConfig,
+    verbose: bool = True
+) -> dict[str, float | int]:
+    """
+    Profile warm-up times and recommend data_feed_timeout adjustment.
+    
+    Executes warm-up pass and provides recommendations for timeout configuration
+    based on actual JIT compilation latency. Useful for deployment on different
+    GPU hardware (e.g., T4 vs A100 vs CPU-only).
+    
+    Recommendation Logic:
+        - If max(kernel_times) > 500ms: Recommend timeout ≥ 60s (slow GPU/CPU)
+        - If max(kernel_times) > 300ms: Recommend timeout ≥ 45s (mid-tier GPU)
+        - If max(kernel_times) ≤ 300ms: Keep default timeout (30s, fast GPU)
+    
+    Args:
+        config: Configuration object
+        verbose: Print profiling results and recommendations
+    
+    Returns:
+        Dictionary with profiling results:
+        {
+            "kernel_a": <ms>,
+            "kernel_b": <ms>,
+            "kernel_c": <ms>,
+            "kernel_d": <ms>,
+            "total": <ms>,
+            "max_kernel": <ms>,
+            "recommended_timeout": <seconds>
+        }
+    
+    Example:
+        >>> from stochastic_predictor.api.warmup import profile_warmup_and_recommend_timeout
+        >>> from stochastic_predictor.api.config import get_config
+        >>> config = get_config()
+        >>> profile = profile_warmup_and_recommend_timeout(config)
+        >>> # Update config.toml [io] section:
+        >>> # data_feed_timeout = <profile["recommended_timeout"]>
+    
+    References:
+        - Implementacion.tex §6.3: Deployment on Heterogeneous Hardware
+    """
+    if verbose:
+        print("🔍 Profiling JIT Compilation Times...")
+        print()
+    
+    # Execute warm-up and measure
+    timings = warmup_all_kernels(config, verbose=verbose)
+    
+    # Compute statistics
+    total_time = sum(timings.values())
+    max_kernel_time = max(timings.values())
+    
+    # Determine slowest kernel (for diagnostic purposes)
+    slowest_kernel = "kernel_a"
+    for kernel_name, kernel_time in timings.items():
+        if kernel_time == max_kernel_time:
+            slowest_kernel = kernel_name
+            break
+    
+    # Recommendation logic based on max kernel compilation time
+    if max_kernel_time > 500.0:
+        recommended_timeout = 60  # Slow GPU/CPU - conservative timeout
+        hardware_tier = "SLOW (CPU or low-end GPU)"
+    elif max_kernel_time > 300.0:
+        recommended_timeout = 45  # Mid-tier GPU
+        hardware_tier = "MEDIUM (mid-tier GPU)"
+    else:
+        recommended_timeout = 30  # Fast GPU - default timeout
+        hardware_tier = "FAST (high-end GPU)"
+    
+    if verbose:
+        print()
+        print("📊 Profiling Summary:")
+        print(f"  • Total warm-up time: {total_time:.1f} ms")
+        print(f"  • Max kernel time: {max_kernel_time:.1f} ms ({slowest_kernel})")
+        print(f"  • Hardware tier: {hardware_tier}")
+        print()
+        print("💡 Recommendation:")
+        print(f"  • Set data_feed_timeout ≥ {recommended_timeout} seconds in config.toml")
+        print(f"  • Rationale: JIT compilation latency suggests {hardware_tier} hardware")
+        if max_kernel_time > 500.0:
+            print("  ⚠️  WARNING: High compilation times detected!")
+            print("     Consider enabling XLA_FLAGS for persistent cache or upgrading GPU")
+    
+    # Return full profiling data
+    return {
+        **timings,
+        "total": total_time,
+        "max_kernel": max_kernel_time,
+        "recommended_timeout": recommended_timeout,
+    }
