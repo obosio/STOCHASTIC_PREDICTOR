@@ -18,6 +18,24 @@ Version: v1.0.0-Diamond-Spec
 Date: February 18, 2026
 """
 
+# ═══════════════════════════════════════════════════════════════════════════
+# JAX CONFIGURATION (CRITICAL - Must execute before any JAX imports)
+# ═══════════════════════════════════════════════════════════════════════════
+
+import jax
+
+# Enable float64 precision globally (MANDATORY per Python.tex §1.3)
+# Required for:
+# - Malliavin derivative stability (Kernel C)
+# - Hölder exponent precision (Kernel A - WTMM)
+# - Sinkhorn convergence under extreme conditions (JKO Orchestrator)
+# - Path signature accuracy (Kernel D)
+jax.config.update('jax_enable_x64', True)
+
+# ═══════════════════════════════════════════════════════════════════════════
+# PACKAGE METADATA
+# ═══════════════════════════════════════════════════════════════════════════
+
 __version__ = "1.0.0-diamond-implementation"
 __author__ = "Stochastic Predictor Development Consortium"
 
