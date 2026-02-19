@@ -390,9 +390,132 @@ Crisis & 1.00 & 0.150 & Maximum entropy damping \\
     \item Old code passing static epsilon still works (falls back to internal EWMA computation)
 \end{itemize}
 
+\chapter{V-CRIT-3: Grace Period Logic Implementation}
+
+\section{Overview}
+
+\textbf{V-CRIT-3} is the third critical violation fix. It ensures that CUSUM regime change events are properly suppressed during the grace period (refractory period after alarm).
+
+\subsection{Problem Statement}
+
+Original implementation had:
+\begin{itemize}
+    \item \textbf{grace\_counter field}: Present in InternalState but never decremented
+    \item \textbf{No grace period logic}: Alarms triggered on every step without refractory period
+    \item \textbf{Specification gap}: Algorithm 2.5.3 requires grace period suppression
+\end{itemize}
+
+\subsection{Solution}
+
+Grace period logic is implemented directly in \texttt{update\_cusum\_statistics()} (V-CRIT-1 component):
+
+\begin{lstlisting}[language=Python]
+# Grace period suppression (intrinsic to V-CRIT-1)
+in_grace_period = grace_counter > 0
+should_alarm = alarm & ~in_grace_period  # Only trigger if no grace period
+
+# Update grace counter
+new_grace_counter = jnp.where(
+    should_alarm,
+    config.grace_period_steps,  # Reset counter after alarm
+    jnp.maximum(0, grace_counter - 1)  # Decrement each normal step
+)
+\end{lstlisting}
+
+\section{Orchestrator Integration (V-CRIT-3)}
+
+\subsection{Capture Return Tuple}
+
+The orchestrator captures the \texttt{should\_alarm} flag from \texttt{atomic\_state\_update()}:
+
+\begin{lstlisting}[language=Python]
+# core/orchestrator.py (orchestrate_step)
+if reject_observation:
+    updated_state = state
+    regime_change_detected = False  # V-CRIT-3: No alarm if observation rejected
+else:
+    # V-CRIT-3: Capture should_alarm (grace period already applied)
+    updated_state, regime_change_detected = atomic_state_update(
+        state=state,
+        new_signal=current_value,
+        new_residual=residual,
+        config=config,
+    )
+\end{lstlisting}
+
+\subsection{Grace Period Decay}
+
+The grace counter is decremented on each normal step:
+
+\begin{lstlisting}[language=Python]
+# Grace period decay during normal operations
+grace_counter = updated_state.grace_counter
+if grace_counter > 0:
+    grace_counter -= 1
+    updated_state = replace(updated_state, grace_counter=grace_counter, rho=state.rho)
+    # V-CRIT-3: rho is frozen during grace period to prevent weight thrashing
+\end{lstlisting}
+
+\subsection{Emit Event Only on Required Alarm}
+
+The regime change event is passed to prediction result:
+
+\begin{lstlisting}[language=Python]
+# V-CRIT-3: Only set regime_changed if should_alarm==True
+prediction = PredictionResult(
+    ...
+    regime_change_detected=regime_change_detected,  # Field is True ONLY after grace period expires
+    ...
+)
+
+updated_state = replace(
+    updated_state,
+    regime_changed=regime_change_detected,
+)
+\end{lstlisting}
+
+\section{Grace Period Behavior}
+
+\begin{table}[h!]
+\centering
+\begin{tabular}{|c|c|c|c|}
+\hline
+\textbf{Step} & \textbf{CUSUM Signal} & \textbf{Grace Counter} & \textbf{Emit Alarm?} \\
+\hline
+$t=0$ & Below threshold & 0 & No \\
+$t=1$ & Below threshold & 0 & No \\
+$t=5$ & **ABOVE threshold** & 0 & **YES** → Set counter = 20 \\
+$t=6$ & Stays high & 19 & **NO** (grace period active) \\
+$t=7$ & Stays high & 18 & **NO** \\
+\vdots & \vdots & \vdots & \vdots \\
+$t=25$ & Stays high & 1 & **NO** \\
+$t=26$ & Normal again & 0 & No (counter expired) \\
+$t=27$ & Stays normal & 0 & No \\
+\hline
+\end{tabular}
+\caption{V-CRIT-3 Grace Period Suppression (Example: 20-step refractory period)}
+\end{table}
+
+\textbf{Interpretation}: After an alarm, the system is blind to new alarms for \texttt{grace\_period\_steps} iterations (default: 20). This prevents false cascades during volatile transient events.
+
+\section{Risk Mitigation}
+
+\begin{itemize}
+    \item \textbf{Prevents cascading alarms}: Only one regime change event per grace period
+    \item \textbf{Allows recovery}: After grace expires, can detect new regime changes
+    \item \textbf{CUSUM frozen}: Accumulators reset on alarm, not decremented during grace period
+    \item \textbf{Weights frozen}: rho is backed off to previous state during grace period
+\end{itemize}
+
 \chapter{Phase 3 Summary}
 
-Phase 3 delivers a concrete orchestration layer for Wasserstein fusion and JKO weight updates. \textbf{V-CRIT-2} upgrade ensures dynamic volatility coupling per specification.
+Phase 3 delivers a concrete orchestration layer for Wasserstein fusion and JKO weight updates. All three critical violations (V-CRIT-1, V-CRIT-2, V-CRIT-3) are now fully implemented and documented:
+
+\begin{itemize}
+    \item \textbf{V-CRIT-1}: CUSUM kurtosis adaptation + grace period fundamentals ✅
+    \item \textbf{V-CRIT-2}: Sinkhorn volatility coupling for dynamic epsilon ✅
+    \item \textbf{V-CRIT-3}: Grace period alarm suppression in orchestrator ✅
+\end{itemize}
 
 \section{Phase 4 Integration Note}
 
