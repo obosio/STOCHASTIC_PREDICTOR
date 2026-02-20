@@ -72,6 +72,8 @@ class PredictorConfig:
     entropy_window_bounds_max: int = 500  # Maximum entropy window
     learning_rate_safety_factor: float = 0.8  # Safety factor for learning rate
     learning_rate_minimum: float = 1e-6  # Minimum learning rate
+    sinkhorn_cost_type: str = "squared"  # Cost type: "squared" or "huber"
+    sinkhorn_huber_delta: float = 1.0  # Huber delta for robust cost
     log_sig_depth: int = 3        # Signature depth (Kernel D)
     wtmm_buffer_size: int = 128   # WTMM buffer size
     besov_cone_c: float = 1.5     # Besov cone influence
@@ -83,9 +85,15 @@ class PredictorConfig:
     kernel_c_jump_scale: float = 0.1  # Levy jump scale
     kernel_c_jump_max_events: int = 16  # Max jump events per step
     holder_threshold: float = 0.4 # Circuit breaker threshold
+    robustness_dimension_threshold: float = 1.5  # Fractal dimension threshold
+    robustness_force_kernel_d: bool = True  # Force kernel D on trigger
+    entropy_scaling_trigger: float = 2.0  # Entropy ratio trigger
+    sde_fd_epsilon: float = 1e-6  # FD epsilon for stiffness Jacobian
+    signal_sampling_interval: float = 1.0  # Sampling interval for FFT
     cusum_h: float = 5.0          # CUSUM threshold
     cusum_k: float = 0.5          # CUSUM slack
     grace_period_steps: int = 20  # Post-regime refractory period
+    degraded_recovery_min_steps: int = 2  # Minimum steps to exit degraded mode
     volatility_alpha: float = 0.1 # EMA decay for variance
 
     # Load shedding and anti-aliasing
@@ -124,8 +132,8 @@ class PredictionResult:
 
 To support hundreds of assets on a single server, the API exposes a purely functional mode. This allows state management in low-latency external storage (Redis) while sharing the compiled JAX graph across assets.
 
-\subsection{Throughput Maximization (Vectorized Batching)}
-This architecture enables \texttt{jax.vmap} to batch multiple asset states in a single hardware call, minimizing the Python GIL impact and maximizing GPU occupancy.
+\subsection{Host Batch Processing}
+To preserve rich observation types (e.g., datetime timestamps) and full ingestion logic, the batch API executes a host-side loop over assets.
 
 \begin{lstlisting}[language=Python]
 class FunctionalPredictor:
@@ -137,7 +145,6 @@ class FunctionalPredictor:
         self.config = config
         self._core_step = self._core_update_step
         self._jit_update = jax.jit(self._core_step)
-        self._vmap_update = jax.jit(jax.vmap(self._core_step, in_axes=(0, 0, 0, 0)))
 
     def init_state(self):
         """Create a zeroed cold-state structure."""
@@ -161,12 +168,14 @@ class FunctionalPredictor:
         )
         return new_state, result
 
-    def step_batch(self, states, obs_batch: ProcessState):
-        """Vectorized batch processing for N assets."""
-        freeze_flags = self._should_freeze_batch(obs_batch)
-        new_states, results = self._vmap_update(
-            states, obs_batch.magnitude, freeze_flags
-        )
+    def step_batch(self, states, obs_batch: list[ProcessState]):
+        """Host-side batch processing for N assets."""
+        new_states = []
+        results = []
+        for state, obs in zip(states, obs_batch):
+            updated, result = self.step(state, obs)
+            new_states.append(updated)
+            results.append(result)
         return new_states, results
 \end{lstlisting}
 

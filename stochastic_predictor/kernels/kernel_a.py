@@ -270,7 +270,7 @@ def compute_partition_function(
         numerator = jnp.sum((log_scales - x_mean) * (log_z_q - y_mean))
         denominator = jnp.sum((log_scales - x_mean) ** 2)
         
-        tau = numerator / jnp.maximum(denominator, 1e-12)
+        tau = numerator / jnp.maximum(denominator, epsilon)
         
         return tau
     
@@ -447,7 +447,8 @@ def extract_holder_exponent_wtmm(
 def compute_koopman_spectrum(
     signal: Float[Array, "n"],
     top_k: int,
-    min_power: float
+    min_power: float,
+    sampling_interval: float
 ) -> tuple[Float[Array, "k"], Float[Array, "k"]]:
     """
     Compute Koopman spectral modes via FFT power spectrum.
@@ -467,7 +468,7 @@ def compute_koopman_spectrum(
     fft_vals = jnp.fft.rfft(signal_centered)
     power = jnp.abs(fft_vals) ** 2
     power = jnp.where(power < min_power, 0.0, power)
-    freqs = jnp.fft.rfftfreq(signal.shape[0], d=1.0)
+    freqs = jnp.fft.rfftfreq(signal.shape[0], d=sampling_interval)
 
     top_power, top_idx = jax.lax.top_k(power, top_k)
     top_freqs = freqs[top_idx]
@@ -477,7 +478,8 @@ def compute_koopman_spectrum(
 @jax.jit
 def compute_paley_wiener_integral(
     signal: Float[Array, "n"],
-    epsilon: float
+    epsilon: float,
+    sampling_interval: float
 ) -> Float[Array, ""]:
     """
     Compute discrete Paley-Wiener integral approximation.
@@ -499,7 +501,7 @@ def compute_paley_wiener_integral(
     fft_vals = jnp.fft.rfft(signal_centered)
     power = (jnp.abs(fft_vals) ** 2) / signal.shape[0]
     log_power = jnp.log(jnp.maximum(power, epsilon))
-    freqs = jnp.fft.rfftfreq(signal.shape[0], d=1.0)
+    freqs = jnp.fft.rfftfreq(signal.shape[0], d=sampling_interval)
 
     delta = freqs[1] - freqs[0] if freqs.shape[0] > 1 else 1.0
     integrand = jnp.abs(log_power) / (1.0 + freqs ** 2)
@@ -825,10 +827,12 @@ def kernel_a_predict(
         signal_normalized,
         top_k=koopman_top_k,
         min_power=config.koopman_min_power,
+        sampling_interval=config.signal_sampling_interval,
     )
     paley_wiener_integral = compute_paley_wiener_integral(
         signal_normalized,
         epsilon=config.numerical_epsilon,
+        sampling_interval=config.signal_sampling_interval,
     )
     paley_wiener_ok = paley_wiener_integral <= config.paley_wiener_integral_max
 

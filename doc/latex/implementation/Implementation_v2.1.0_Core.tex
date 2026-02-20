@@ -691,7 +691,7 @@ The adaptive parameters are computed inside \texttt{orchestrate\_step()} and inj
 \begin{lstlisting}[language=Python]
 # Current-step coupling (no t-1 lag)
 output_a = kernel_a_predict(signal, key_a, config)
-holder_exponent_current = float(output_a.metadata["holder_exponent"])
+holder_exponent_current = jnp.asarray(output_a.metadata["holder_exponent"])
 theta_low, theta_high = compute_adaptive_stiffness_thresholds(holder_exponent_current)
 kernel_c_config = replace(config, stiffness_low=theta_low, stiffness_high=theta_high)
 
@@ -707,13 +707,27 @@ output_b, config_after, scaled = apply_host_architecture_scaling(
     baseline_entropy=state.baseline_entropy,
 )
 
+fractal_dimension = 2.0 - holder_exponent_current
+robustness_triggered = (
+    holder_exponent_current < config.holder_threshold
+) | (fractal_dimension > config.robustness_dimension_threshold)
+pre_sinkhorn_weights = jnp.where(state.regime_changed, uniform_simplex, state.rho)
+kernel_d_simplex = jnp.array([0.0, 0.0, 0.0, 1.0])
+if config.robustness_force_kernel_d:
+    pre_sinkhorn_weights = jnp.where(robustness_triggered, kernel_d_simplex, pre_sinkhorn_weights)
+
 provisional_fusion = fuse_kernel_outputs(...)
 ema_variance_current = update_ema_variance(state, residual, config.volatility_alpha).ema_variance
 adaptive_entropy_window, adaptive_learning_rate = compute_adaptive_jko_params(
     float(ema_variance_current),
     config=config,
 )
-fusion_config = replace(config, learning_rate=adaptive_learning_rate, entropy_window=adaptive_entropy_window)
+fusion_config = replace(
+    config,
+    learning_rate=adaptive_learning_rate,
+    entropy_window=adaptive_entropy_window,
+    sinkhorn_cost_type="huber" if robustness_triggered else config.sinkhorn_cost_type,
+)
 \end{lstlisting}
 
 \subsection{Layer 3: Meta-Optimization (Bayesian)}

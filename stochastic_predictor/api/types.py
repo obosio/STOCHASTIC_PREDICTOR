@@ -57,6 +57,8 @@ class PredictorConfig:
     sinkhorn_alpha: float = 0.5         # Volatility coupling coefficient
     sinkhorn_max_iter: int = 200        # Max Sinkhorn iterations (scan length)
     sinkhorn_inner_iterations: int = 10 # Inner iterations for log-domain stability
+    sinkhorn_cost_type: str = "squared"  # Cost type: "squared" or "huber"
+    sinkhorn_huber_delta: float = 1.0    # Huber delta for robust cost
     
     # Entropy Monitoring (Mode Collapse Detection)
     entropy_window: int = 100       # Sliding window for entropy computation
@@ -69,6 +71,7 @@ class PredictorConfig:
     entropy_ratio_min: float = 0.1                  # Entropy ratio lower bound
     entropy_ratio_max: float = 10.0                 # Entropy ratio upper bound
     entropy_baseline_floor: float = 1e-6            # Baseline entropy floor
+    entropy_scaling_trigger: float = 2.0            # Entropy ratio trigger for scaling
     mode_collapse_min_threshold: int = 10  # Minimum number of consecutive steps before mode collapse warning
     mode_collapse_window_ratio: float = 0.1  # Ratio of entropy_window for mode collapse warning threshold
     
@@ -100,9 +103,12 @@ class PredictorConfig:
     sde_dt: float = 0.01            # Time step for SDE integration
     sde_numel_integrations: int = 100  # Number of integration steps
     sde_diffusion_sigma: float = 0.2    # Diffusion coefficient (Levy process volatility)
+    sde_fd_epsilon: float = 1e-6        # Finite-difference epsilon for stiffness Jacobian
     
     # Circuit Breaker (Holder Singularity)
     holder_threshold: float = 0.4   # H_min: Critical threshold
+    robustness_dimension_threshold: float = 1.5  # Fractal dimension threshold
+    robustness_force_kernel_d: bool = True  # Force kernel D on robustness trigger
     dgm_entropy_coupling_beta: float = 0.7  # DGM entropy-topology coupling beta
     dgm_max_capacity_factor: float = 4.0   # Max width*depth multiplier
     stiffness_calibration_c1: float = 25.0 # Calibration constant for stiffness low
@@ -150,6 +156,7 @@ class PredictorConfig:
     frozen_signal_min_steps: int = 5        # N_freeze: consecutive equal values
     frozen_signal_recovery_ratio: float = 0.1  # Ratio vs historical variance
     frozen_signal_recovery_steps: int = 2   # Consecutive recovery confirmations
+    degraded_recovery_min_steps: int = 2    # Minimum steps before exiting degraded mode
     
     # Latency and Anti-Aliasing Policies
     staleness_ttl_ns: int = 500_000_000         # TTL: 500ms (degraded mode)
@@ -195,6 +202,7 @@ class PredictorConfig:
     
     # Base/Validation Parameters
     base_min_signal_length: int = 32            # Minimum required signal length
+    signal_sampling_interval: float = 1.0       # Sampling interval for FFT-based diagnostics
     signal_normalization_method: str = "zscore"  # Method: 'zscore' or 'minmax'
     numerical_epsilon: float = 1e-10            # Stability epsilon (divisions, logs, stiffness)
     warmup_signal_length: int = 100             # Representative signal length for JIT warm-up
@@ -273,6 +281,10 @@ class PredictorConfig:
             f"sinkhorn_alpha must be in (0, 1], got {self.sinkhorn_alpha}"
         assert self.sinkhorn_inner_iterations > 0, \
             "sinkhorn_inner_iterations must be > 0"
+        assert self.sinkhorn_cost_type in ("squared", "huber"), \
+            "sinkhorn_cost_type must be 'squared' or 'huber'"
+        assert self.sinkhorn_huber_delta > 0.0, \
+            "sinkhorn_huber_delta must be > 0"
         
         # Entropy monitoring constraints
         assert self.entropy_window > 0, \
@@ -285,6 +297,8 @@ class PredictorConfig:
             "entropy_ratio bounds must satisfy 0 < min <= max"
         assert self.entropy_baseline_floor > 0.0, \
             "entropy_baseline_floor must be > 0"
+        assert self.entropy_scaling_trigger > 0.0, \
+            "entropy_scaling_trigger must be > 0"
         assert self.koopman_top_k > 0, \
             "koopman_top_k must be > 0"
         assert self.koopman_min_power > 0.0, \
@@ -327,6 +341,8 @@ class PredictorConfig:
             f"sde_numel_integrations must be > 0, got {self.sde_numel_integrations}"
         assert self.stiffness_low > 0 and self.stiffness_high > self.stiffness_low, \
             f"stiffness thresholds must satisfy 0 < low < high, got {self.stiffness_low}, {self.stiffness_high}"
+        assert self.sde_fd_epsilon > 0.0, \
+            "sde_fd_epsilon must be > 0"
         assert self.kernel_c_jump_intensity >= 0.0, \
             "kernel_c_jump_intensity must be >= 0"
         assert self.kernel_c_jump_scale >= 0.0, \
@@ -337,6 +353,8 @@ class PredictorConfig:
         # Holder exponent bounds (stochastic processes)
         assert 0.0 < self.holder_threshold < 1.0, \
             f"holder_threshold must be in (0, 1), got {self.holder_threshold}"
+        assert self.robustness_dimension_threshold > 0.0, \
+            "robustness_dimension_threshold must be > 0"
         assert 0.0 < self.dgm_entropy_coupling_beta <= 1.0, \
             "dgm_entropy_coupling_beta must be in (0, 1]"
         assert self.dgm_max_capacity_factor >= 1.0, \
@@ -358,6 +376,10 @@ class PredictorConfig:
             "telemetry_hash_algorithm must be 'sha256' or 'crc32c'"
         assert self.telemetry_adaptive_log_path, \
             "telemetry_adaptive_log_path must be non-empty"
+        assert self.signal_sampling_interval > 0.0, \
+            "signal_sampling_interval must be > 0"
+        assert self.degraded_recovery_min_steps > 0, \
+            "degraded_recovery_min_steps must be > 0"
         assert self.telemetry_adaptive_window_size > 0, \
             "telemetry_adaptive_window_size must be > 0"
         assert self.telemetry_dashboard_width > 0, \

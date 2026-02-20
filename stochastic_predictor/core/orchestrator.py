@@ -203,7 +203,7 @@ def apply_host_architecture_scaling(
     output_b: KernelOutput,
     ema_variance: Float[Array, ""],
     baseline_entropy: Float[Array, ""],
-    scaling_threshold: float = 2.0,
+    scaling_threshold: Optional[float] = None,
 ) -> tuple[KernelOutput, PredictorConfig, bool]:
     """
     Host-side handler for dynamic DGM scaling (outside JAX tracing).
@@ -215,7 +215,8 @@ def apply_host_architecture_scaling(
     entropy_current = jnp.asarray(output_b.metadata.get("entropy_dgm", 0.0))
     entropy_ratio = compute_entropy_ratio(entropy_current, baseline_entropy, config)
     entropy_ratio_value = float(entropy_ratio)
-    scaling_triggered = entropy_ratio_value > scaling_threshold
+    trigger = scaling_threshold if scaling_threshold is not None else config.entropy_scaling_trigger
+    scaling_triggered = entropy_ratio_value > trigger
     if not scaling_triggered:
         return output_b, config, False
     new_width, new_depth = scale_dgm_architecture(config, entropy_ratio_value)
@@ -230,9 +231,9 @@ def apply_host_architecture_scaling(
 
 
 def compute_adaptive_stiffness_thresholds(
-    holder_exponent: float,
+    holder_exponent: Float[Array, ""],
     config: PredictorConfig
-) -> tuple[float, float]:
+) -> tuple[Float[Array, ""], Float[Array, ""]]:
     """
     Compute Hölder-informed stiffness thresholds for adaptive SDE solver.
     
@@ -282,22 +283,22 @@ def compute_adaptive_stiffness_thresholds(
         config.validation_holder_exponent_max,
         1.0 - config.holder_exponent_guard,
     )
-    holder_exponent = float(jnp.clip(holder_exponent, 0.0, max_holder))
-    
+    holder_exponent = jnp.clip(holder_exponent, 0.0, max_holder)
+
     # Guard against singularity at α → 1
-    denominator = max(1.0 - holder_exponent, config.holder_exponent_guard)
-    
+    denominator = jnp.maximum(1.0 - holder_exponent, config.holder_exponent_guard)
+
     # Compute adaptive thresholds
-    theta_low = max(
+    theta_low = jnp.maximum(
         config.stiffness_min_low,
         config.stiffness_calibration_c1 / (denominator ** 2),
     )
-    theta_high = max(
+    theta_high = jnp.maximum(
         config.stiffness_min_high,
         config.stiffness_calibration_c2 / (denominator ** 2),
     )
-    
-    return float(theta_low), float(theta_high)
+
+    return jnp.asarray(theta_low), jnp.asarray(theta_high)
 
 
 def compute_adaptive_jko_params(
@@ -462,7 +463,10 @@ def orchestrate_step(
 
     # V-MAJ-7: Degraded Mode Hysteresis (prevent oscillation)
     # Use jnp.where for pure XLA tensor operations (no Python control flow)
-    recovery_threshold = max(2, int(config.frozen_signal_recovery_steps))
+    recovery_threshold = jnp.maximum(
+        config.degraded_recovery_min_steps,
+        config.frozen_signal_recovery_steps,
+    )
     
     # If already degraded: accumulate recovery signal, else reset counter
     degraded_mode_recovery_counter = jnp.where(
@@ -490,14 +494,22 @@ def orchestrate_step(
     key_a, key_b, key_c, key_d = jax.random.split(state.rng_key, KernelType.N_KERNELS)
 
     output_a = kernel_a_predict(signal, key_a, config)
-    holder_exponent_current = float(output_a.metadata.get("holder_exponent", 0.0))
+    holder_exponent_current = jnp.asarray(output_a.metadata.get("holder_exponent", 0.0))
+    fractal_dimension = 2.0 - holder_exponent_current
+    robustness_triggered = (
+        holder_exponent_current < config.holder_threshold
+    ) | (fractal_dimension > config.robustness_dimension_threshold)
 
     # Hölder-informed stiffness thresholds (Kernel C) from current WTMM
     theta_low, theta_high = compute_adaptive_stiffness_thresholds(
         holder_exponent_current,
         config,
     )
-    kernel_c_config = replace(config, stiffness_low=theta_low, stiffness_high=theta_high)
+    kernel_c_config = replace(
+        config,
+        stiffness_low=jnp.asarray(theta_low),
+        stiffness_high=jnp.asarray(theta_high),
+    )
     output_c = kernel_c_predict(signal, key_c, kernel_c_config)
 
     # Kernel B entropy from current step (may trigger architecture scaling)
@@ -511,7 +523,7 @@ def orchestrate_step(
     )
 
     entropy_ratio = compute_entropy_ratio(entropy_current, baseline_entropy, config)
-    scaling_triggered = entropy_ratio > 2.0
+    scaling_triggered = entropy_ratio > config.entropy_scaling_trigger
     config_after = config
     if allow_host_scaling:
         output_b, config_after, scaling_triggered_host = apply_host_architecture_scaling(
@@ -531,22 +543,32 @@ def orchestrate_step(
 
     kernel_outputs = (output_a, output_b, output_c, output_d)
 
-    fusion_config = config
     predictions = jnp.array([ko.prediction for ko in kernel_outputs]).reshape(-1)
+    uniform_simplex = jnp.full((KernelType.N_KERNELS,), 1.0 / KernelType.N_KERNELS)
+    pre_sinkhorn_weights = jnp.where(state.regime_changed, uniform_simplex, state.rho)
+    kernel_d_simplex = jnp.array([0.0, 0.0, 0.0, 1.0])
+    if config.robustness_force_kernel_d:
+        pre_sinkhorn_weights = jnp.where(robustness_triggered, kernel_d_simplex, pre_sinkhorn_weights)
 
     # Provisional fusion to update volatility for current step
     provisional_window, provisional_lr = compute_adaptive_jko_params(
         float(state.ema_variance),
         config=config,
     )
+    if allow_host_scaling:
+        robustness_triggered_flag = _to_python_scalar(robustness_triggered)
+        provisional_cost_type = "huber" if robustness_triggered_flag else config.sinkhorn_cost_type
+    else:
+        provisional_cost_type = config.sinkhorn_cost_type
     provisional_config = replace(
         config,
         learning_rate=provisional_lr,
         entropy_window=provisional_window,
+        sinkhorn_cost_type=provisional_cost_type,
     )
     provisional_fusion = fuse_kernel_outputs(
         kernel_outputs=kernel_outputs,
-        current_weights=state.rho,
+        current_weights=pre_sinkhorn_weights,
         ema_variance=state.ema_variance,
         config=provisional_config,
     )
@@ -562,11 +584,12 @@ def orchestrate_step(
         config,
         learning_rate=adaptive_learning_rate,
         entropy_window=adaptive_entropy_window,
+        sinkhorn_cost_type=provisional_cost_type,
     )
 
     fusion = fuse_kernel_outputs(
         kernel_outputs=kernel_outputs,
-        current_weights=state.rho,
+        current_weights=pre_sinkhorn_weights,
         ema_variance=ema_variance_current,
         config=fusion_config,
     )
@@ -681,6 +704,7 @@ def orchestrate_step(
     final_rho = jnp.where(reject_observation, state.rho, updated_weights)
     final_rho = jnp.where(entropy_reset_triggered, uniform_simplex, final_rho)
     final_rho = jnp.where(in_grace_period, state.rho, final_rho)
+    final_rho = jnp.where(robustness_triggered, kernel_d_simplex, final_rho)
 
     updated_state = replace(
         updated_state,
@@ -832,110 +856,37 @@ def orchestrate_step_batch(
     timestamp_ns: int,
     states: InternalState,
     config: PredictorConfig,
-    observations: ProcessState,
+    observations: list[ProcessState],
     now_ns: int,
-    step_counters: Float[Array, "B"],  # Batch of step counters
-) -> tuple[PredictionResult, InternalState]:  # Return batched PyTree directly (zero-copy)
+    step_counters: Float[Array, "B"],
+) -> tuple[PredictionResult, InternalState]:
     """
-    Vectorized orchestration for multi-tenant deployment (B assets).
-    
-    COMPLIANCE: API_Python.tex §3.1 - Multi-Tenant Architecture
-    "This architecture enables jax.vmap to batch multiple asset states in a
-    single hardware call, minimizing the Python GIL impact and maximizing GPU occupancy."
-    
-    WARNING: This is an EXPERIMENTAL API for Level 4+ autonomy. Requires:
-    1. InternalState must be batched (all fields shape [B, ...])
-    2. ProcessState must be batched
-    3. TelemetryBuffer cannot be vmapped (handled externally)
-    
-    CRITICAL: Returns batched PyTree directly (no unbatching to Python lists).
-    This maintains zero-copy semantics and prevents GPU memory blocking.
-    
-    Design Trade-offs:
-        - Throughput: ~10x improvement (100 assets batched vs sequential)
-        - Complexity: Requires batch-aware state management
-        - Limitations: Telemetry must be post-processed (not emitted per-asset)
-    
-    Args:
-        signals: Batch of signal histories, shape [B, n]
-        timestamp_ns: Shared timestamp (scalar)
-        states: Batched InternalState with all fields [B, ...]
-        config: Shared PredictorConfig (scalar)
-        observations: Batched ProcessState
-        now_ns: Shared current time (scalar)
-        step_counters: Array of step counters per asset, shape [B]
-    
-    Returns:
-        tuple: (list of B PredictionResults, batched InternalState)
-    
-    Performance:
-        - Sequential: 100 assets × 200μs = 20ms total
-        - Vectorized: 1 batch × 500μs = 0.5ms total (40x speedup)
-    
-    Memory:
-        - VRAM footprint: Linear with batch size B
-        - Recommended: B ≤ 256 for 16GB GPU, B ≤ 1024 for 80GB GPU
-    
-    References:
-        - API_Python.tex §3.1: Multi-Tenant Architecture (Stateless Functional Pattern)
-        - API_Python.tex §3.1.1: Throughput Maximization (Vectorized Batching)
-        - Theory.tex §1.4: Universal System Architecture (scalability)
-    
-    Example:
-        >>> # Setup batch of 100 assets
-        >>> batch_size = 100
-        >>> signals_batch = jnp.stack([generate_signal(i) for i in range(batch_size)])
-        >>> states_batch = initialize_batched_states(batch_size, config, key)
-        >>> 
-        >>> # Single vectorized call processes all 100 assets
-        >>> predictions, new_states = orchestrate_step_batch(
-        ...     signals=signals_batch,
-        ...     timestamp_ns=time.time_ns(),
-        ...     states=states_batch,
-        ...     config=config,
-        ...     observations=obs_batch,
-        ...     now_ns=time.time_ns(),
-        ...     step_counters=jnp.arange(batch_size)
-        ... )
-    
-    IMPORTANT:
-        This function does NOT emit telemetry (TelemetryBuffer is stateful and
-        cannot be vmapped). Telemetry must be collected post-facto by iterating
-        over the returned predictions.
+    Host-side batch orchestration for multi-tenant deployment (B assets).
+
+    Uses a Python loop to preserve full ingestion logic and observation types.
     """
-    # Wrapper that disables telemetry for vmap context
-    def orchestrate_single_no_telemetry(signal, state, obs, step_counter):
+    predictions: list[PredictionResult] = []
+    next_states: list[InternalState] = []
+    batch_size = signals.shape[0]
+
+    for idx in range(batch_size):
+        state_i = jax.tree_util.tree_map(lambda x: x[idx], states)
         result = orchestrate_step(
-            signal=signal,
+            signal=signals[idx],
             timestamp_ns=timestamp_ns,
-            state=state,
+            state=state_i,
             config=config,
-            observation=obs,
+            observation=observations[idx],
             now_ns=now_ns,
-            telemetry_buffer=None,  # Disable telemetry in vmap
-            step_counter=step_counter,
+            telemetry_buffer=None,
+            step_counter=int(jax.device_get(step_counters[idx])),
             allow_host_scaling=False,
         )
-        return result.prediction, result.state
-    
-    # Vectorize across batch dimension (axis 0)
-    vmap_fn = jax.vmap(
-        orchestrate_single_no_telemetry,
-        in_axes=(0, 0, 0, 0),  # All inputs batched along axis 0
-        out_axes=(0, 0)  # All outputs batched along axis 0
-    )
-    
-    # Execute vectorized orchestration
-    predictions_batch, states_batch = vmap_fn(
-        signals, states, observations, step_counters
-    )
-    
-    # ZERO-COPY BATCHING: Return PyTree directly without unbatching
-    # predictions_batch is already batched correctly from vmap
-    # This maintains GPU memory efficiency and prevents GIL blocking.
-    # Callers must handle batched PyTree structure directly.
-    # COMPLIANCE: API_Python.tex §3.1 / Stochastic_Predictor_Python.tex §3.1
-    # "JIT optimization requires zero-copy PyTree returns to maintain vmap parallelism."
+        predictions.append(result.prediction)
+        next_states.append(result.state)
+
+    predictions_batch = jax.tree_util.tree_map(lambda *xs: jnp.stack(xs), *predictions)
+    states_batch = jax.tree_util.tree_map(lambda *xs: jnp.stack(xs), *next_states)
     return predictions_batch, states_batch
 
 

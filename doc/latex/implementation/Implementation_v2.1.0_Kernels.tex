@@ -987,88 +987,65 @@ where $L_t^\alpha$ is an alpha-stable Levy process.
 \section{Implementation}
 
 \begin{lstlisting}[language=Python]
-def estimate_stiffness(drift_fn, diffusion_fn, y, t, args) -> float:
+def estimate_stiffness(drift_fn, diffusion_fn, y, t, dt, args, config) -> float:
     """
-    Estimate stiffness ratio for dynamic solver selection.
-    
-    Stiffness metric: ||grad(f)|| / trace(g*g^T)
-    where f is drift, g is diffusion.
-    
-    High ratio -> stiff system (implicit solver required)
-    Low ratio -> non-stiff system (explicit solver sufficient)
+    Estimate stiffness metric per Stochastic_Predictor_Theory.tex §2.3.3.
+
+    Uses diffusion Jacobian ratio and volatility-change term.
     """
-    # Compute drift Jacobian norm
-    def drift_scalar(y_vec):
-        return jnp.linalg.norm(drift_fn(t, y_vec, args))
-    
-    drift_grad = jax.grad(drift_scalar)(y)
-    drift_jacobian_norm = jnp.linalg.norm(drift_grad)
-    
-    # Compute diffusion magnitude (trace of g*g^T)
-    diffusion_matrix = diffusion_fn(t, y, args)
-    diffusion_variance = jnp.trace(diffusion_matrix @ diffusion_matrix.T)
-    
-    # Stiffness ratio: drift strength / diffusion strength
-    epsilon = config.numerical_epsilon  # Prevent division by zero
-    stiffness = drift_jacobian_norm / (jnp.sqrt(diffusion_variance) + epsilon)
-    
-    return float(stiffness)
+    eps = config.sde_fd_epsilon
+    sigma = diffusion_fn(t, y, args)
+    sigma_norm = jnp.linalg.norm(sigma)
+
+    basis = jnp.eye(y.shape[0])
+    sigma_plus = jax.vmap(lambda e: diffusion_fn(t, y + eps * e, args))(basis)
+    sigma_minus = jax.vmap(lambda e: diffusion_fn(t, y - eps * e, args))(basis)
+    sigma_grad = (sigma_plus - sigma_minus) / (2.0 * eps)
+    grad_norms = jnp.linalg.norm(sigma_grad.reshape(y.shape[0], -1), axis=1)
+    stiffness_ratio = jnp.max(grad_norms) / (jnp.min(grad_norms) + config.numerical_epsilon)
+
+    drift = drift_fn(t, y, args)
+    y_pred = y + drift * dt
+    sigma_pred = diffusion_fn(t + dt, y_pred, args)
+    dlog_sigma_dt = jnp.abs(
+        jnp.log(jnp.linalg.norm(sigma_pred) + config.numerical_epsilon)
+        - jnp.log(sigma_norm + config.numerical_epsilon)
+    ) / dt
+
+    return float(jnp.maximum(stiffness_ratio, dlog_sigma_dt * dt))
 
 
 def select_stiffness_solver(current_stiffness: float, config):
-    """
-    Dynamic solver selection per Stochastic_Predictor_Theory.tex §2.3.3.
-    
-    Stiffness-adaptive scheme:
-    - Low (< stiffness_low): Explicit Euler (fast, stable for non-stiff)
-    - Medium (stiffness_low to stiffness_high): Heun (adaptive, balanced)
-    - High (>= stiffness_high): Implicit Euler (stable for stiff systems)
-    """
+    """Return explicit/hybrid/implicit regime label."""
     if current_stiffness < config.stiffness_low:
-        return diffrax.Euler()  # Explicit - fast for non-stiff
-    elif current_stiffness < config.stiffness_high:
-        return diffrax.Heun()  # Adaptive - balanced
-    else:
-        return diffrax.ImplicitEuler()  # Implicit - stable for stiff
+        return "explicit"
+    if current_stiffness < config.stiffness_high:
+        return "hybrid"
+    return "implicit"
 
 
 @jax.jit
 def solve_sde(drift_fn, diffusion_fn, y0, t0, t1, key, config, args):
-    """
-    Solve SDE using dynamic solver selection based on stiffness.
-    
-    Config parameters:
-        - stiffness_low, stiffness_high: Regime thresholds
-        - sde_pid_rtol, sde_pid_atol: Tolerances
-        - sde_brownian_tree_tol: VirtualBrownianTree tolerance
-    """
-    # Dynamic solver selection based on stiffness (Stochastic_Predictor_Theory.tex §2.3.3)
-    current_stiffness = estimate_stiffness(drift_fn, diffusion_fn, y0, t0, args)
-    solver_obj = select_stiffness_solver(current_stiffness, config)
-    
-    # Define SDE terms
-    drift_term = diffrax.ODETerm(drift_fn)
-    diffusion_term = diffrax.ControlTerm(
-        diffusion_fn,
-        diffrax.VirtualBrownianTree(t0=t0, t1=t1, 
-                                     tol=config.sde_brownian_tree_tol,
-                                     shape=(y0.shape[0],), key=key)
-    )
-    
-    # Solve with adaptive stepping
-    stepsize_controller = diffrax.PIDController(
-        rtol=config.sde_pid_rtol, atol=config.sde_pid_atol,
-        dtmin=config.sde_pid_dtmin, dtmax=config.sde_pid_dtmax
-    )
-    
-    solution = diffrax.diffeqsolve(
-        diffrax.MultiTerm(drift_term, diffusion_term),
-        solver_obj, t0=t0, t1=t1, dt0=config.sde_pid_dtmax / 10.0,
-        y0=y0, args=args, stepsize_controller=stepsize_controller,
-        saveat=diffrax.SaveAt(t1=True)
-    )
-    
-    return solution.ys[-1]
+    """Solve SDE using explicit/implicit/hybrid transitions."""
+    n_steps = config.sde_numel_integrations
+    dt = (t1 - t0) / n_steps
+    noise = jax.random.normal(key, (n_steps, y0.shape[0]))
+
+    def step(carry, noise_t):
+        y, t = carry
+        dW = noise_t * jnp.sqrt(dt)
+        S = estimate_stiffness(drift_fn, diffusion_fn, y, t, dt, args, config)
+        drift = drift_fn(t, y, args)
+        diffusion = diffusion_fn(t, y, args)
+        y_exp = y + drift * dt + diffusion @ dW
+        drift_pred = drift_fn(t + dt, y_exp, args)
+        y_imp = y + 0.5 * dt * (drift + drift_pred) + diffusion @ dW
+        lam = jnp.clip((S - config.stiffness_low) / (config.stiffness_high - config.stiffness_low), 0.0, 1.0)
+        y_next = jnp.where(S < config.stiffness_low, y_exp, jnp.where(S >= config.stiffness_high, y_imp, (1 - lam) * y_exp + lam * y_imp))
+        return (y_next, t + dt), None
+
+    (y_final, _), _ = jax.lax.scan(step, (y0, t0), noise)
+    return y_final
 
 
 def kernel_c_predict(signal: Float[Array, "n"],

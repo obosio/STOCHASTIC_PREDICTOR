@@ -36,6 +36,8 @@ sinkhorn_epsilon_0 = 0.1
 sinkhorn_alpha = 0.5  # Coupling coefficient to volatility
 sinkhorn_max_iter = 200  # Max Sinkhorn iterations (scan length)
 sinkhorn_inner_iterations = 10  # Inner log-domain stabilization iterations
+sinkhorn_cost_type = "squared"  # Cost type: "squared" or "huber"
+sinkhorn_huber_delta = 1.0  # Huber delta for robust cost
 
 # Entropy monitoring (adaptive threshold based on volatility regime)
 entropy_window = 100
@@ -48,6 +50,7 @@ entropy_volatility_high_threshold = 0.2   # High-volatility sigma threshold
 entropy_ratio_min = 0.1                  # Entropy ratio lower bound
 entropy_ratio_max = 10.0                 # Entropy ratio upper bound
 entropy_baseline_floor = 1e-6            # Baseline entropy floor
+entropy_scaling_trigger = 2.0            # Entropy ratio trigger for scaling
 mode_collapse_min_threshold = 10  # Minimum consecutive steps before mode collapse warning
 mode_collapse_window_ratio = 0.1  # Ratio of entropy_window for mode collapse warning threshold
 
@@ -70,6 +73,8 @@ max_past_drift_ns = 86_400_000_000_000  # 24 hours (stale data threshold)
 
 # Circuit breaker
 holder_threshold = 0.4  # Holder exponent critical threshold
+robustness_dimension_threshold = 1.5  # Fractal dimension threshold
+robustness_force_kernel_d = true  # Force kernel D during robustness trigger
 
 # DGM entropy-topology coupling
 dgm_entropy_coupling_beta = 0.7  # Coupling beta for DGM scaling
@@ -97,6 +102,7 @@ kernel_d_confidence_base = 1.0          # Base factor for confidence (base + sig
 # Base/Validation Parameters
 base_min_signal_length = 32             # Minimum required signal length
 signal_normalization_method = "zscore"  # Normalization method: 'zscore' or 'minmax'
+signal_sampling_interval = 1.0           # Sampling interval for FFT-based diagnostics
 numerical_epsilon = 1e-10               # Unified stability epsilon (divisions, logs, stiffness)
 warmup_signal_length = 100              # Representative signal length for JIT warm-up
 pdf_grid_min_z = -4.0                   # PDF grid lower bound (z-score)
@@ -142,6 +148,7 @@ stiffness_high = 1000                   # Above: use implicit trapezial
 sde_dt = 0.01                           # Time step
 sde_numel_integrations = 100            # Number of integration steps
 sde_diffusion_sigma = 0.2               # Diffusion coefficient (Levy process volatility)
+sde_fd_epsilon = 1e-6                    # Finite-difference epsilon for stiffness Jacobian
 kernel_c_mu = 0.0                       # Drift (mean reversion rate)
 kernel_c_alpha = 1.8                    # Stability parameter (1 < alpha <= 2)
 kernel_c_beta = 0.0                     # Skewness parameter (-1 <= beta <= 1)
@@ -182,6 +189,7 @@ data_feed_max_retries = 3
 frozen_signal_min_steps = 5
 frozen_signal_recovery_ratio = 0.1
 frozen_signal_recovery_steps = 2
+degraded_recovery_min_steps = 2
 
 # Snapshot parameters
 snapshot_atomic_fsync = true

@@ -155,7 +155,23 @@ class ConfigManager:
                     section, key = parts
                     if section not in cls._config:
                         cls._config[section] = {}
-                    cls._config[section][key] = value
+                    cls._config[section][key] = cls._coerce_env_value(value)
+
+    @staticmethod
+    def _coerce_env_value(raw_value: str) -> Any:
+        """Coerce environment overrides into typed values when possible."""
+        value = raw_value.strip()
+        lowered = value.lower()
+        if lowered in {"true", "false"}:
+            return lowered == "true"
+        try:
+            return int(value)
+        except ValueError:
+            pass
+        try:
+            return float(value)
+        except ValueError:
+            return value
     
     def get(self, section: str, key: str, default: Any = None) -> Any:
         """
@@ -279,6 +295,8 @@ FIELD_TO_SECTION_MAP: Dict[str, str] = {
     "sinkhorn_alpha": "orchestration",
     "sinkhorn_max_iter": "orchestration",
     "sinkhorn_inner_iterations": "orchestration",
+    "sinkhorn_cost_type": "orchestration",
+    "sinkhorn_huber_delta": "orchestration",
     
     # Entropy Monitoring
     "entropy_window": "orchestration",
@@ -291,6 +309,7 @@ FIELD_TO_SECTION_MAP: Dict[str, str] = {
     "entropy_ratio_min": "orchestration",
     "entropy_ratio_max": "orchestration",
     "entropy_baseline_floor": "orchestration",
+    "entropy_scaling_trigger": "orchestration",
     
     # Kernel Parameters
     "log_sig_depth": "kernels",
@@ -314,6 +333,7 @@ FIELD_TO_SECTION_MAP: Dict[str, str] = {
     "stiffness_high": "kernels",
     "sde_dt": "kernels",
     "sde_numel_integrations": "kernels",
+    "sde_fd_epsilon": "kernels",
     "kernel_a_bandwidth": "kernels",
     "kernel_a_embedding_dim": "kernels",
     "kernel_a_min_wiener_hopf_order": "kernels",
@@ -343,6 +363,7 @@ FIELD_TO_SECTION_MAP: Dict[str, str] = {
     "kernel_d_alpha": "kernels",
     "kernel_d_confidence_base": "kernels",
     "base_min_signal_length": "kernels",
+    "signal_sampling_interval": "kernels",
     "signal_normalization_method": "kernels",
     "numerical_epsilon": "kernels",
     "warmup_signal_length": "kernels",
@@ -365,6 +386,8 @@ FIELD_TO_SECTION_MAP: Dict[str, str] = {
     "stiffness_min_low": "orchestration",
     "stiffness_min_high": "orchestration",
     "holder_exponent_guard": "orchestration",
+    "robustness_dimension_threshold": "orchestration",
+    "robustness_force_kernel_d": "orchestration",
     "cusum_h": "orchestration",
     "cusum_k": "orchestration",
     "grace_period_steps": "orchestration",
@@ -460,6 +483,7 @@ FIELD_TO_SECTION_MAP: Dict[str, str] = {
     "frozen_signal_min_steps": "io",
     "frozen_signal_recovery_ratio": "io",
     "frozen_signal_recovery_steps": "io",
+    "degraded_recovery_min_steps": "io",
     
     # Core System Policies
     "staleness_ttl_ns": "core",

@@ -54,9 +54,14 @@ def compute_cost_matrix(
     predictions: Float[Array, "n"],
     config: PredictorConfig
 ) -> Float[Array, "n n"]:
-    """Compute pairwise squared-distance cost matrix for kernel predictions."""
-    del config
+    """Compute pairwise cost matrix for kernel predictions."""
     diffs = predictions[:, None] - predictions[None, :]
+    if config.sinkhorn_cost_type == "huber":
+        delta = config.sinkhorn_huber_delta
+        abs_diffs = jnp.abs(diffs)
+        quadratic = 0.5 * jnp.square(diffs)
+        linear = delta * (abs_diffs - 0.5 * delta)
+        return jnp.where(abs_diffs <= delta, quadratic, linear)
     return jnp.square(diffs)
 
 
