@@ -32,7 +32,6 @@ from .base import (
 )
 
 
-@partial(jax.jit, static_argnames=('config',))
 def compute_log_signature(
     path: Float[Array, "n d"],
     config
@@ -124,12 +123,11 @@ def reparameterize_path(
     return path[indices]
 
 
-@partial(jax.jit, static_argnames=('config',))
 def predict_from_signature(
     logsig: Float[Array, "signature_dim"],
-    last_value: float,
+    last_value: Float[Array, ""],
     config
-) -> tuple[float, float]:
+) -> tuple[Float[Array, ""], Float[Array, ""]]:
     """
     Generate prediction from log-signature features.
     
@@ -143,7 +141,7 @@ def predict_from_signature(
         config: PredictorConfig with kernel_d_alpha, kernel_d_confidence_scale
     
     Returns:
-        Tuple of (prediction, confidence)
+        Tuple of (prediction, confidence) as scalar arrays
     
     References:
         - Python.tex §2.2.4: Signature Regression
@@ -159,12 +157,14 @@ def predict_from_signature(
     
     # Simple heuristic: prediction = last_value + alpha * sign(first_sig_component)
     # where alpha is scaled by signature magnitude (from config, NOT hardcoded)
-    if logsig.shape[0] > 1:
-        direction = jnp.sign(logsig[1])  # First non-trivial component
-    else:
-        direction = 0.0
+    direction = jnp.where(
+        logsig.shape[0] > 1,
+        jnp.sign(logsig[1]),  # First non-trivial component
+        jnp.array(0.0)
+    )
     
     # Prediction: slight extrapolation based on signature trend
+    # All computations return scalar arrays for consistency with build_pdf_grid
     prediction = last_value + config.kernel_d_alpha * direction * sig_norm
     
     # Confidence: Scale from config (Zero-Heuristics: all factors from config)
@@ -174,7 +174,7 @@ def predict_from_signature(
     return prediction, confidence
 
 
-@partial(jax.jit, static_argnames=('config',))
+@partial(jax.jit, static_argnames=("config",))
 def kernel_d_predict(
     signal: Float[Array, "n"],
     key: Array,

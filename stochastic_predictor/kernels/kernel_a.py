@@ -339,7 +339,6 @@ def compute_singularity_spectrum(
     return holder_exponent, spectrum_max
 
 
-@partial(jax.jit, static_argnames=('config',))
 def extract_holder_exponent_wtmm(
     signal: Float[Array, "n"],
     config
@@ -649,7 +648,6 @@ def compute_gram_matrix(
     return K
 
 
-@partial(jax.jit, static_argnames=('config',))
 def kernel_ridge_regression(
     X_train: Float[Array, "n d"],
     y_train: Float[Array, "n"],
@@ -711,7 +709,6 @@ def kernel_ridge_regression(
     return y_pred, variances
 
 
-@partial(jax.jit, static_argnames=('config',))
 def create_embedding(
     signal: Float[Array, "n"],
     config
@@ -753,7 +750,7 @@ def create_embedding(
     return embedded
 
 
-@partial(jax.jit, static_argnames=('config',))
+@partial(jax.jit, static_argnames=("config",))
 def kernel_a_predict(
     signal: Float[Array, "n"],
     key: Array,

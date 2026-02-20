@@ -139,7 +139,6 @@ class DGM_HJB_Solver(eqx.Module):
         return output[0]
 
 
-@partial(jax.jit, static_argnames=('config',))
 def compute_entropy_dgm(
     model: DGM_HJB_Solver,
     t: float,
@@ -194,7 +193,6 @@ def compute_entropy_dgm(
     return entropy
 
 
-@partial(jax.jit, static_argnames=('config',))
 def loss_hjb(
     model: DGM_HJB_Solver,
     t_batch: Float[Array, "n_t"],
@@ -270,7 +268,6 @@ def loss_hjb(
     return loss
 
 
-@partial(jax.jit, static_argnames=('config',))
 def compute_adaptive_entropy_threshold(
     ema_variance: Float[Array, ""],
     config
@@ -313,6 +310,7 @@ def compute_adaptive_entropy_threshold(
     return float(gamma)
 
 
+@partial(jax.jit, static_argnames=("config",))
 def kernel_b_predict(
     signal: Float[Array, "n"],
     key: Array,

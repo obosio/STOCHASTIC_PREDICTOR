@@ -29,7 +29,6 @@ from dataclasses import replace
 from stochastic_predictor.api.types import InternalState, PredictorConfig
 
 
-@jax.jit
 def update_signal_history(
     state: InternalState,
     new_value: Float[Array, ""]
@@ -75,7 +74,6 @@ def update_signal_history(
     return replace(state, signal_history=updated_history)
 
 
-@jax.jit
 def update_residual_buffer(
     state: InternalState,
     new_residual: Float[Array, ""]
@@ -106,7 +104,6 @@ def update_residual_buffer(
     return replace(state, residual_buffer=updated_buffer)
 
 
-@jax.jit
 def batch_update_signal_history(
     state: InternalState,
     new_values: Float[Array, "M"]
@@ -217,7 +214,6 @@ def update_residual_window(
     return replace(state, residual_window=updated_window)
 
 
-@jax.jit
 def update_cusum_statistics(
     residual: Float[Array, ""],
     state: InternalState,
@@ -312,7 +308,6 @@ def update_cusum_statistics(
 
 
 
-@jax.jit
 def update_ema_variance(
     state: InternalState,
     new_value: Float[Array, ""],
@@ -393,7 +388,6 @@ def atomic_state_update(
     return state, should_alarm
 
 
-@jax.jit
 def reset_cusum_statistics(state: InternalState) -> InternalState:
     """
     Reset CUSUM accumulators to zero (after alarm trigger).

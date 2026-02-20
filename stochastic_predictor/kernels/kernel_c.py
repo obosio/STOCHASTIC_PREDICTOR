@@ -268,7 +268,7 @@ def compute_information_drift(
     return jnp.mean(increments) / dt
 
 
-@partial(jax.jit, static_argnames=('config',))
+@partial(jax.jit, static_argnames=("config",))
 def kernel_c_predict(
     signal: Float[Array, "n"],
     key: Array,
