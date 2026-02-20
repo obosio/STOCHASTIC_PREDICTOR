@@ -52,7 +52,7 @@ def compute_morlet_wavelet(
 ) -> Float[Array, "n"]
 ```
 
-**Location**: `stochastic_predictor/kernels/kernel_a.py::compute_morlet_wavelet`
+**Location**: `Python/kernels/kernel_a.py::compute_morlet_wavelet`
 
 **Mapping**:
 
@@ -91,7 +91,7 @@ def continuous_wavelet_transform(
 ) -> Float[Array, "n d"]
 ```
 
-**Location**: `stochastic_predictor/kernels/kernel_a.py::continuous_wavelet_transform`
+**Location**: `Python/kernels/kernel_a.py::continuous_wavelet_transform`
 
 **Mapping**:
 
@@ -127,7 +127,7 @@ def compute_holder_exponent(
 ) -> Float[Array, "n"]
 ```
 
-**Location**: `stochastic_predictor/kernels/kernel_a.py::compute_holder_exponent`
+**Location**: `Python/kernels/kernel_a.py::compute_holder_exponent`
 
 **Mapping**:
 
@@ -165,7 +165,7 @@ def kernel_a(
 ) -> KernelOutput
 ```
 
-**Location**: `stochastic_predictor/kernels/kernel_a.py::kernel_a`
+**Location**: `Python/kernels/kernel_a.py::kernel_a`
 
 **Mapping**:
 
@@ -204,7 +204,7 @@ def kernel_b(
 ) -> KernelOutput
 ```
 
-**Location**: `stochastic_predictor/kernels/kernel_b.py::kernel_b`
+**Location**: `Python/kernels/kernel_b.py::kernel_b`
 
 **Mapping**:
 
@@ -255,7 +255,7 @@ def solve_sde(
 ) -> Tuple[Float[Array, ""], dict]
 ```
 
-**Location**: `stochastic_predictor/kernels/kernel_c.py::solve_sde`
+**Location**: `Python/kernels/kernel_c.py::solve_sde`
 
 **Stiffness Computation**:
 
@@ -268,7 +268,7 @@ def estimate_stiffness(
 ) -> Float[Array, ""]
 ```
 
-**Location**: `stochastic_predictor/kernels/kernel_c.py::estimate_stiffness`
+**Location**: `Python/kernels/kernel_c.py::estimate_stiffness`
 
 **Mapping**:
 
@@ -309,7 +309,7 @@ def kernel_d(
 ) -> KernelOutput
 ```
 
-**Location**: `stochastic_predictor/kernels/kernel_d.py::kernel_d`
+**Location**: `Python/kernels/kernel_d.py::kernel_d`
 
 **Mapping**:
 
@@ -358,7 +358,7 @@ def sinkhorn_knopp_solve(
 ) -> Tuple[Float[Array, "n n"], Float[Array, ""]]
 ```
 
-**Location**: `stochastic_predictor/core/sinkhorn.py::sinkhorn_knopp_solve`
+**Location**: `Python/core/sinkhorn.py::sinkhorn_knopp_solve`
 
 **Cost Type** (Config-Driven):
 
@@ -407,7 +407,7 @@ def compute_sinkhorn_epsilon(
 ) -> Float[Array, ""]
 ```
 
-**Location**: `stochastic_predictor/core/sinkhorn.py::compute_sinkhorn_epsilon`
+**Location**: `Python/core/sinkhorn.py::compute_sinkhorn_epsilon`
 
 **Mapping**:
 
@@ -453,7 +453,7 @@ def fuse_kernel_outputs(
 ) -> Tuple[Float[Array, ""], dict]
 ```
 
-**Location**: `stochastic_predictor/core/orchestrator.py::fuse_kernel_outputs`
+**Location**: `Python/core/orchestrator.py::fuse_kernel_outputs`
 
 **Robustness Breaker** (Implementation.tex §2.4):
 
@@ -507,7 +507,7 @@ def update_cusum_statistics(
 ) -> Tuple[Float[Array, ""], Float[Array, ""], int]
 ```
 
-**Location**: `stochastic_predictor/core/orchestrator.py::update_cusum_statistics`
+**Location**: `Python/core/orchestrator.py::update_cusum_statistics`
 
 **Mapping**:
 
@@ -550,7 +550,7 @@ def compute_kurtosis(
 ) -> Tuple[Float[Array, ""], int]
 ```
 
-**Location**: `stochastic_predictor/core/orchestrator.py::compute_kurtosis`
+**Location**: `Python/core/orchestrator.py::compute_kurtosis`
 
 **Mapping**:
 
@@ -590,7 +590,7 @@ def compute_entropy(
 ) -> Float[Array, ""]
 ```
 
-**Location**: `stochastic_predictor/core/orchestrator.py::compute_entropy`
+**Location**: `Python/core/orchestrator.py::compute_entropy`
 
 **Mode Collapse Detector**:
 
@@ -602,7 +602,7 @@ def detect_mode_collapse(
 ) -> int  # 0 or 1 (alarm flag)
 ```
 
-**Location**: `stochastic_predictor/core/orchestrator.py::detect_mode_collapse`
+**Location**: `Python/core/orchestrator.py::detect_mode_collapse`
 
 **Mapping**:
 
@@ -647,7 +647,7 @@ def scale_dgm_architecture(
 ) -> Tuple[int, int]  # (new_depth, scaling_events_count)
 ```
 
-**Location**: `stochastic_predictor/core/orchestrator.py::scale_dgm_architecture`
+**Location**: `Python/core/orchestrator.py::scale_dgm_architecture`
 
 **Mapping**:
 
@@ -662,7 +662,7 @@ def scale_dgm_architecture(
 
 All operational parameters sourced from:
 
-- `stochastic_predictor/api/types.py::PredictorConfig`
+- `Python/api/types.py::PredictorConfig`
 - `config.toml`
 
 **Stiffness Thresholds**:
@@ -756,7 +756,7 @@ All operational parameters sourced from:
 - **API**: doc/latex/specification/Stochastic_Predictor_API_Python.tex
 - **Implementation**: doc/latex/implementation/Implementation_v2.1.0_*.tex
 - **Configuration**: config.toml
-- **Source Code**: stochastic_predictor/ (all modules)
+- **Source Code**: Python/ (all modules)
 
 ---
 

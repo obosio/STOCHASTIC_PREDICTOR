@@ -17,7 +17,7 @@ from ott.geometry import geometry
 from ott.problems.linear import linear_problem
 from ott.solvers.linear import sinkhorn
 
-from stochastic_predictor.api.types import PredictorConfig
+from Python.api.types import PredictorConfig
 
 
 @dataclass(frozen=True)

@@ -15,7 +15,7 @@ References:
     - JAX docs: https://jax.readthedocs.io/en/latest/_autosummary/jax.lax.dynamic_update_slice.html
 
 Usage:
-    >>> from stochastic_predictor.api.state_buffer import update_signal_history
+    >>> from Python.api.state_buffer import update_signal_history
     >>> state = InternalState(...)
     >>> new_state = update_signal_history(state, new_value=3.14)
 """
@@ -26,7 +26,7 @@ import jax.lax as lax
 from jaxtyping import Array, Float
 from dataclasses import replace
 
-from stochastic_predictor.api.types import InternalState, PredictorConfig
+from Python.api.types import InternalState, PredictorConfig
 
 
 def update_signal_history(
@@ -368,7 +368,7 @@ def atomic_state_update(
         - should_alarm: True if CUSUM alarm triggered, False otherwise
     
     Example:
-        >>> from stochastic_predictor.api.config import get_config
+        >>> from Python.api.config import get_config
         >>> config = get_config()
         >>> new_state, alarm = atomic_state_update(
         ...     state, new_signal=3.14, new_residual=0.05, config=config

@@ -131,7 +131,6 @@ class PredictionKernel(Protocol):
         ...
 
 
-@jax.jit
 def apply_stop_gradient_to_diagnostics(
     prediction: Float[Array, "..."],
     diagnostics: dict

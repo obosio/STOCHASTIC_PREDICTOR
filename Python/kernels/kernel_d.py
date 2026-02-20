@@ -54,7 +54,7 @@ def compute_log_signature(
         - Python.tex §2.2.4: Signax Integration
     
     Example:
-        >>> from stochastic_predictor.api.config import PredictorConfigInjector
+        >>> from Python.api.config import PredictorConfigInjector
         >>> config = PredictorConfigInjector().create_config()
         >>> path = jnp.array([[0.0, 0.0], [1.0, 0.5], [2.0, 1.0]])
         >>> logsig = compute_log_signature(path, config)
@@ -206,7 +206,7 @@ def kernel_d_predict(
         - Implementacion.tex §3.4: Signature Memory Optimization
     
     Example:
-        >>> from stochastic_predictor.api.config import PredictorConfigInjector
+        >>> from Python.api.config import PredictorConfigInjector
         >>> signal = jnp.array([1.0, 1.2, 1.1, 1.3, 1.2])
         >>> key = initialize_jax_prng(42)
         >>> config = PredictorConfigInjector().create_config()

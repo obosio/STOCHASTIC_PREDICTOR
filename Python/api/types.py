@@ -254,6 +254,12 @@ class PredictorConfig:
                 "kernel_d_load_shedding_depths",
                 tuple(self.kernel_d_load_shedding_depths),
             )
+        if isinstance(self.sanitize_clip_range, list):
+            object.__setattr__(
+                self,
+                "sanitize_clip_range",
+                tuple(self.sanitize_clip_range),
+            )
         # Simplex constraint implicit: learning_rate <= 1.0
         assert 0.0 < self.learning_rate <= 1.0, \
             f"learning_rate must be in (0, 1], got {self.learning_rate}"

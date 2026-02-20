@@ -10,10 +10,10 @@ from typing import Iterable
 import jax.numpy as jnp
 from jaxtyping import Array, Bool, Float
 
-from stochastic_predictor.api.types import PredictorConfig, PredictionResult
-from stochastic_predictor.api.validation import validate_simplex
-from stochastic_predictor.kernels.base import KernelOutput
-from stochastic_predictor.core.sinkhorn import (
+from Python.api.types import PredictorConfig, PredictionResult
+from Python.api.validation import validate_simplex
+from Python.kernels.base import KernelOutput
+from Python.core.sinkhorn import (
     SinkhornResult,
     compute_cost_matrix,
     volatility_coupled_sinkhorn,

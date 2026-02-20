@@ -83,7 +83,7 @@ Per \texttt{Stochastic\_Predictor\_Python.tex §2.1}, the system enforces a stri
 \begin{figure}[h]
 \centering
 \begin{verbatim}
-stochastic_predictor/
+Python/
 ├── api/                    Layer 1: External Contracts
 │   ├── types.py           
 │   ├── prng.py            
@@ -168,8 +168,8 @@ Bootstrap creates the 5-layer directory structure with minimal \texttt{\_\_init\
 
 \begin{lstlisting}[language=bash]
 # Create layer directories
-mkdir -p stochastic_predictor/{api,core,kernels,io}
-touch stochastic_predictor/{__init__.py,api/__init__.py,core/__init__.py,kernels/__init__.py,io/__init__.py}
+mkdir -p Python/{api,core,kernels,io}
+touch Python/{__init__.py,api/__init__.py,core/__init__.py,kernels/__init__.py,io/__init__.py}
 
 # Create tests structure (scaffold only, actual tests in v3.x.x)
 mkdir -p tests

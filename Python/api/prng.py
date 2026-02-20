@@ -46,7 +46,7 @@ def initialize_jax_prng(seed: int) -> PRNGKeyArray:
         >>> import os
         >>> os.environ['JAX_DEFAULT_PRNG_IMPL'] = 'threefry2x32'
         >>> import jax
-        >>> from stochastic_predictor.api.prng import initialize_jax_prng
+        >>> from Python.api.prng import initialize_jax_prng
         >>> key = initialize_jax_prng(seed=42)
         >>> print(key.shape)  # (2,) for threefry2x32
     """
@@ -263,7 +263,7 @@ def verify_determinism(
         - API_Python.tex §5: Bit-Exact Reproducibility
         
     Example:
-        >>> from stochastic_predictor.api.prng import verify_determinism
+        >>> from Python.api.prng import verify_determinism
         >>> assert verify_determinism(seed=42, n_trials=5)
     """
     results = []

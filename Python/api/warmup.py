@@ -14,8 +14,8 @@ References:
     - Stochastic_Predictor_Implementation.tex §6: Production Deployment
 
 Usage:
-    >>> from stochastic_predictor.api.warmup import warmup_all_kernels
-    >>> from stochastic_predictor.api.config import PredictorConfigInjector
+    >>> from Python.api.warmup import warmup_all_kernels
+    >>> from Python.api.config import PredictorConfigInjector
     >>> config = PredictorConfigInjector().create_config()
     >>> warmup_all_kernels(config)  # Pre-compile all kernels
     >>> # Now first real inference will have no JIT overhead
@@ -28,8 +28,8 @@ import jax
 import jax.numpy as jnp
 from jaxtyping import PRNGKeyArray
 
-from stochastic_predictor.api.types import KernelType, PredictorConfig
-from stochastic_predictor.api.prng import initialize_jax_prng, split_key
+from Python.api.types import KernelType, PredictorConfig
+from Python.api.prng import initialize_jax_prng, split_key
 
 
 def warmup_kernel_a(config: PredictorConfig, key: PRNGKeyArray) -> float:
@@ -51,7 +51,7 @@ def warmup_kernel_a(config: PredictorConfig, key: PRNGKeyArray) -> float:
     References:
         - Stochastic_Predictor_Python.tex §2.2.1: Kernel A Implementation
     """
-    from stochastic_predictor.kernels.kernel_a import kernel_a_predict
+    from Python.kernels.kernel_a import kernel_a_predict
     
     # Create dummy signal (representative length from config)
     signal_length = config.warmup_signal_length
@@ -85,7 +85,7 @@ def warmup_kernel_b(config: PredictorConfig, key: PRNGKeyArray) -> float:
     References:
         - Stochastic_Predictor_Python.tex §2.2.2: Kernel B Implementation
     """
-    from stochastic_predictor.kernels.kernel_b import kernel_b_predict
+    from Python.kernels.kernel_b import kernel_b_predict
     
     signal_length = config.warmup_signal_length
     dummy_signal = jnp.linspace(0.0, 1.0, signal_length)
@@ -119,7 +119,7 @@ def warmup_kernel_c(config: PredictorConfig, key: PRNGKeyArray) -> float:
         - Stochastic_Predictor_Python.tex §2.2.3: Kernel C Implementation
         - Stochastic_Predictor_Theory.tex §2.3.3: Stiffness-Adaptive SDE Solvers
     """
-    from stochastic_predictor.kernels.kernel_c import kernel_c_predict
+    from Python.kernels.kernel_c import kernel_c_predict
     
     signal_length = config.warmup_signal_length
     dummy_signal = jnp.linspace(0.0, 1.0, signal_length)
@@ -151,7 +151,7 @@ def warmup_kernel_d(config: PredictorConfig, key: PRNGKeyArray) -> float:
     References:
         - Stochastic_Predictor_Python.tex §2.2.4: Kernel D Implementation
     """
-    from stochastic_predictor.kernels.kernel_d import kernel_d_predict
+    from Python.kernels.kernel_d import kernel_d_predict
     
     signal_length = config.warmup_signal_length
     dummy_signal = jnp.linspace(0.0, 1.0, signal_length)
@@ -208,9 +208,9 @@ def warmup_kernel_d_load_shedding(
         - Implementation.tex §5.4: Dynamic signature depth adjustment
     
     Example:
-        >>> from stochastic_predictor.api.warmup import warmup_kernel_d_load_shedding
-        >>> from stochastic_predictor.api.config import PredictorConfigInjector
-        >>> from stochastic_predictor.api.prng import initialize_jax_prng
+        >>> from Python.api.warmup import warmup_kernel_d_load_shedding
+        >>> from Python.api.config import PredictorConfigInjector
+        >>> from Python.api.prng import initialize_jax_prng
         >>> config = PredictorConfigInjector().create_config()
         >>> key = initialize_jax_prng(seed=config.prng_seed)
         >>> timings = warmup_kernel_d_load_shedding(config, key, verbose=True)
@@ -220,7 +220,7 @@ def warmup_kernel_d_load_shedding(
           • M=5 (rich): 789.1 ms ✓
         ✅ Load shedding ready: 1480.3 ms total
     """
-    from stochastic_predictor.kernels.kernel_d import kernel_d_predict
+    from Python.kernels.kernel_d import kernel_d_predict
     from dataclasses import replace
     
     signal_length = config.warmup_signal_length
@@ -281,8 +281,8 @@ def warmup_all_kernels(
         Includes "kernel_d_load_shedding" as a depth -> ms mapping.
     
     Example:
-        >>> from stochastic_predictor.api.config import PredictorConfigInjector
-        >>> from stochastic_predictor.api.warmup import warmup_all_kernels
+        >>> from Python.api.config import PredictorConfigInjector
+        >>> from Python.api.warmup import warmup_all_kernels
         >>> config = PredictorConfigInjector().create_config()
         >>> timings = warmup_all_kernels(config)
         >>> total_ms = sum(v for v in timings.values() if isinstance(v, float))
@@ -427,8 +427,8 @@ def profile_warmup_and_recommend_timeout(
         }
     
     Example:
-        >>> from stochastic_predictor.api.warmup import profile_warmup_and_recommend_timeout
-        >>> from stochastic_predictor.api.config import PredictorConfigInjector
+        >>> from Python.api.warmup import profile_warmup_and_recommend_timeout
+        >>> from Python.api.config import PredictorConfigInjector
         >>> config = PredictorConfigInjector().create_config()
         >>> profile = profile_warmup_and_recommend_timeout(config)
         >>> # Update config.toml [io] section:

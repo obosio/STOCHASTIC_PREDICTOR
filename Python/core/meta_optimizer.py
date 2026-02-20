@@ -30,9 +30,9 @@ except ImportError:
     optuna = None  # type: ignore
     TPESampler = None  # type: ignore
 
-from stochastic_predictor.api.types import PredictorConfig
-from stochastic_predictor.api.config import FIELD_TO_SECTION_MAP, get_config
-from stochastic_predictor.io.config_mutation import (
+from Python.api.types import PredictorConfig
+from Python.api.config import FIELD_TO_SECTION_MAP, get_config
+from Python.io.config_mutation import (
     atomic_write_config,
     ConfigMutationError,
     MutationRateLimiter,

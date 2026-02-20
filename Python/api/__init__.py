@@ -18,7 +18,7 @@ References:
 """
 
 # Import and re-export from submodules
-from stochastic_predictor.api.types import (
+from Python.api.types import (
     PredictorConfig,
     ProcessState,
     PredictionResult,
@@ -29,7 +29,7 @@ from stochastic_predictor.api.types import (
     check_jax_config,
 )
 
-from stochastic_predictor.api.prng import (
+from Python.api.prng import (
     initialize_jax_prng,
     split_key,
     split_key_like,
@@ -40,7 +40,7 @@ from stochastic_predictor.api.prng import (
     verify_determinism,
 )
 
-from stochastic_predictor.api.validation import (
+from Python.api.validation import (
     validate_magnitude,
     validate_timestamp,
     check_staleness,
@@ -57,7 +57,7 @@ from stochastic_predictor.api.validation import (
     cast_array_to_float64,
 )
 
-from stochastic_predictor.api.schemas import (
+from Python.api.schemas import (
     OperatingMode as OperatingModeSchema,
     ProcessStateSchema,
     KernelOutputSchema,
@@ -66,13 +66,13 @@ from stochastic_predictor.api.schemas import (
     HealthCheckResponseSchema,
 )
 
-from stochastic_predictor.api.config import (
+from Python.api.config import (
     ConfigManager,
     get_config,
     PredictorConfigInjector,
 )
 
-from stochastic_predictor.api.warmup import (
+from Python.api.warmup import (
     warmup_all_kernels,
     warmup_kernel_a,
     warmup_kernel_b,
@@ -82,7 +82,7 @@ from stochastic_predictor.api.warmup import (
     profile_warmup_and_recommend_timeout,
 )
 
-from stochastic_predictor.api.state_buffer import (
+from Python.api.state_buffer import (
     update_signal_history,
     update_residual_buffer,
     batch_update_signal_history,

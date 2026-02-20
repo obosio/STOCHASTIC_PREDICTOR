@@ -12,7 +12,7 @@ import numpy as np
 
 import jax
 
-from stochastic_predictor.api.types import InternalState, PredictorConfig
+from Python.api.types import InternalState, PredictorConfig
 
 
 def _require_msgpack() -> Any:

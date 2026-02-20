@@ -60,7 +60,7 @@ def morlet_wavelet(
     return oscillation * gaussian_envelope
 
 
-@jax.jit
+@partial(jax.jit, static_argnames=("mother_wavelet_fn",))
 def continuous_wavelet_transform(
     signal: Float[Array, "n"],
     scales: Float[Array, "m"],
@@ -731,7 +731,7 @@ def create_embedding(
         - Python.tex §2.2.1: Time-Delay Embedding
     
     Example:
-        >>> from stochastic_predictor.api.config import PredictorConfigInjector
+        >>> from Python.api.config import PredictorConfigInjector
         >>> config = PredictorConfigInjector().create_config()
         >>> signal = jnp.array([1, 2, 3, 4, 5])
         >>> embedding = create_embedding(signal, config)
@@ -779,7 +779,7 @@ def kernel_a_predict(
         - Teoria.tex §2.1: RKHS Theory
     
     Example:
-        >>> from stochastic_predictor.api.config import PredictorConfigInjector
+        >>> from Python.api.config import PredictorConfigInjector
         >>> config = PredictorConfigInjector().create_config()
         >>> signal = jnp.array([1.0, 1.1, 0.95, 1.05])
         >>> key = initialize_jax_prng(42)
@@ -804,7 +804,7 @@ def kernel_a_predict(
     # Step 4: Split into train/test (last point for prediction)
     # Train on all but last embedded point, predict last target
     X_train = X_embedded[:-1]
-    y_train = signal_normalized[config.kernel_a_embedding_dim:-1]  # Targets (next values)
+    y_train = signal_normalized[config.kernel_a_embedding_dim:]  # Targets (next values)
     X_test = X_embedded[-1:] # Last embedded point
     
     # Step 5: Kernel ridge regression

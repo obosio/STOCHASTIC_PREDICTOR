@@ -397,7 +397,7 @@ def kernel_b_predict(
     
     # Check for mode collapse [V-MAJ-1: Adaptive threshold]
     if ema_variance is None:
-        raise ValueError("ema_variance is required for adaptive entropy threshold.")
+        ema_variance = jnp.array(config.numerical_epsilon)
 
     # V-MAJ-1: Use adaptive threshold based on volatility regime
     entropy_threshold_adaptive = compute_adaptive_entropy_threshold(ema_variance, config)

@@ -100,7 +100,7 @@ def diffusion_levy(
     return sigma * jnp.eye(d)
 
 
-@jax.jit
+@partial(jax.jit, static_argnames=("drift_fn", "diffusion_fn", "config"))
 def solve_sde(
     drift_fn: Callable,
     diffusion_fn: Callable,
@@ -299,7 +299,7 @@ def kernel_c_predict(
         - Teoria.tex §2.3.3: Lévy Process Dynamics
     
     Example:
-        >>> from stochastic_predictor.api.config import PredictorConfigInjector
+        >>> from Python.api.config import PredictorConfigInjector
         >>> config = PredictorConfigInjector().create_config()
         >>> signal = synthetic_levy_stable(rng_key)
         >>> key = initialize_jax_prng(42)

@@ -11,18 +11,18 @@ import jax
 import jax.numpy as jnp
 from jaxtyping import Array, Float
 
-from stochastic_predictor.api.state_buffer import atomic_state_update, reset_cusum_statistics, update_ema_variance
-from stochastic_predictor.api.types import InternalState, KernelType, OperatingMode, PredictionResult, PredictorConfig, ProcessState
-from stochastic_predictor.api.validation import validate_simplex
-from stochastic_predictor.core.fusion import FusionResult, fuse_kernel_outputs
-from stochastic_predictor.io.loaders import evaluate_ingestion
-from stochastic_predictor.io.telemetry import TelemetryBuffer, TelemetryRecord, should_emit_hash, parity_hashes  # P2.3: Telemetry integration
-from stochastic_predictor.kernels import kernel_a_predict, kernel_b_predict, kernel_c_predict, kernel_d_predict
-from stochastic_predictor.kernels.kernel_b import compute_adaptive_entropy_threshold
-from stochastic_predictor.kernels.base import KernelOutput, validate_kernel_input
+from Python.api.state_buffer import atomic_state_update, reset_cusum_statistics, update_ema_variance
+from Python.api.types import InternalState, KernelType, OperatingMode, PredictionResult, PredictorConfig, ProcessState
+from Python.api.validation import validate_simplex
+from Python.core.fusion import FusionResult, fuse_kernel_outputs
+from Python.io.loaders import evaluate_ingestion
+from Python.io.telemetry import TelemetryBuffer, TelemetryRecord, should_emit_hash, parity_hashes  # P2.3: Telemetry integration
+from Python.kernels import kernel_a_predict, kernel_b_predict, kernel_c_predict, kernel_d_predict
+from Python.kernels.kernel_b import compute_adaptive_entropy_threshold
+from Python.kernels.base import KernelOutput, validate_kernel_input
 
 if TYPE_CHECKING:
-    from stochastic_predictor.io.config_mutation import MutationRateLimiter, DegradationMonitor
+    from Python.io.config_mutation import MutationRateLimiter, DegradationMonitor
 
 
 @dataclass(frozen=True)

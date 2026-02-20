@@ -24,65 +24,65 @@ os.environ["JAX_ENABLE_X64"] = "1"
 jax.config.update("jax_enable_x64", True)
 
 # API imports
-from stochastic_predictor.api.config import PredictorConfigInjector, get_config, ConfigManager
-from stochastic_predictor.api.prng import (
+from Python.api.config import PredictorConfigInjector, get_config, ConfigManager
+from Python.api.prng import (
     initialize_jax_prng, split_key, split_key_like, uniform_samples,
     normal_samples, exponential_samples, check_prng_state, verify_determinism
 )
-from stochastic_predictor.api.types import (
+from Python.api.types import (
     PredictorConfig, ProcessState, InternalState, KernelOutput,
     PredictionResult, KernelType, OperatingMode, check_jax_config
 )
-from stochastic_predictor.api.validation import (
+from Python.api.validation import (
     validate_magnitude, validate_timestamp, check_staleness, validate_shape,
     validate_finite, sanitize_array, ensure_float64, cast_array_to_float64,
     validate_holder_exponent, validate_alpha_stable, validate_beta_stable,
     validate_simplex, sanitize_external_observation, warn_if_invalid
 )
-from stochastic_predictor.api import OperatingModeSchema
-from stochastic_predictor.api.schemas import (
+from Python.api import OperatingModeSchema
+from Python.api.schemas import (
     ProcessStateSchema, KernelOutputSchema, TelemetryDataSchema,
     PredictionResultSchema, HealthCheckResponseSchema
 )
-from stochastic_predictor.api.state_buffer import (
+from Python.api.state_buffer import (
     update_signal_history, atomic_state_update, batch_update_signal_history,
     reset_cusum_statistics, update_cusum_statistics, update_ema_variance,
     update_residual_buffer
 )
 
 # Core imports
-from stochastic_predictor.core.orchestrator import (
+from Python.core.orchestrator import (
     initialize_state, initialize_batched_states, orchestrate_step, orchestrate_step_batch,
     compute_entropy_ratio, scale_dgm_architecture, apply_host_architecture_scaling,
     compute_adaptive_stiffness_thresholds, compute_adaptive_jko_params, OrchestrationResult
 )
-from stochastic_predictor.core.fusion import fuse_kernel_outputs, FusionResult
-from stochastic_predictor.core.sinkhorn import compute_sinkhorn_epsilon, SinkhornResult
-from stochastic_predictor.core.meta_optimizer import (
+from Python.core.fusion import fuse_kernel_outputs, FusionResult
+from Python.core.sinkhorn import compute_sinkhorn_epsilon, SinkhornResult
+from Python.core.meta_optimizer import (
     walk_forward_split, BayesianMetaOptimizer, AsyncMetaOptimizer,
     MetaOptimizationConfig, OptimizationResult, IntegrityError
 )
 
 # Kernels imports
-from stochastic_predictor.kernels.base import (
+from Python.kernels.base import (
     apply_stop_gradient_to_diagnostics, compute_signal_statistics,
     normalize_signal, validate_kernel_input, PredictionKernel
 )
-from stochastic_predictor.kernels.kernel_a import (
+from Python.kernels.kernel_a import (
     gaussian_kernel, compute_gram_matrix, kernel_ridge_regression,
     create_embedding, kernel_a_predict
 )
-from stochastic_predictor.kernels.kernel_b import (
+from Python.kernels.kernel_b import (
     compute_entropy_dgm, loss_hjb, DGM_HJB_Solver, kernel_b_predict
 )
-from stochastic_predictor.kernels.kernel_c import (
+from Python.kernels.kernel_c import (
     solve_sde, drift_levy_stable, diffusion_levy, kernel_c_predict
 )
-from stochastic_predictor.kernels.kernel_d import (
+from Python.kernels.kernel_d import (
     compute_log_signature, create_path_augmentation,
     predict_from_signature, kernel_d_predict
 )
-from stochastic_predictor.api.warmup import (
+from Python.api.warmup import (
     warmup_all_kernels, warmup_kernel_a, warmup_kernel_b,
     warmup_kernel_c, warmup_kernel_d, warmup_with_retry,
     profile_warmup_and_recommend_timeout
@@ -110,8 +110,21 @@ def prng_key():
 
 
 # ═══════════════════════════════════════════════════════════════════════════
-# TESTS - Start with basics
+# TESTS - Start with coverage validation
 # ═══════════════════════════════════════════════════════════════════════════
+
+class TestCoverageValidation:
+    """Validate 100% structural coverage (meta-validator)."""
+    
+    def test_meta_validator_coverage(self):
+        """Execute: Meta-validator ensures 95/95 functions, 0 gaps, 0 orphans."""
+        from tests.structure.validate_coverage import validate_coverage
+        
+        result = validate_coverage()
+        assert result["coverage"] == 100.0, f"Coverage {result['coverage']}% != 100%"
+        assert result["gaps"] == 0, f"Found {result['gaps']} gaps"
+        assert result["orphans"] == 0, f"Found {result['orphans']} orphans"
+
 
 class TestBasicSetup:
     """Verify basic setup works."""
@@ -364,7 +377,7 @@ class TestAPISchemas:
         # OperatingModeSchema is an alias to OperatingMode enum
         assert OperatingModeSchema is not None
         # Verify it's the same as OperatingMode
-        from stochastic_predictor.api.schemas import OperatingMode as SchemaEnum
+        from Python.api.schemas import OperatingMode as SchemaEnum
         assert SchemaEnum is not None
 
 

@@ -136,7 +136,7 @@ class ConfigManager:
         search_paths = [
             Path.cwd() / "config.toml",  # Current working directory
             Path(__file__).parent.parent.parent / "config.toml",  # Project root (../../..)
-            Path.home() / ".stochastic_predictor" / "config.toml",  # User home (optional)
+            Path.home() / ".Python" / "config.toml",  # User home (optional)
         ]
         
         for path in search_paths:
@@ -560,6 +560,16 @@ class PredictorConfigInjector:
                 )
 
             cfg_dict[field_name] = section_values[field_name]
+
+        if isinstance(cfg_dict.get("kernel_d_load_shedding_depths"), list):
+            cfg_dict["kernel_d_load_shedding_depths"] = tuple(
+                cfg_dict["kernel_d_load_shedding_depths"]
+            )
+
+        if isinstance(cfg_dict.get("sanitize_clip_range"), list):
+            cfg_dict["sanitize_clip_range"] = tuple(
+                cfg_dict["sanitize_clip_range"]
+            )
         
         return PredictorConfig(**cfg_dict)
     

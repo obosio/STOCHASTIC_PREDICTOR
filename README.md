@@ -101,7 +101,7 @@ Python       == 3.10.12
 For future implementations:
 
 ```bash
-stochastic_predictor/
+Python/
 |-- api/          # Facade, config, load shedding
 |-- core/         # JKO, Sinkhorn, monitoring
 |-- kernels/      # XLA engines (A,B,C,D)

@@ -4,8 +4,8 @@ from dataclasses import dataclass
 from typing import List, Optional
 import numpy as np
 
-from stochastic_predictor.api.types import InternalState, PredictorConfig, ProcessState
-from stochastic_predictor.io.validators import (
+from Python.api.types import InternalState, PredictorConfig, ProcessState
+from Python.io.validators import (
     OutlierRejectedEvent,
     FrozenSignalAlarmEvent,
     StaleSignalEvent,

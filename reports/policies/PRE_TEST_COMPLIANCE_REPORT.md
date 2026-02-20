@@ -31,7 +31,7 @@ The Universal Stochastic Predictor has achieved **100% policy alignment** across
 **Files Modified**:
 
 - `config.toml` line 218: `log_sig_depth_min = 2` → `log_sig_depth_min = 3`
-- `stochastic_predictor/api/types.py` line 334-335: Assertion updated to `assert 3 <= self.log_sig_depth <= 5`
+- `Python/api/types.py` line 334-335: Assertion updated to `assert 3 <= self.log_sig_depth <= 5`
 
 **Status**: ✅ PASS - Enforced at configuration validation layer  
 **Verification**: All compute paths through orchestrator respect [3,5] range
@@ -103,7 +103,7 @@ The Universal Stochastic Predictor has achieved **100% policy alignment** across
 **Status**: ✅ PASS
 
 **Summary**: 0/10 silent defaults remaining. All 10 zero-heuristics violations fixed.  
-**Verification**: `grep -r "\.get(.*," stochastic_predictor/` shows no more policy violations
+**Verification**: `grep -r "\.get(.*," Python/` shows no more policy violations
 
 ---
 
@@ -111,7 +111,7 @@ The Universal Stochastic Predictor has achieved **100% policy alignment** across
 
 #### Item 3.1: Frozen Signal Monitor
 
-**Implementation Location**: `stochastic_predictor/io/validators.py` + `stochastic_predictor/io/loaders.py`  
+**Implementation Location**: `Python/io/validators.py` + `Python/io/loaders.py`  
 **Function**: `detect_frozen_signal(values, min_steps)` - monitors variance([y_t-4..y_t]) = 0 for ≥5 steps  
 **Integration**:
 
@@ -125,7 +125,7 @@ The Universal Stochastic Predictor has achieved **100% policy alignment** across
 
 #### Item 3.2: Catastrophic Outlier Validator
 
-**Implementation Location**: `stochastic_predictor/io/validators.py` + `stochastic_predictor/io/loaders.py`  
+**Implementation Location**: `Python/io/validators.py` + `Python/io/loaders.py`  
 **Function**: `detect_catastrophic_outlier(value, sigma_bound, sigma_val)` - checks |y_t| ≤ 20σ  
 **Integration**:
 
@@ -137,7 +137,7 @@ The Universal Stochastic Predictor has achieved **100% policy alignment** across
 
 #### Item 3.3: Stale Weights Monitor
 
-**Implementation Location**: `stochastic_predictor/io/validators.py` + `stochastic_predictor/io/loaders.py`  
+**Implementation Location**: `Python/io/validators.py` + `Python/io/loaders.py`  
 **Functions**:
 
 - `compute_staleness_ns(timestamp_ns, now_ns)` - calculates age
@@ -162,7 +162,7 @@ The Universal Stochastic Predictor has achieved **100% policy alignment** across
 
 **Policy**: All kernels must be pure functions with @jax.jit decoration  
 
-**File**: `stochastic_predictor/kernels/`  
+**File**: `Python/kernels/`  
 **Found**: 29 @jax.jit decorators across:
 
 - kernel_a.py: 14 decorators
@@ -179,7 +179,7 @@ The Universal Stochastic Predictor has achieved **100% policy alignment** across
 
 **Policy**: Configuration updates must use POSIX O_EXCL + fsync  
 
-**Implementation**: `stochastic_predictor/io/config_mutation.py`  
+**Implementation**: `Python/io/config_mutation.py`  
 **Verification**:
 
 - Line 34: `O_EXCL` flag enforced for atomic file creation
@@ -195,7 +195,7 @@ The Universal Stochastic Predictor has achieved **100% policy alignment** across
 
 **Policy**: All credentials from environment variables; no hardcoded secrets
 
-**Implementation**: `stochastic_predictor/io/credentials.py`  
+**Implementation**: `Python/io/credentials.py`  
 **Verification**: 30 credential references scanned:
 
 - 30 use environment injection pattern  
@@ -210,7 +210,7 @@ The Universal Stochastic Predictor has achieved **100% policy alignment** across
 
 **Policy**: State checksums (SHA256) verified before injection
 
-**Implementation**: `stochastic_predictor/io/snapshots.py`  
+**Implementation**: `Python/io/snapshots.py`  
 **Verification**:
 
 - Line 78-82: SHA256 computed on serialized state
@@ -227,8 +227,8 @@ The Universal Stochastic Predictor has achieved **100% policy alignment** across
 
 **Locations Found**:
 
-- `stochastic_predictor/core/sinkhorn.py` lines 47, 50: Stop gradient on ema_variance
-- `stochastic_predictor/api/state_buffer.py` lines 61-62: Stop gradient on history/state
+- `Python/core/sinkhorn.py` lines 47, 50: Stop gradient on ema_variance
+- `Python/api/state_buffer.py` lines 61-62: Stop gradient on history/state
 
 **Status**: ✅ PASS - Diagnostic modules properly isolated from autodiff
 
@@ -241,7 +241,7 @@ The Universal Stochastic Predictor has achieved **100% policy alignment** across
 **Implementation**:
 
 - `config.sde_pid_dtmax` = 0.1 (configured upper bound)
-- `stochastic_predictor/api/types.py` line 343-346: CFL validation added
+- `Python/api/types.py` line 343-346: CFL validation added
   - Validates `dt_upper_bound = sde_pid_dtmax × 0.9` (C_safe safety margin)
   - Enforces Stochastic CFL: Δt < 2/λ_max(J_b + J_σ²)
 
@@ -253,7 +253,7 @@ The Universal Stochastic Predictor has achieved **100% policy alignment** across
 
 **Policy**: Telemetry queue must not block orchestrator dispatch
 
-**Implementation**: `stochastic_predictor/io/telemetry.py` lines 28-50  
+**Implementation**: `Python/io/telemetry.py` lines 28-50  
 **Verification**:
 
 - Line 36: `deque` with explicit maxlen (ring buffer)
@@ -270,7 +270,7 @@ The Universal Stochastic Predictor has achieved **100% policy alignment** across
 
 **Policy**: DGM architecture scaling must respect entropy-capacity coupling
 
-**Implementation**: `stochastic_predictor/core/orchestrator.py` lines 126-197  
+**Implementation**: `Python/core/orchestrator.py` lines 126-197  
 **Verification**:
 
 - Line 137-147: Implements capacity criterion `log(W·D) ≥ log(W₀·D₀) + β·log(κ)`
@@ -314,14 +314,14 @@ The Universal Stochastic Predictor has achieved **100% policy alignment** across
 1. **config.toml** (1 change)
    - Line 218: Signature depth minimum [2→3]
 
-2. **stochastic_predictor/api/types.py** (2 changes)
+2. **Python/api/types.py** (2 changes)
    - Line 334-335: Assertion range [1,5]→[3,5]
    - Line 343-346: CFL validation added
 
-3. **stochastic_predictor/api/config.py** (1 major refactor)
+3. **Python/api/config.py** (1 major refactor)
    - Lines 565-609: `verify_jax_config()` eliminated .get() defaults, added explicit validation
 
-4. **stochastic_predictor/core/orchestrator.py** (4 major refactors)
+4. **Python/core/orchestrator.py** (4 major refactors)
    - Lines 215-224: Explicit entropy_dgm validation in scale_topology_coupling()
    - Lines 499-508: Explicit holder_exponent validation in predict flow
    - Lines 529-538: Explicit entropy_dgm validation in predict flow
@@ -329,7 +329,7 @@ The Universal Stochastic Predictor has achieved **100% policy alignment** across
    - Lines 737-751: Explicit metadata validation before state update (primary path)
    - Lines 939-952: Explicit metadata validation before state update (batch path)
 
-5. **stochastic_predictor/core/meta_optimizer.py** (1 major refactor)
+5. **Python/core/meta_optimizer.py** (1 major refactor)
    - Lines 540-565: Eliminated or-pattern fallback, added explicit n_trials and prng_seed validation
 
 ---
@@ -340,10 +340,10 @@ The Universal Stochastic Predictor has achieved **100% policy alignment** across
 
 ```bash
 $ pylance report
-- /stochastic_predictor/api/config.py: 0 errors
-- /stochastic_predictor/api/types.py: 0 errors  
-- /stochastic_predictor/core/orchestrator.py: 0 errors
-- /stochastic_predictor/core/meta_optimizer.py: 0 errors
+- /Python/api/config.py: 0 errors
+- /Python/api/types.py: 0 errors  
+- /Python/core/orchestrator.py: 0 errors
+- /Python/core/meta_optimizer.py: 0 errors
 ```
 
 ✅ All imports resolvable (no missing dependencies)

@@ -49,9 +49,9 @@ class StructuralCoverageValidator:
         
         # Key modules to check
         modules_to_check = [
-            "stochastic_predictor/api/__init__.py",
-            "stochastic_predictor/kernels/__init__.py",
-            "stochastic_predictor/core/__init__.py",
+            "Python/api/__init__.py",
+            "Python/kernels/__init__.py",
+            "Python/core/__init__.py",
         ]
         
         for module_path in modules_to_check:
@@ -166,6 +166,10 @@ class StructuralCoverageValidator:
         # Find orphans (tested but doesn't exist)
         orphans = []
         for test_name, test_class in self.test_functions.items():
+            # Skip coverage validation tests (they test the framework, not API)
+            if test_class == "TestCoverageValidation":
+                continue
+            
             # Extract suspected function name from test
             # e.g., test_initialize_state -> initialize_state
             suspected = test_name.replace("test_", "")
@@ -278,6 +282,24 @@ class StructuralCoverageValidator:
             "test_functions": self.test_functions,
             "tested_symbols": sorted(list(self.tested_functions)),
         }
+
+
+def validate_coverage() -> dict:
+    """
+    Public API for coverage validation.
+    
+    Returns:
+        dict with keys: coverage (float), gaps (int), orphans (int)
+    """
+    project_root = Path(__file__).parent.parent.parent
+    validator = StructuralCoverageValidator(project_root)
+    json_report = validator.generate_json_report()
+    
+    return {
+        "coverage": json_report["summary"]["coverage_percentage"],
+        "gaps": json_report["summary"]["gaps_count"],
+        "orphans": json_report["summary"]["orphans_count"],
+    }
 
 
 def main():

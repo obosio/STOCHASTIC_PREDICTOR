@@ -17,7 +17,7 @@ from jaxtyping import Float, Array
 import warnings
 
 if TYPE_CHECKING:
-    from stochastic_predictor.api.types import PredictorConfig
+    from Python.api.types import PredictorConfig
 
 
 # ═══════════════════════════════════════════════════════════════════════════
@@ -54,8 +54,8 @@ def validate_magnitude(
         - Stochastic_Predictor_API_Python.tex §1.2: ProcessState.validate_domain()
         
     Example:
-        >>> from stochastic_predictor.api.validation import validate_magnitude
-        >>> from stochastic_predictor.api.config import PredictorConfigInjector
+        >>> from Python.api.validation import validate_magnitude
+        >>> from Python.api.config import PredictorConfigInjector
         >>> config = PredictorConfigInjector().create_config()
         >>> is_valid, msg = validate_magnitude(
         ...     magnitude=jnp.array([100.5]),
@@ -162,8 +162,8 @@ def check_staleness(
         
     Example:
         >>> import time
-        >>> from stochastic_predictor.api.validation import check_staleness
-        >>> from stochastic_predictor.api.config import PredictorConfigInjector
+        >>> from Python.api.validation import check_staleness
+        >>> from Python.api.config import PredictorConfigInjector
         >>> config = PredictorConfigInjector().create_config()
         >>> ts = time.time_ns() - 100_000_000  # 100ms ago
         >>> is_stale, age = check_staleness(ts, config)
@@ -205,7 +205,7 @@ def validate_shape(
         
     Example:
         >>> import jax.numpy as jnp
-        >>> from stochastic_predictor.api.validation import validate_shape
+        >>> from Python.api.validation import validate_shape
         >>> arr = jnp.zeros((10, 4))
         >>> is_valid, msg = validate_shape(arr, (10, 4), name="weights")
         >>> assert is_valid
@@ -294,8 +294,8 @@ def validate_simplex(
         
     Example:
         >>> import jax.numpy as jnp
-        >>> from stochastic_predictor.api.validation import validate_simplex
-        >>> from stochastic_predictor.api.config import get_config
+        >>> from Python.api.validation import validate_simplex
+        >>> from Python.api.config import get_config
         >>> config = get_config()
         >>> weights = jnp.array([0.25, 0.25, 0.25, 0.25])
         >>> is_valid, msg = validate_simplex(weights, config.validation_simplex_atol, "weights")
@@ -491,7 +491,7 @@ def warn_if_invalid(
         exception_type: Exception class to raise if invalid (REQUIRED - pass None to use warnings)
         
     Example:
-        >>> from stochastic_predictor.api.validation import validate_magnitude, warn_if_invalid
+        >>> from Python.api.validation import validate_magnitude, warn_if_invalid
         >>> is_valid, msg = validate_magnitude(jnp.array([1000.0]), sigma_bound=5.0, sigma_val=1.0)
         >>> warn_if_invalid(is_valid, msg, exception_type=ValueError)
     """
@@ -524,7 +524,7 @@ def ensure_float64(
     
     Example:
         >>> import numpy as np
-        >>> from stochastic_predictor.api.validation import ensure_float64
+        >>> from Python.api.validation import ensure_float64
         >>> x_float32 = np.array([1.0, 2.0], dtype=np.float32)  # External source
         >>> x_float64 = ensure_float64(x_float32)  # Explicit cast
         >>> assert x_float64.dtype == jnp.float64
@@ -562,13 +562,13 @@ def sanitize_external_observation(
     
     Example:
         >>> from datetime import datetime, timezone
-        >>> from stochastic_predictor.api.validation import sanitize_external_observation
+        >>> from Python.api.validation import sanitize_external_observation
         >>> raw_magnitude = 123.45
         >>> raw_timestamp = datetime.now(timezone.utc)
         >>> mag_f64, ts_utc, tag, disp = sanitize_external_observation(
         ...     raw_magnitude, raw_timestamp
         ... )
-        >>> from stochastic_predictor.api.types import ProcessState
+        >>> from Python.api.types import ProcessState
         >>> obs = ProcessState(magnitude=mag_f64, timestamp_utc=ts_utc)
     
     References:
@@ -610,7 +610,7 @@ def cast_array_to_float64(
     
     Example:
         >>> import jax.numpy as jnp
-        >>> from stochastic_predictor.api.validation import cast_array_to_float64
+        >>> from Python.api.validation import cast_array_to_float64
         >>> x_f32 = jnp.array([1.0, 2.0], dtype=jnp.float32)
         >>> x_f64 = cast_array_to_float64(x_f32, warn_if_downcast=True)
         >>> # Warning emitted: "Downcasting from float32 to float64..."

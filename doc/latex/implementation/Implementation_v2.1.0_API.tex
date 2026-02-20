@@ -604,8 +604,8 @@ def check_and_reload(self) -> bool:
 
 \textbf{Autonomous Configuration Mutation Workflow}:
 \begin{lstlisting}[language=Python]
-from stochastic_predictor.io import atomic_write_config
-from stochastic_predictor.api.config import get_config
+from Python.io import atomic_write_config
+from Python.api.config import get_config
 
 # 1. Deep Tuning completes
 best_params = {
@@ -712,7 +712,7 @@ logger.error(
 \subsubsection{Implementation Details}
 
 \begin{lstlisting}[language=Python]
-# stochastic_predictor/api/config.py (v2.1.0)
+# Python/api/config.py (v2.1.0)
 import logging
 from datetime import datetime
 
@@ -996,8 +996,8 @@ JAX's JIT compilation occurs on first function call, introducing 100-500ms laten
 \subsection{Implementation: \texttt{api/warmup.py}}
 
 \begin{lstlisting}[language=Python]
-from stochastic_predictor.api.warmup import warmup_all_kernels
-from stochastic_predictor.api.config import PredictorConfigInjector
+from Python.api.warmup import warmup_all_kernels
+from Python.api.config import PredictorConfigInjector
 
 # During service initialization (e.g., FastAPI @app.on_event("startup"))
 config = PredictorConfigInjector().create_config()
@@ -1045,8 +1045,8 @@ timings = warmup_all_kernels(config, verbose=True)
 \begin{lstlisting}[language=Python]
 # FastAPI production deployment
 from fastapi import FastAPI
-from stochastic_predictor.api.warmup import warmup_with_retry
-from stochastic_predictor.api.config import PredictorConfigInjector
+from Python.api.warmup import warmup_with_retry
+from Python.api.config import PredictorConfigInjector
 
 app = FastAPI()
 
@@ -1083,11 +1083,11 @@ Solution: Use \texttt{jax.lax.dynamic\_update\_slice} for in-place updates with 
 \subsection{Implementation: \texttt{api/state\_buffer.py}}
 
 \begin{lstlisting}[language=Python]
-from stochastic_predictor.api.state_buffer import (
+from Python.api.state_buffer import (
     update_signal_history,
     atomic_state_update
 )
-from stochastic_predictor.api.types import InternalState
+from Python.api.types import InternalState
 
 # Initialize state
 state = InternalState(
@@ -1167,7 +1167,7 @@ Atomic (4 buffers) & 50 $\mu$s & 1.5 $\mu$s & 33x \\
 
 \begin{lstlisting}[language=Python]
 # core/orchestrator.py (updated for V-CRIT-1)
-from stochastic_predictor.api.state_buffer import atomic_state_update
+from Python.api.state_buffer import atomic_state_update
 
 def orchestrate_step(
     signal, timestamp_ns, state, config, observation, now_ns
@@ -1214,8 +1214,8 @@ The \texttt{data\_feed\_timeout} parameter in \texttt{config.toml} must be adjus
 \subsection{Implementation: \texttt{profile\_warmup\_and\_recommend\_timeout()}}
 
 \begin{lstlisting}[language=Python]
-from stochastic_predictor.api.warmup import profile_warmup_and_recommend_timeout
-from stochastic_predictor.api.config import PredictorConfigInjector
+from Python.api.warmup import profile_warmup_and_recommend_timeout
+from Python.api.config import PredictorConfigInjector
 
 # Execute during deployment setup
 config = PredictorConfigInjector().create_config()
@@ -1281,13 +1281,13 @@ COPY requirements.txt .
 RUN pip install -r requirements.txt
 
 # Copy application
-COPY stochastic_predictor/ /app/stochastic_predictor/
+COPY Python/ /app/Python/
 COPY config.toml /app/config.toml
 
 # Profile hardware and adjust config
 RUN python3 -c "
-from stochastic_predictor.api.warmup import profile_warmup_and_recommend_timeout
-from stochastic_predictor.api.config import PredictorConfigInjector
+from Python.api.warmup import profile_warmup_and_recommend_timeout
+from Python.api.config import PredictorConfigInjector
 import toml
 
 config = PredictorConfigInjector().create_config()
@@ -1330,7 +1330,7 @@ Mixing \texttt{float32} external data with \texttt{jax\_enable\_x64 = True} caus
 \textbf{Function 1}: \texttt{ensure\_float64()} - Explicit casting
 
 \begin{lstlisting}[language=Python]
-from stochastic_predictor.api.validation import ensure_float64
+from Python.api.validation import ensure_float64
 import numpy as np
 
 # External CSV data (float32 by default)
@@ -1344,8 +1344,8 @@ assert magnitude_f64.dtype == jnp.float64  # Guaranteed
 \textbf{Function 2}: \texttt{sanitize\_external\_observation()} - Full pipeline
 
 \begin{lstlisting}[language=Python]
-from stochastic_predictor.api.validation import sanitize_external_observation
-from stochastic_predictor.api.types import ProcessState
+from Python.api.validation import sanitize_external_observation
+from Python.api.types import ProcessState
 
 # External REST API response (may be float32)
 response = requests.get("https://api.example.com/observations/latest").json()
@@ -1366,7 +1366,7 @@ obs = ProcessState(magnitude=mag_f64, reference=mag_f64, timestamp_ns=ts)
 \textbf{Function 3}: \texttt{cast\_array\_to\_float64()} - With warnings
 
 \begin{lstlisting}[language=Python]
-from stochastic_predictor.api.validation import cast_array_to_float64
+from Python.api.validation import cast_array_to_float64
 
 # Internal buffer that may have drifted to float32
 buffer = some_external_lib.get_buffer()  # Returns float32 array

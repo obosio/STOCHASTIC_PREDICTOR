@@ -738,7 +738,7 @@ fusion_config = replace(
 
 \begin{lstlisting}[language=Python]
 # core/__init__.py
-from stochastic_predictor.core.meta_optimizer import (
+from Python.core.meta_optimizer import (
     BayesianMetaOptimizer,
     MetaOptimizationConfig,
     OptimizationResult,
@@ -786,7 +786,7 @@ __all__ = [
 
 \textbf{Usage Example}:
 \begin{lstlisting}[language=Python]
-from stochastic_predictor.core import BayesianMetaOptimizer
+from Python.core import BayesianMetaOptimizer
 
 def walk_forward_evaluator(params: dict) -> float:
     """Evaluate params on historical data with causal splits."""
@@ -1234,7 +1234,7 @@ V-MIN-2 provides actionable insights via \texttt{generate\_optimization\_report(
 \subsection{Implementation}
 
 \begin{lstlisting}[language=Python]
-# stochastic_predictor/core/meta_optimizer.py
+# Python/core/meta_optimizer.py
 def generate_optimization_report(self) -> str:
     """
     Generate human-readable optimization summary with parameter importance.

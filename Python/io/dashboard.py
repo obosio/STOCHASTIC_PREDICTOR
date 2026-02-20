@@ -11,7 +11,7 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Iterable
 
-from stochastic_predictor.io.telemetry import TelemetryBuffer, materialize_telemetry_batch
+from Python.io.telemetry import TelemetryBuffer, materialize_telemetry_batch
 
 
 @dataclass(frozen=True)

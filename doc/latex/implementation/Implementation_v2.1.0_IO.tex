@@ -541,8 +541,8 @@ P2.3 is fully backward compatible:
 \section{Usage Example}
 
 \begin{lstlisting}[language=Python]
-from stochastic_predictor.io.telemetry import TelemetryBuffer
-from stochastic_predictor.api.config import PredictorConfigInjector
+from Python.io.telemetry import TelemetryBuffer
+from Python.api.config import PredictorConfigInjector
 
 # Initialize
 config = PredictorConfigInjector().create_config()
@@ -588,8 +588,8 @@ for offline reviews and audits.
 \subsection{Usage}
 
 \begin{lstlisting}[language=Python]
-from stochastic_predictor.io.telemetry import TelemetryBuffer
-from stochastic_predictor.io.dashboard import export_dashboard_snapshot
+from Python.io.telemetry import TelemetryBuffer
+from Python.io.dashboard import export_dashboard_snapshot
 
 telemetry_buffer = TelemetryBuffer(capacity=1024)
 # ... enqueue telemetry records during inference ...
@@ -843,7 +843,7 @@ def validate_config_mutation(
 \subsection{Usage Example}
 
 \begin{lstlisting}[language=Python]
-from stochastic_predictor.io import atomic_write_config
+from Python.io import atomic_write_config
 
 # After Deep Tuning completes
 best_params = {

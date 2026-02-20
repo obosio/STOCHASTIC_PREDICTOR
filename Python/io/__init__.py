@@ -36,7 +36,7 @@ Expected module structure:
   - validators.py: Data validation
 """
 
-from stochastic_predictor.io.validators import (
+from Python.io.validators import (
   OutlierRejectedEvent,
   FrozenSignalAlarmEvent,
   StaleSignalEvent,
@@ -47,12 +47,12 @@ from stochastic_predictor.io.validators import (
   is_stale,
 )
 
-from stochastic_predictor.io.loaders import (
+from Python.io.loaders import (
   IngestionDecision,
   evaluate_ingestion,
 )
 
-from stochastic_predictor.io.snapshots import (
+from Python.io.snapshots import (
   serialize_snapshot,
   load_snapshot_bytes,
   save_snapshot,
@@ -60,26 +60,26 @@ from stochastic_predictor.io.snapshots import (
   write_then_rename,
 )
 
-from stochastic_predictor.io.telemetry import (
+from Python.io.telemetry import (
   TelemetryRecord,
   TelemetryBuffer,
   parity_hashes,
   should_emit_hash,
 )
 
-from stochastic_predictor.io.dashboard import (
+from Python.io.dashboard import (
   DashboardSeries,
   build_dashboard_html,
   export_dashboard_snapshot,
 )
 
-from stochastic_predictor.io.credentials import (
+from Python.io.credentials import (
   MissingCredentialError,
   load_env_file,
   get_required_env,
 )
 
-from stochastic_predictor.io.config_mutation import (
+from Python.io.config_mutation import (
   ConfigMutationError,
   atomic_write_config,
   validate_config_mutation,

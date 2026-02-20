@@ -118,7 +118,7 @@ Implementation documentation uses a tiered approach:
 2. **Python docstrings** (function-level documentation)
 
    ```python
-   # stochastic_predictor/kernels/kernel_c.py
+   # Python/kernels/kernel_c.py
    """Ito/Levy kernel.
 
    Theory: See doc/latex/specification/Stochastic_Predictor_Theory.tex Section 2.3.3
