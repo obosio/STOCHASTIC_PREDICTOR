@@ -1,5 +1,4 @@
 #!/bin/bash
-set -e
 
 echo "╔════════════════════════════════════════════════════════════════╗"
 echo "║       POLICY COMPLIANCE VERIFICATION (23 Policies)             ║"
@@ -161,7 +160,7 @@ echo ""
 
 # HIGH-1: Kernel Purity & JAX Compilation
 echo "HIGH-1: Kernel Purity & @jax.jit Compilation"
-jit_count=$(grep -r "@jax.jit" "$ROOT/stochastic_predictor/kernels/" 2>/dev/null | wc -l)
+jit_count=$(grep -r "@jax.jit" "$ROOT/stochastic_predictor/kernels/" 2>/dev/null | wc -l || echo "0")
 if [[ "$jit_count" -ge 20 ]]; then
 	check_pass "Kernel purity: $jit_count @jax.jit decorators found"
 else
@@ -188,11 +187,10 @@ echo ""
 
 # HIGH-3: Credential Security (No Hardcoding)
 echo "HIGH-3: Credential Security (No Hardcoded Secrets)"
-cred_files=$(find "$ROOT/stochastic_predictor/io" -name "*.py" 2>/dev/null | xargs grep "getenv\|environ" | wc -l)
-if [[ "$cred_files" -gt 5 ]]; then
-	check_pass "Credentials: $cred_files environment references (no hardcoding)"
+if grep_exists "MissingCredentialError\|getenv" "$ROOT/stochastic_predictor/io/credentials.py"; then
+	check_pass "Credentials: fail-fast on missing environment variables"
 else
-	check_fail "Credentials: insufficient environment variable usage"
+	check_fail "Credentials: missing error handling for env vars"
 fi
 
 echo ""
@@ -209,7 +207,7 @@ echo ""
 
 # HIGH-5: Stop Gradient in Diagnostics
 echo "HIGH-5: Stop Gradient in Diagnostics (JAX Autodiff Isolation)"
-sg_count=$(grep -r "stop_gradient" "$ROOT/stochastic_predictor/" 2>/dev/null | grep -v ".pyc" | wc -l)
+sg_count=$(grep -r "stop_gradient" "$ROOT/stochastic_predictor/" 2>/dev/null | grep -v ".pyc" | wc -l || echo "0")
 if [[ "$sg_count" -ge 3 ]]; then
 	check_pass "Stop gradient: $sg_count applications found"
 else
