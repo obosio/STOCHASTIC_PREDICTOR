@@ -214,11 +214,10 @@ def apply_host_architecture_scaling(
     """
     entropy_current = jnp.asarray(output_b.metadata.get("entropy_dgm", 0.0))
     entropy_ratio = compute_entropy_ratio(entropy_current, baseline_entropy, config)
-    scaling_triggered = bool(jax.device_get(entropy_ratio > scaling_threshold))
+    entropy_ratio_value = float(entropy_ratio)
+    scaling_triggered = entropy_ratio_value > scaling_threshold
     if not scaling_triggered:
         return output_b, config, False
-
-    entropy_ratio_value = float(jax.device_get(entropy_ratio))
     new_width, new_depth = scale_dgm_architecture(config, entropy_ratio_value)
     scaled_config = replace(config, dgm_width_size=new_width, dgm_depth=new_depth)
     output_b_scaled = kernel_b_predict(
@@ -411,18 +410,19 @@ def _compute_mode(
 ) -> str:
     """Compute operating mode from degradation state.
     
-    Accepts both bool (normal execution) and Array (vmap context).
-    In vmap context, uses first element of array.
+    Host-only helper: expects scalar values.
     """
-    # Convert Array to Python bool if needed (safe in non-traced context)
-    deg = bool(jax.device_get(degraded)) if isinstance(degraded, Array) else degraded
-    emg = bool(jax.device_get(emergency)) if isinstance(emergency, Array) else emergency
-    
-    if emg:
+    if emergency:
         return OperatingMode.DIAGNOSTIC
-    if deg:
+    if degraded:
         return OperatingMode.CALIBRATION
     return OperatingMode.INFERENCE
+
+
+def _to_python_scalar(value: Array | bool) -> bool:
+    if isinstance(value, Array):
+        return bool(value.item())
+    return bool(value)
 
 
 def orchestrate_step(
@@ -453,7 +453,7 @@ def orchestrate_step(
     )
 
     delta_ns = timestamp_ns - state.last_update_ns
-    staleness_degraded = bool(delta_ns > config.staleness_ttl_ns)
+    staleness_degraded = delta_ns > config.staleness_ttl_ns
     ingestion_degraded = ingestion_decision.degraded_mode
 
     # Use ingestion decision flags to override or augment degraded mode
@@ -481,7 +481,7 @@ def orchestrate_step(
         degraded_mode_recovery_counter < recovery_threshold,  # Already degraded: check threshold
         degraded_mode_raw  # Normal mode: degrade immediately
     )
-    degraded_mode_flag = bool(jax.device_get(degraded_mode))
+    degraded_mode_flag = degraded_mode | ingestion_decision.suspend_jko_update
     
     # Store recovery counter for telemetry (V-MAJ-7)
     degraded_recovery_counter = degraded_mode_recovery_counter
@@ -532,57 +532,80 @@ def orchestrate_step(
     kernel_outputs = (output_a, output_b, output_c, output_d)
 
     fusion_config = config
-    if degraded_mode_flag or ingestion_decision.suspend_jko_update:
-        predictions = jnp.array([ko.prediction for ko in kernel_outputs]).reshape(-1)
-        updated_weights = state.rho
-        fused_prediction = jnp.sum(updated_weights * predictions)
-        fusion = None
-        sinkhorn_converged = jnp.array(False)
-        free_energy = jnp.array(0.0)
-        sinkhorn_epsilon = jnp.array(0.0)
-        ema_variance_current = state.ema_variance
-    else:
-        # Provisional fusion to update volatility for current step
-        provisional_window, provisional_lr = compute_adaptive_jko_params(
-            float(state.ema_variance),
-            config=config,
-        )
-        provisional_config = replace(
-            config,
-            learning_rate=provisional_lr,
-            entropy_window=provisional_window,
-        )
-        provisional_fusion = fuse_kernel_outputs(
-            kernel_outputs=kernel_outputs,
-            current_weights=state.rho,
-            ema_variance=state.ema_variance,
-            config=provisional_config,
-        )
-        provisional_prediction = provisional_fusion.fused_prediction
-        provisional_residual = jnp.abs(signal[-1] - provisional_prediction)
-        ema_variance_current = update_ema_variance(state, provisional_residual, config.volatility_alpha).ema_variance
+    predictions = jnp.array([ko.prediction for ko in kernel_outputs]).reshape(-1)
 
-        adaptive_entropy_window, adaptive_learning_rate = compute_adaptive_jko_params(
-            float(ema_variance_current),
-            config=config,
-        )
-        fusion_config = replace(
-            config,
-            learning_rate=adaptive_learning_rate,
-            entropy_window=adaptive_entropy_window,
-        )
+    # Provisional fusion to update volatility for current step
+    provisional_window, provisional_lr = compute_adaptive_jko_params(
+        float(state.ema_variance),
+        config=config,
+    )
+    provisional_config = replace(
+        config,
+        learning_rate=provisional_lr,
+        entropy_window=provisional_window,
+    )
+    provisional_fusion = fuse_kernel_outputs(
+        kernel_outputs=kernel_outputs,
+        current_weights=state.rho,
+        ema_variance=state.ema_variance,
+        config=provisional_config,
+    )
+    provisional_prediction = provisional_fusion.fused_prediction
+    provisional_residual = jnp.abs(signal[-1] - provisional_prediction)
+    ema_variance_current = update_ema_variance(state, provisional_residual, config.volatility_alpha).ema_variance
 
-        fusion = fuse_kernel_outputs(
-            kernel_outputs=kernel_outputs,
-            current_weights=state.rho,
-            ema_variance=ema_variance_current,
-            config=fusion_config,
-        )
-        updated_weights = fusion.updated_weights
-        fused_prediction = fusion.fused_prediction
-        sinkhorn_converged = jnp.asarray(fusion.sinkhorn_converged)
-        free_energy = jnp.asarray(fusion.free_energy)
-        sinkhorn_epsilon = jnp.asarray(fusion.sinkhorn_epsilon)
+    adaptive_entropy_window, adaptive_learning_rate = compute_adaptive_jko_params(
+        float(ema_variance_current),
+        config=config,
+    )
+    fusion_config = replace(
+        config,
+        learning_rate=adaptive_learning_rate,
+        entropy_window=adaptive_entropy_window,
+    )
+
+    fusion = fuse_kernel_outputs(
+        kernel_outputs=kernel_outputs,
+        current_weights=state.rho,
+        ema_variance=ema_variance_current,
+        config=fusion_config,
+    )
+    updated_weights = fusion.updated_weights
+    fused_prediction = fusion.fused_prediction
+    sinkhorn_converged = jnp.asarray(fusion.sinkhorn_converged)
+    free_energy = jnp.asarray(fusion.free_energy)
+    sinkhorn_epsilon = jnp.asarray(fusion.sinkhorn_epsilon)
+
+    updated_weights = jnp.where(
+        degraded_mode_flag,
+        state.rho,
+        updated_weights,
+    )
+    fused_prediction = jnp.where(
+        degraded_mode_flag,
+        jnp.sum(state.rho * predictions),
+        fused_prediction,
+    )
+    sinkhorn_converged = jnp.where(
+        degraded_mode_flag,
+        jnp.array(False),
+        sinkhorn_converged,
+    )
+    free_energy = jnp.where(
+        degraded_mode_flag,
+        jnp.array(0.0),
+        free_energy,
+    )
+    sinkhorn_epsilon = jnp.where(
+        degraded_mode_flag,
+        jnp.array(0.0),
+        sinkhorn_epsilon,
+    )
+    ema_variance_current = jnp.where(
+        degraded_mode_flag,
+        state.ema_variance,
+        ema_variance_current,
+    )
 
     # Update Kernel B diagnostics to use current-step volatility threshold
     entropy_threshold_current = compute_adaptive_entropy_threshold(ema_variance_current, config)
@@ -611,17 +634,24 @@ def orchestrate_step(
     current_value = signal[-1]
     residual = jnp.abs(current_value - fused_prediction)
 
-    # If observation is rejected, skip state update entirely (return unchanged state)
-    if reject_observation:
-        updated_state = state
-        regime_change_detected = False
-    else:
-        updated_state, regime_change_detected = atomic_state_update(
-            state=state,
-            new_signal=current_value,
-            new_residual=residual,
-            config=config,
-        )
+    updated_state_candidate, regime_change_detected = atomic_state_update(
+        state=state,
+        new_signal=current_value,
+        new_residual=residual,
+        config=config,
+    )
+    updated_state = jax.tree_util.tree_map(
+        lambda rej, old, new: jnp.where(rej, old, new),
+        reject_observation,
+        state,
+        updated_state_candidate,
+    )
+    regime_change_detected = jnp.where(
+        reject_observation,
+        jnp.array(False),
+        regime_change_detected,
+    )
+    regime_change_detected = jnp.asarray(regime_change_detected)
 
     force_emergency = False
     # Degradation monitor (post-mutation rollback guardrail)
@@ -640,20 +670,17 @@ def orchestrate_step(
     
     # Apply entropy reset if regime changed AND not in grace period already
     # (grace_counter starts at 0, gets set to grace_period_steps on alarm)
-    entropy_reset_triggered = regime_change_detected and (state.grace_counter == 0)
+    entropy_reset_triggered = jnp.logical_and(
+        regime_change_detected,
+        state.grace_counter == 0,
+    )
     
     # During grace period: freeze weights (no JKO update)
     # After grace period or normal operation: use fused weights
     in_grace_period = updated_state.grace_counter > 0
-    
-    if reject_observation:
-        final_rho = state.rho
-    elif entropy_reset_triggered:
-        final_rho = uniform_simplex  # Max entropy reset
-    elif in_grace_period:
-        final_rho = state.rho  # Freeze during grace period
-    else:
-        final_rho = updated_weights  # Normal JKO update
+    final_rho = jnp.where(reject_observation, state.rho, updated_weights)
+    final_rho = jnp.where(entropy_reset_triggered, uniform_simplex, final_rho)
+    final_rho = jnp.where(in_grace_period, state.rho, final_rho)
 
     updated_state = replace(
         updated_state,
@@ -668,9 +695,8 @@ def orchestrate_step(
     # Note: grace_counter is already set in update_cusum_statistics when alarm triggers
     # Here we just handle the decay (no need to touch rho again, already handled above)
     grace_counter = updated_state.grace_counter
-    if grace_counter > 0:
-        grace_counter -= 1
-        updated_state = replace(updated_state, grace_counter=grace_counter)
+    grace_counter = jnp.where(grace_counter > 0, grace_counter - 1, grace_counter)
+    updated_state = replace(updated_state, grace_counter=grace_counter)
 
     # V-MAJ-5: Mode Collapse Detection (consecutive low-entropy steps)
     # Use current-step volatility-adaptive threshold
@@ -725,13 +751,8 @@ def orchestrate_step(
         mode_collapse_consecutive_steps=mode_collapse_counter
     )
 
-    emergency_mode = bool(jax.device_get(updated_state.holder_exponent < config.holder_threshold))
-    if force_emergency:
-        emergency_mode = True
-    
-    # Override emergency mode if observation was rejected
-    if reject_observation:
-        emergency_mode = True
+    emergency_mode = updated_state.holder_exponent < config.holder_threshold
+    emergency_mode = emergency_mode | force_emergency | reject_observation
 
     confidences = jnp.array([ko.confidence for ko in kernel_outputs]).reshape(-1)
     fused_sigma = jnp.maximum(jnp.sum(updated_weights * confidences), config.pdf_min_sigma)
@@ -739,11 +760,18 @@ def orchestrate_step(
     confidence_lower = fused_prediction - z_score * fused_sigma
     confidence_upper = fused_prediction + z_score * fused_sigma
 
+    if allow_host_scaling:
+        operating_mode = _compute_mode(
+            _to_python_scalar(degraded_mode),
+            _to_python_scalar(emergency_mode),
+        )
+    else:
+        operating_mode = OperatingMode.INFERENCE
     prediction = PredictionResult(
         reference_prediction=jnp.asarray(fused_prediction),
         confidence_lower=jnp.asarray(confidence_lower),
         confidence_upper=jnp.asarray(confidence_upper),
-        operating_mode=_compute_mode(degraded_mode, emergency_mode),
+        operating_mode=operating_mode,
         telemetry=None,
         request_id=None,
     )
@@ -761,7 +789,7 @@ def orchestrate_step(
     # DeviceArrays enqueued directly, conversion deferred to consumer thread
     if telemetry_buffer is not None:
         # CRITICAL: Do NOT call float() here - keeps XLA async dispatch
-        # Consumer thread will batch-convert via jax.device_get()
+        # Consumer thread will batch-convert on the host
         telemetry_payload = {
             "step": step_counter,
             "timestamp_ns": timestamp_ns,

@@ -37,7 +37,7 @@ def estimate_stiffness(
     t: float,
     args: tuple,
     config
-) -> Float[Array, ""]:
+) -> Array:
     """
     Estimate stiffness ratio for dynamic solver selection.
     
