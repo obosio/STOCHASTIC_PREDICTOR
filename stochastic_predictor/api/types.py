@@ -539,11 +539,13 @@ class PredictionResult:
     References:
         - API_Python.tex §1.3: System Output
         - IO.tex §3: Risk State Vector (S_risk)
+    
+    Note: operating_mode is Array (int32) in core (XLA-compatible); convert to string in API layer.
     """
     reference_prediction: Float[Array, ""]
     confidence_lower: Float[Array, ""]
     confidence_upper: Float[Array, ""]
-    operating_mode: str
+    operating_mode: Array  # int32 scalar
     telemetry: Optional[object] = None
     request_id: Optional[str] = None
 
@@ -639,10 +641,23 @@ class OperatingMode:
     
     References:
         - API_Python.tex §3: Operating Modes
+    
+    Note: Core returns integers; API layer converts to strings.
     """
-    INFERENCE = "inference"     # Real-time prediction without adaptation
-    CALIBRATION = "calibration" # Gather statistics for tuning
-    DIAGNOSTIC = "diagnostic"   # Enable full telemetry
+    INFERENCE = 0
+    CALIBRATION = 1
+    DIAGNOSTIC = 2
+    
+    @staticmethod
+    def to_string(mode: int) -> str:
+        """Convert integer mode to API string (host-side only)."""
+        if mode == 0:
+            return "inference"
+        elif mode == 1:
+            return "calibration"
+        elif mode == 2:
+            return "diagnostic"
+        return "inference"
 
 
 class KernelType:
