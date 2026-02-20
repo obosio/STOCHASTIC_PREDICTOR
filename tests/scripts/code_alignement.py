@@ -350,8 +350,8 @@ def policy_checks() -> List[Tuple[int, str, Callable[[], Tuple[bool, str]]]]:
             34,
             "Test Coverage and Validation Protocols (Spec Tests)",
             lambda: (
-                file_exists(os.path.join(ROOT, "tests", "structure", "validate_coverage.py")),
-                "OK" if file_exists(os.path.join(ROOT, "tests", "structure", "validate_coverage.py")) else "Coverage validator missing",
+                file_exists(os.path.join(ROOT, "tests", "scripts", "tests_coverage.py")),
+                "OK" if file_exists(os.path.join(ROOT, "tests", "scripts", "tests_coverage.py")) else "Coverage validator missing",
             ),
         ),
         (

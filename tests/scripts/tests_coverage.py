@@ -86,7 +86,7 @@ class StructuralCoverageValidator:
     def extract_test_functions(self) -> Dict[str, str]:
         """Extract all test function names and their test classes."""
         
-        test_file = self.root / "tests/structure/test_structural_execution.py"
+        test_file = self.root / "tests/scripts/test_structural_execution.py"
         if not test_file.exists():
             return {}
         
@@ -112,7 +112,7 @@ class StructuralCoverageValidator:
     def extract_tested_symbols(self) -> Set[str]:
         """Extract function names mentioned in test file."""
         
-        test_file = self.root / "tests/structure/test_structural_execution.py"
+        test_file = self.root / "tests/scripts/test_structural_execution.py"
         if not test_file.exists():
             return set()
         
@@ -313,7 +313,7 @@ def main():
     
     # Save JSON report
     json_report = validator.generate_json_report()
-    report_file = project_root / "tests/structure/coverage_validation.json"
+    report_file = project_root / "tests/results/coverage_validation.json"
     with open(report_file, 'w') as f:
         json.dump(json_report, f, indent=2)
     

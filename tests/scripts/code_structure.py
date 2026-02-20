@@ -118,7 +118,7 @@ class TestCoverageValidation:
     
     def test_meta_validator_coverage(self):
         """Execute: Meta-validator ensures 95/95 functions, 0 gaps, 0 orphans."""
-        from tests.structure.validate_coverage import validate_coverage
+        from tests.scripts.tests_coverage import validate_coverage
         
         result = validate_coverage()
         assert result["coverage"] == 100.0, f"Coverage {result['coverage']}% != 100%"
