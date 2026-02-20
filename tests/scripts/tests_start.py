@@ -3,17 +3,20 @@
 Entrypoint script for all test and validation scripts.
 
 Runs the full test suite in sequence:
-  1. tests_coverage.py     - Structural coverage validation
-  2. code_structure.py     - Full code execution tests (pytest)
-  3. code_alignement.py    - Policy compliance checker
+  1. code_alignement.py    - Policy compliance checker
+  2. tests_coverage.py     - Structural coverage validation
+  3. code_structure.py     - Full code execution tests (pytest)
 
-All artifacts are output to tests/results/ and tests/reports/.
+All artifacts are output to tests/results/ as JSON files with timestamps:
+  - code_alignement_YYYY-MM-DD_HH-MM-SS.ffffff.json
+  - tests_coverage_YYYY-MM-DD_HH-MM-SS.ffffff.json
+  - code_structure_YYYY-MM-DD_HH-MM-SS.ffffff.json
 
 Usage:
     python tests_start.py              # Run all scripts
-    python tests_start.py tests_coverage     # Run coverage only
+    python tests_start.py code_alignement   # Run compliance only
+    python tests_start.py tests_coverage    # Run coverage only
     python tests_start.py code_structure    # Run structure tests only
-    python tests_start.py code_alignement   # Run policy checks only
 """
 
 import sys
@@ -48,19 +51,8 @@ def run_code_structure() -> int:
     print("=" * 80)
     
     try:
-        import pytest
-        # Only run the structural tests, not benchmarks
-        test_file = ROOT / "tests" / "scripts" / "code_structure.py"
-        exit_code = pytest.main([
-            str(test_file),
-            "-v",
-            "--tb=short",
-            "-x",  # Stop on first failure
-        ])
-        return exit_code
-    except ImportError:
-        print("⚠️  pytest not installed. Skipping structural tests.")
-        return 0
+        from tests.scripts.code_structure import main
+        return main()
     except Exception as e:
         print(f"❌ FAILED: {e}")
         return 1
@@ -94,6 +86,15 @@ def print_summary(results: List[Tuple[str, int]]) -> None:
     total = len(results)
     
     print(f"\nTotal: {total - total_failed}/{total} passed")
+    
+    # Show artifact location
+    results_dir = ROOT / "tests" / "results"
+    if results_dir.exists():
+        print(f"\n📂 Artifacts saved to: {results_dir}/")
+        artifacts = list(results_dir.glob("*.json"))
+        if artifacts:
+            for artifact in sorted(artifacts)[-3:]:  # Show last 3
+                print(f"   - {artifact.name}")
     
     if total_failed == 0:
         print("\n🎉 ALL TESTS PASSED!")

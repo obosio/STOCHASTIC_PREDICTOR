@@ -6,7 +6,7 @@ This script validates repository state against the policies defined in:
 
 Outputs:
 - Console summary (PASS/FAIL per policy)
-- JSON report under reports/policies/
+- JSON report: tests/results/code_alignement_YYYY-MM-DD_HH-MM-SS.ffffff.json
 """
 
 from __future__ import annotations
@@ -21,7 +21,7 @@ from typing import Callable, Dict, List, Tuple
 
 ROOT = os.path.abspath(os.path.join(os.path.dirname(__file__), ".."))
 POLICY_DOC = os.path.join(ROOT, "doc", "audit", "AUDIT_POLICIES_SPECIFICATION.md")
-REPORT_DIR = os.path.join(ROOT, "reports", "policies")
+REPORT_DIR = os.path.join(ROOT, "tests", "results")
 
 
 @dataclass(frozen=True)
@@ -420,8 +420,8 @@ def run_checks() -> List[PolicyResult]:
 
 def write_report(results: List[PolicyResult]) -> str:
     os.makedirs(REPORT_DIR, exist_ok=True)
-    timestamp = datetime.utcnow().strftime("%Y-%m-%d_%H-%M-%S")
-    report_path = os.path.join(REPORT_DIR, f"policy_audit_{timestamp}.json")
+    timestamp = datetime.utcnow().strftime("%Y-%m-%d_%H-%M-%S.%f")
+    report_path = os.path.join(REPORT_DIR, f"code_alignement_{timestamp}.json")
     payload = {
         "timestamp_utc": timestamp,
         "policy_count": len(results),

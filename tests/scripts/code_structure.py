@@ -11,6 +11,10 @@ Strategy:
     2. Leer source code para firmas exactas
     3. Crear inputs válidos
     4. Ejecutar y verificar sin errores
+
+Output:
+    - Console summary (test pass/fail)
+    - JSON report: tests/results/code_structure_YYYY-MM-DD_HH-MM-SS.ffffff.json
 """
 
 import os
@@ -673,5 +677,55 @@ class TestAPIWarmup:
         """Execute: profile_warmup_and_recommend_timeout()."""
         results = profile_warmup_and_recommend_timeout(config_obj, verbose=False)
         assert isinstance(results, dict)
+
+
+# ═══════════════════════════════════════════════════════════════════════════
+# PYTEST ORCHESTRATION & JSON REPORT GENERATION
+# ═══════════════════════════════════════════════════════════════════════════
+
+def main() -> int:
+    """Execute pytest and generate JSON report in tests/results/."""
+    import json
+    from pathlib import Path
+    from datetime import datetime
+    
+    # Get project root
+    project_root = Path(__file__).parent.parent.parent
+    results_dir = project_root / "tests" / "results"
+    results_dir.mkdir(parents=True, exist_ok=True)
+    
+    # Generate timestamp
+    timestamp = datetime.utcnow().strftime("%Y-%m-%d_%H-%M-%S.%f")
+    report_file = results_dir / f"code_structure_{timestamp}.json"
+    
+    # Run pytest with JSON plugin if available, otherwise capture manually
+    this_file = Path(__file__)
+    exit_code = pytest.main([
+        str(this_file),
+        "-v",
+        "--tb=short",
+        "-x",  # Stop on first failure
+        f"--json-report={report_file}",  # Try to use json-report plugin
+    ])
+    
+    # If json-report plugin not available, create minimal JSON report
+    if exit_code in (0, 1):
+        minimal_report = {
+            "timestamp_utc": timestamp,
+            "script": "code_structure.py",
+            "exit_code": exit_code,
+            "status": "PASS" if exit_code == 0 else "FAIL",
+            "message": "See pytest stdout for detailed results" if not report_file.exists() else "Full report generated"
+        }
+        if not report_file.exists():
+            with open(report_file, 'w') as f:
+                json.dump(minimal_report, f, indent=2)
+            print(f"\n💾 JSON report saved to: {report_file}")
+    
+    return exit_code
+
+
+if __name__ == "__main__":
+    exit(main())
 
 

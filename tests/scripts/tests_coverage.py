@@ -1,7 +1,7 @@
 """
 Meta Test Validator - Structural Coverage Analyzer
 
-Validates that test_structural_execution.py covers 100% of public functions
+Validates that code_structure.py covers 100% of public functions
 that should be tested according to the codebase structure.
 
 Reports:
@@ -9,6 +9,10 @@ Reports:
   2. Functions that ARE tested (by name matching)
   3. Functions that NEED testing (gap analysis)
   4. Tests that reference non-existent functions (orphans)
+
+Output:
+  - Console summary (PASS/FAIL per module)
+  - JSON report: tests/results/tests_coverage_YYYY-MM-DD_HH-MM-SS.ffffff.json
 """
 
 import ast
@@ -304,6 +308,7 @@ def validate_coverage() -> dict:
 
 def main():
     """Run the validator."""
+    from datetime import datetime
     
     project_root = Path(__file__).parent.parent.parent  # Go up to project root
     validator = StructuralCoverageValidator(project_root)
@@ -311,9 +316,10 @@ def main():
     # Generate reports
     print(validator.generate_report())
     
-    # Save JSON report
+    # Save JSON report with timestamp
     json_report = validator.generate_json_report()
-    report_file = project_root / "tests/results/coverage_validation.json"
+    timestamp = datetime.utcnow().strftime("%Y-%m-%d_%H-%M-%S.%f")
+    report_file = project_root / "tests/results" / f"tests_coverage_{timestamp}.json"
     with open(report_file, 'w') as f:
         json.dump(json_report, f, indent=2)
     
