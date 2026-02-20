@@ -251,8 +251,8 @@ which git
 
 ### Documentación Técnica
 
-- **Especificación de Políticas**: [doc/audit/AUDIT_POLICIES_SPECIFICATION.md](../doc/audit/AUDIT_POLICIES_SPECIFICATION.md)
-- **Reporte de Alineación**: [doc/audit/PRE_TEST_COMPLIANCE_REPORT.md](../doc/audit/PRE_TEST_COMPLIANCE_REPORT.md)
+- **Especificación de Políticas**: [reports/policies/AUDIT_POLICIES_SPECIFICATION.md](../reports/policies/AUDIT_POLICIES_SPECIFICATION.md)
+- **Reporte de Alineación**: [reports/policies/PRE_TEST_COMPLIANCE_REPORT.md](../reports/policies/PRE_TEST_COMPLIANCE_REPORT.md)
 
 ### Archivos Validados
 

@@ -116,12 +116,12 @@ def prng_key():
 class TestBasicSetup:
     """Verify basic setup works."""
     
-    def test_config_loads(self, config_obj):
-        """Config can be loaded."""
+    def test_get_config(self, config_obj):
+        """Test: get_config() via fixture."""
         assert config_obj is not None
     
-    def test_prng_initializes(self, prng_key):
-        """PRNG key can be initialized."""
+    def test_initialize_jax_prng(self, prng_key):
+        """Test: initialize_jax_prng() via fixture."""
         assert prng_key is not None
 
 
@@ -129,17 +129,22 @@ class TestAPIConfig:
     """Test api/config.py functions."""
     
     def test_get_config(self):
-        """Execute: get_config()."""
+        """Execute: get_config() function."""
         cfg = get_config()
         assert isinstance(cfg, ConfigManager)
     
-    def test_config_manager(self):
-        """Execute: ConfigManager class."""
+    def test_PredictorConfigInjector(self):
+        """Execute: PredictorConfigInjector class."""
+        injector = PredictorConfigInjector()
+        assert injector is not None
+    
+    def test_ConfigManager(self):
+        """Execute: ConfigManager class instantiation."""
         cm = ConfigManager()
         assert cm is not None
     
-    def test_predictor_config(self, config_obj):
-        """Execute: PredictorConfig type."""
+    def test_PredictorConfig(self, config_obj):
+        """Execute: PredictorConfig dataclass instantiation."""
         assert isinstance(config_obj, PredictorConfig)
 
 
@@ -147,7 +152,7 @@ class TestAPIPRNG:
     """Test api/prng.py functions."""
     
     def test_initialize_jax_prng(self):
-        """Execute: initialize_jax_prng()."""
+        """Execute: initialize_jax_prng() function."""
         key = initialize_jax_prng(seed=123)
         assert key.shape == (2,)
     
@@ -214,12 +219,7 @@ class TestAPIPRNG:
 class TestAPITypes:
     """Test api/types.py classes and functions."""
     
-    def test_predictor_config_class(self):
-        """Execute: PredictorConfig class."""
-        cfg = PredictorConfig()
-        assert cfg is not None
-    
-    def test_process_state_class(self):
+    def test_ProcessState(self):
         """Execute: ProcessState class."""
         ps = ProcessState(
             magnitude=jnp.array([1.0]),
@@ -228,15 +228,20 @@ class TestAPITypes:
         assert ps is not None
         assert ps.magnitude.shape == (1,)
     
-    def test_kernel_type_enum(self):
-        """Execute: KernelType enum."""
+    def test_KernelType(self):
+        """Execute: KernelType class constants."""
         assert KernelType is not None
-        assert hasattr(KernelType, '__members__')
+        assert hasattr(KernelType, 'KERNEL_A')
+        assert KernelType.KERNEL_A == 0
+        assert KernelType.N_KERNELS == 4
     
-    def test_operating_mode_enum(self):
-        """Execute: OperatingMode enum."""
+    def test_OperatingMode(self):
+        """Execute: OperatingMode class constants."""
         assert OperatingMode is not None
-        assert hasattr(OperatingMode, '__members__')
+        assert hasattr(OperatingMode, 'INFERENCE')
+        assert OperatingMode.INFERENCE == 0
+        assert hasattr(OperatingMode, 'to_string')
+        assert OperatingMode.to_string(0) == "inference"
     
     def test_check_jax_config(self):
         """Execute: check_jax_config()."""
@@ -346,7 +351,7 @@ class TestAPIValidation:
 class TestAPISchemas:
     """Test api/schemas.py classes."""
     
-    def test_process_state_schema(self):
+    def test_ProcessStateSchema(self):
         """Execute: ProcessStateSchema."""
         schema = ProcessStateSchema(
             magnitude=jnp.array([0.5]),
@@ -354,7 +359,7 @@ class TestAPISchemas:
         )
         assert schema is not None
     
-    def test_operating_mode_schema(self):
+    def test_OperatingModeSchema(self):
         """Execute: OperatingModeSchema (alias check)."""
         # OperatingModeSchema is an alias to OperatingMode enum
         assert OperatingModeSchema is not None
@@ -476,7 +481,7 @@ class TestCoreMetaOptimizer:
     
     def test_walk_forward_split(self):
         """Execute: walk_forward_split()."""
-        result = walk_forward_split(100, 70, 10)
+        result = walk_forward_split(2000, 0.7, 5)
         assert result is not None
 
 
@@ -570,7 +575,7 @@ class TestKernelC:
         """Execute: drift_levy_stable()."""
         t = jnp.array(0.0)
         y = jnp.array([1.0])
-        args = (1.5, 0.5)  # alpha, beta
+        args = (0.0, 1.5, 0.0, 1.0)  # (mu, alpha, beta, sigma)
         result = drift_levy_stable(t, y, args)
         assert result is not None
     
@@ -578,7 +583,7 @@ class TestKernelC:
         """Execute: diffusion_levy()."""
         t = jnp.array(0.0)
         y = jnp.array([1.0])
-        args = (1.5, 0.5)
+        args = (0.0, 1.5, 0.0, 1.0)  # (mu, alpha, beta, sigma)
         result = diffusion_levy(t, y, args)
         assert result is not None
     

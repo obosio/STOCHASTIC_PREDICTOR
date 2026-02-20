@@ -338,5 +338,5 @@ validation_viscosity_residual_max = 1e-3    # Max PDE residual for viscosity che
 
 # Array sanitization policies
 sanitize_replace_nan_value = 0.0            # Default NaN replacement value
-# sanitize_replace_inf_value = null         # Replacement for Inf (null = preserve Inf)
-# sanitize_clip_range = null                # Tuple [min, max] for clipping (null = no clipping)
+sanitize_replace_inf_value = 0.0            # Replacement for Inf
+sanitize_clip_range = [-1e6, 1e6]           # Tuple [min, max] for clipping
