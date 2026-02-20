@@ -1,8 +1,11 @@
 #!/usr/bin/env python3
-"""Policy compliance checker (spec-complete).
+"""Policy compliance checker - policies defined in code.
 
 Validation Scope: Entire repository (policies apply repo-wide)
-Policy Source: tests/doc/AUDIT_POLICIES_SPECIFICATION.md
+
+NOTE: AUDIT_POLICIES_SPECIFICATION.md is documentation only.
+All policies are defined in code (policy_checks() function).
+If policies change, update policy_checks() directly in this script.
 
 Outputs:
 - Console summary (PASS/FAIL per policy)
@@ -19,8 +22,7 @@ from dataclasses import dataclass
 from datetime import datetime
 from typing import Callable, Dict, List, Tuple
 
-ROOT = os.path.abspath(os.path.join(os.path.dirname(__file__), ".."))
-POLICY_DOC = os.path.join(ROOT, "tests", "doc", "AUDIT_POLICIES_SPECIFICATION.md")
+ROOT = os.path.abspath(os.path.join(os.path.dirname(__file__), "../.."))
 REPORT_DIR = os.path.join(ROOT, "tests", "results")
 
 
@@ -450,10 +452,7 @@ def write_report(results: List[PolicyResult]) -> str:
 
 
 def main() -> int:
-    if not file_exists(POLICY_DOC):
-        print("FAIL: Policy document missing:", POLICY_DOC)
-        return 2
-
+    """Run all policy compliance checks. Policies are defined in code, not loaded from file."""
     results = run_checks()
     for result in results:
         status = "PASS" if result.passed else "FAIL"
