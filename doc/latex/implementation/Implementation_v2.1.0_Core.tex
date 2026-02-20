@@ -1773,6 +1773,45 @@ kernel_c_config = replace(
     \item Effect: Allow implicit solver for stiff regions
 \end{itemize}
 
+\section{Kernel C: Levy Jumps and Semimartingale Decomposition}
+
+\subsection{Overview}
+
+Kernel C now includes a compound Poisson jump term to align with the Ito/Levy
+formulation in Theory.tex §2.3.4. The signal is also decomposed into
+semimartingale components to expose drift and martingale diagnostics.
+
+\subsection{Implementation}
+
+\textbf{Module:} \texttt{stochastic\_predictor/kernels/kernel\_c.py}
+
+\begin{lstlisting}[language=Python]
+# Levy jump component (compound Poisson)
+jump_sum, jump_count = sample_levy_jump_component(
+    key=key_jump,
+    horizon=horizon,
+    config=config,
+)
+
+# Semimartingale decomposition
+drift_estimate, martingale_component, finite_variation = decompose_semimartingale(
+    signal=signal,
+    dt=config.sde_dt,
+)
+
+# Prediction with jump term
+prediction = y_final[0] + jump_sum
+\end{lstlisting}
+
+\subsection{Configuration}
+
+\begin{itemize}
+    \item \texttt{kernel\_c\_jump\_intensity}: Poisson intensity (events per unit time)
+    \item \texttt{kernel\_c\_jump\_mean}: Jump mean
+    \item \texttt{kernel\_c\_jump\_scale}: Jump scale (standard deviation)
+    \item \texttt{kernel\_c\_jump\_max\_events}: Static cap for jump events
+\end{itemize}
+
 \section{V-MAJ-3: Regime-Dependent JKO Flow Parameters}
 
 \subsection{Problem Statement}

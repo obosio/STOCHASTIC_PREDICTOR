@@ -161,6 +161,98 @@ def diffusion_levy(
     return sigma * jnp.eye(d)
 
 
+def sample_levy_jump_component(
+    key: Array,
+    horizon: float,
+    config
+) -> tuple[Float[Array, ""], Float[Array, ""]]:
+    """
+    Sample compound Poisson jump component for Levy process.
+
+    Implements jump term:
+        sum_{i=1}^{N_t} Y_i, where N_t ~ Poisson(lambda * t)
+
+    Args:
+        key: JAX PRNG key
+        horizon: Integration horizon (t)
+        config: PredictorConfig with jump intensity and size params
+
+    Returns:
+        (jump_sum, jump_count)
+
+    References:
+        - Theory.tex §2.3.4: Ito formula with jumps
+    """
+    max_events = int(config.kernel_c_jump_max_events)
+    expected_count = config.kernel_c_jump_intensity * horizon
+
+    key_count, key_sizes = jax.random.split(key)
+    jump_count = jax.random.poisson(key_count, expected_count)
+    jump_count = jnp.minimum(jump_count, max_events)
+
+    jump_sizes = (
+        config.kernel_c_jump_mean
+        + config.kernel_c_jump_scale * jax.random.normal(key_sizes, (max_events,))
+    )
+    mask = jnp.arange(max_events) < jump_count
+    jump_sum = jnp.sum(jump_sizes * mask)
+
+    return jnp.asarray(jump_sum), jnp.asarray(jump_count)
+
+
+def decompose_semimartingale(
+    signal: Float[Array, "n"],
+    dt: float
+) -> tuple[Float[Array, ""], Float[Array, "n"], Float[Array, "n"]]:
+    """
+    Decompose signal into martingale and finite-variation components.
+
+    Uses a drift estimate from mean increments:
+        X_t = X_0 + M_t + A_t
+        A_t = drift * t
+        M_t = X_t - X_0 - A_t
+
+    Args:
+        signal: Input time series
+        dt: Time step
+
+    Returns:
+        (drift_estimate, martingale_component, finite_variation_component)
+
+    References:
+        - Theory.tex §2.2.5: Semimartingale decomposition
+    """
+    increments = jnp.diff(signal)
+    drift_estimate = jnp.mean(increments) / dt
+    times = jnp.arange(signal.shape[0]) * dt
+    finite_variation = drift_estimate * times
+    martingale = signal - signal[0] - finite_variation
+    return drift_estimate, martingale, finite_variation
+
+
+def compute_information_drift(
+    martingale_component: Float[Array, "n"],
+    dt: float
+) -> Float[Array, ""]:
+    """
+    Estimate information drift for filtration enlargement.
+
+    Uses mean increment of martingale component as a proxy for alpha_t.
+
+    Args:
+        martingale_component: Martingale component from decomposition
+        dt: Time step
+
+    Returns:
+        Estimated information drift
+
+    References:
+        - Theory.tex §2.1.6: Filtration enlargement (information drift)
+    """
+    increments = jnp.diff(martingale_component)
+    return jnp.mean(increments) / dt
+
+
 @jax.jit
 def solve_sde(
     drift_fn: Callable,
@@ -342,19 +434,26 @@ def kernel_c_predict(
     
     # Integrate SDE (config injection pattern)
     # solve_sde now returns (y_final, solver_idx, stiffness_metric) where solver_idx is jnp.int32
+    key_sde, key_jump = jax.random.split(key)
     y_final, solver_idx, stiffness_metric = solve_sde(
         drift_fn=drift_levy_stable,
         diffusion_fn=diffusion_levy,
         y0=y0,
         t0=t0,
         t1=t1,
-        key=key,
+        key=key_sde,
         config=config,
         args=args
     )
+
+    jump_sum, jump_count = sample_levy_jump_component(
+        key=key_jump,
+        horizon=horizon,
+        config=config,
+    )
     
     # Prediction
-    prediction = y_final[0]
+    prediction = y_final[0] + jump_sum
     
     # Confidence: Theoretical variance of Lévy stable process
     # For α-stable: Var ~ t^(2/α) (power law)
@@ -363,6 +462,13 @@ def kernel_c_predict(
         variance = (sigma ** 2) * horizon
     else:  # Heavy-tailed Lévy
         variance = (sigma ** alpha) * (horizon ** (2.0 / alpha))
+
+    jump_variance = (
+        config.kernel_c_jump_intensity
+        * horizon
+        * (config.kernel_c_jump_scale ** 2 + config.kernel_c_jump_mean ** 2)
+    )
+    variance = variance + jump_variance
     
     confidence = jnp.sqrt(variance)
     
@@ -373,6 +479,15 @@ def kernel_c_predict(
     solver_type = solver_type_map.get(solver_idx_int, "unknown")
     
     # Diagnostics
+    drift_estimate, martingale_component, finite_variation = decompose_semimartingale(
+        signal=signal,
+        dt=config.sde_dt,
+    )
+    information_drift = compute_information_drift(
+        martingale_component=martingale_component,
+        dt=config.sde_dt,
+    )
+
     diagnostics = {
         "kernel_type": "C_Ito_Levy_SDE",
         "mu": mu,
@@ -382,7 +497,14 @@ def kernel_c_predict(
         "solver_type": solver_type,
         "solver_idx": solver_idx_int,
         "stiffness_metric": float(stiffness_metric),
-        "final_state": float(y_final[0])
+        "final_state": float(y_final[0]),
+        "jump_count": int(jump_count),
+        "jump_sum": float(jump_sum),
+        "jump_variance": float(jump_variance),
+        "semimartingale_drift": float(drift_estimate),
+        "semimartingale_martingale": float(martingale_component[-1]),
+        "semimartingale_finite_variation": float(finite_variation[-1]),
+        "information_drift": float(information_drift),
     }
     
     # Apply stop_gradient to diagnostics
@@ -402,5 +524,8 @@ __all__ = [
     "kernel_c_predict",
     "solve_sde",
     "drift_levy_stable",
-    "diffusion_levy"
+    "diffusion_levy",
+    "sample_levy_jump_component",
+    "decompose_semimartingale",
+    "compute_information_drift",
 ]

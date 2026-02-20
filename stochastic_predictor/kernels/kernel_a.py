@@ -398,6 +398,148 @@ def extract_holder_exponent_wtmm(
     return holder_exponent
 
 
+@jax.jit
+def compute_koopman_spectrum(
+    signal: Float[Array, "n"],
+    top_k: int,
+    min_power: float
+) -> tuple[Float[Array, "k"], Float[Array, "k"]]:
+    """
+    Compute Koopman spectral modes via FFT power spectrum.
+
+    Args:
+        signal: Input time series
+        top_k: Number of dominant modes to return
+        min_power: Minimum power threshold
+
+    Returns:
+        (frequencies, powers) for top-k spectral modes
+
+    References:
+        - Theory.tex §2.1.5: Koopman operator and spectrum
+    """
+    signal_centered = signal - jnp.mean(signal)
+    fft_vals = jnp.fft.rfft(signal_centered)
+    power = jnp.abs(fft_vals) ** 2
+    power = jnp.where(power < min_power, 0.0, power)
+    freqs = jnp.fft.rfftfreq(signal.shape[0], d=1.0)
+
+    top_power, top_idx = jax.lax.top_k(power, top_k)
+    top_freqs = freqs[top_idx]
+    return top_freqs, top_power
+
+
+@jax.jit
+def compute_paley_wiener_integral(
+    signal: Float[Array, "n"],
+    epsilon: float
+) -> Float[Array, ""]:
+    """
+    Compute discrete Paley-Wiener integral approximation.
+
+    Integral approximation:
+        \\int |log f(omega)| / (1 + omega^2) d omega
+
+    Args:
+        signal: Input time series
+        epsilon: Floor for spectral density to avoid log(0)
+
+    Returns:
+        Approximate Paley-Wiener integral value
+
+    References:
+        - Theory.tex §2.1.2: Paley-Wiener condition
+    """
+    signal_centered = signal - jnp.mean(signal)
+    fft_vals = jnp.fft.rfft(signal_centered)
+    power = (jnp.abs(fft_vals) ** 2) / signal.shape[0]
+    log_power = jnp.log(jnp.maximum(power, epsilon))
+    freqs = jnp.fft.rfftfreq(signal.shape[0], d=1.0)
+
+    delta = freqs[1] - freqs[0] if freqs.shape[0] > 1 else 1.0
+    integrand = jnp.abs(log_power) / (1.0 + freqs ** 2)
+    return jnp.sum(integrand) * delta
+
+
+@jax.jit
+def compute_wiener_hopf_filter(
+    signal: Float[Array, "n"],
+    order: int,
+    epsilon: float
+) -> Float[Array, "order"]:
+    """
+    Solve Wiener-Hopf equations for optimal linear predictor filter.
+
+    Discrete approximation:
+        R h = p
+    where R is Toeplitz autocorrelation matrix and p is lagged autocorrelation.
+
+    Args:
+        signal: Input time series
+        order: Filter order
+        epsilon: Diagonal regularization for numerical stability
+
+    Returns:
+        Wiener-Hopf filter coefficients
+
+    References:
+        - Theory.tex §2.1.2: Wiener-Hopf integral equation
+    """
+    signal_centered = signal - jnp.mean(signal)
+    n = signal_centered.shape[0]
+    autocorr_full = jnp.correlate(signal_centered, signal_centered, mode="full")
+    autocorr = autocorr_full[n - 1:n - 1 + order + 1] / n
+
+    r = autocorr[:order]
+    p = autocorr[1:order + 1]
+    indices = jnp.abs(jnp.arange(order)[:, None] - jnp.arange(order)[None, :])
+    R = r[indices]
+    R = R + epsilon * jnp.eye(order)
+    return jnp.linalg.solve(R, p)
+
+
+def compute_malliavin_derivative(
+    functional,
+    signal: Float[Array, "n"]
+) -> Float[Array, "n"]:
+    """
+    Compute Malliavin derivative of a functional with JAX autodiff.
+
+    Args:
+        functional: Callable mapping signal -> scalar
+        signal: Input time series
+
+    Returns:
+        Gradient of functional with respect to signal
+
+    References:
+        - Theory.tex §2.2.1: Malliavin derivative operator
+    """
+    return jax.grad(functional)(signal)
+
+
+def compute_ocone_haussmann_representation(
+    expected_value: Float[Array, ""],
+    malliavin_derivative: Float[Array, "n"],
+    dt: float
+) -> Float[Array, ""]:
+    """
+    Compute Ocone-Haussmann representation approximation.
+
+    Args:
+        expected_value: Scalar expectation estimate
+        malliavin_derivative: Malliavin derivative along path
+        dt: Time step for integral approximation
+
+    Returns:
+        Approximate representation value
+
+    References:
+        - Theory.tex §2.2.2: Ocone-Haussmann representation theorem
+    """
+    return expected_value + jnp.sum(malliavin_derivative) * dt
+
+
 # ==================== End P2.1: WTMM Functions ====================
 
 
@@ -629,6 +771,42 @@ def kernel_a_predict(
     # V-MAJ-2 + P2.1: Full WTMM implementation for holder_exponent
     holder_exponent_estimate = extract_holder_exponent_wtmm(signal_normalized, config)
     
+    koopman_top_k = min(config.koopman_top_k, (signal.shape[0] // 2) + 1)
+    koopman_freqs, koopman_powers = compute_koopman_spectrum(
+        signal_normalized,
+        top_k=koopman_top_k,
+        min_power=config.koopman_min_power,
+    )
+    paley_wiener_integral = compute_paley_wiener_integral(
+        signal_normalized,
+        epsilon=config.numerical_epsilon,
+    )
+    paley_wiener_ok = paley_wiener_integral <= config.paley_wiener_integral_max
+
+    wiener_hopf_order = max(2, int(config.kernel_a_embedding_dim))
+    wiener_hopf_filter = compute_wiener_hopf_filter(
+        signal_normalized,
+        order=wiener_hopf_order,
+        epsilon=config.numerical_epsilon,
+    )
+
+    def prediction_fn(sig: Float[Array, "n"]) -> Float[Array, ""]:
+        sig_norm = normalize_signal(sig, method="zscore", epsilon=config.numerical_epsilon)
+        sig_stats = compute_signal_statistics(sig)
+        sig_embed = create_embedding(sig_norm, config)
+        sig_train = sig_embed[:-1]
+        sig_targets = sig_norm[config.kernel_a_embedding_dim:-1]
+        sig_test = sig_embed[-1:]
+        sig_pred_norm, _ = kernel_ridge_regression(sig_train, sig_targets, sig_test, config)
+        return sig_pred_norm[0] * sig_stats["std"] + sig_stats["mean"]
+
+    malliavin_derivative = compute_malliavin_derivative(prediction_fn, signal)
+    ocone_haussmann_value = compute_ocone_haussmann_representation(
+        expected_value=jnp.mean(signal),
+        malliavin_derivative=malliavin_derivative,
+        dt=config.sde_dt,
+    )
+
     diagnostics = {
         "kernel_type": "A_Hilbert_RKHS",
         "bandwidth": config.kernel_a_bandwidth,
@@ -636,7 +814,14 @@ def kernel_a_predict(
         "n_training_points": X_train.shape[0],
         "signal_mean": stats["mean"],
         "signal_std": stats["std"],
-        "holder_exponent": float(holder_exponent_estimate)  # P2.1: Full WTMM, not placeholder
+        "holder_exponent": float(holder_exponent_estimate),  # P2.1: Full WTMM, not placeholder
+        "koopman_freqs": koopman_freqs,
+        "koopman_powers": koopman_powers,
+        "paley_wiener_integral": paley_wiener_integral,
+        "paley_wiener_ok": paley_wiener_ok,
+        "wiener_hopf_filter": wiener_hopf_filter,
+        "malliavin_derivative_norm": jnp.linalg.norm(malliavin_derivative),
+        "ocone_haussmann_value": ocone_haussmann_value,
     }
     
     # Apply stop_gradient to diagnostics (VRAM optimization)

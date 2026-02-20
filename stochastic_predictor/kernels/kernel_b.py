@@ -379,6 +379,10 @@ def kernel_b_predict(
         current_state * (1.0 + config.kernel_b_spatial_range_factor),
         config.kernel_b_spatial_samples
     )[:, None]  # Shape (kernel_b_spatial_samples, 1)
+
+    t_samples = jnp.array([t])
+    viscosity_residual = loss_hjb(model, t_samples, x_samples, config)
+    viscosity_solution_ok = viscosity_residual <= config.validation_viscosity_residual_max
     
     entropy_dgm = compute_entropy_dgm(model, t, x_samples, config)
     
@@ -403,6 +407,8 @@ def kernel_b_predict(
         "entropy_dgm": entropy_dgm,  # V-MAJ-8: Already blocked by stop_gradient above
         "entropy_threshold_adaptive": entropy_threshold_adaptive,  # V-MAJ-1: Diagnostic (also stopped)
         "mode_collapse": mode_collapse,
+        "viscosity_residual": viscosity_residual,
+        "viscosity_solution_ok": viscosity_solution_ok,
         "r": config.kernel_b_r,
         "sigma": config.kernel_b_sigma,
         "horizon": config.kernel_b_horizon

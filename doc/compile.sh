@@ -186,13 +186,13 @@ case "${1:-help}" in
                     # Check if compilation is needed
                     if [ "$force_recompile" = true ] || needs_recompile "$tex_file" "$pdf_dir"; then
                         if compile_doc "$tex_file" "$pdf_dir"; then
-                            ((compiled_count++))
+                            compiled_count=$((compiled_count + 1))
                         else
                             echo "⚠️  Compilation failed for $base_name.tex"
                         fi
                     else
                         echo "⏭️  $base_name.tex unchanged, skipping..."
-                        ((skipped_count++))
+                        skipped_count=$((skipped_count + 1))
                     fi
                 fi
             done

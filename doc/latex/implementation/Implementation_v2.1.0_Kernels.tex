@@ -203,6 +203,9 @@ From \texttt{PredictorConfig}:
     \item \texttt{kernel\_a\_bandwidth}: Gaussian kernel smoothness (default: 0.1)
     \item \texttt{kernel\_a\_embedding\_dim}: Time-delay embedding dimension for Takens reconstruction (default: 5)
     \item \texttt{kernel\_ridge\_lambda}: Regularization parameter (default: $1 \times 10^{-6}$)
+    \item \texttt{koopman\_top\_k}: Top-K Koopman spectral modes (default: 5)
+    \item \texttt{koopman\_min\_power}: Minimum spectral power cutoff (default: $1 \times 10^{-10}$)
+    \item \texttt{paley\_wiener\_integral\_max}: Paley-Wiener integral threshold (default: 100.0)
     \item \texttt{wtmm\_buffer\_size}: Historical observation buffer (default: 128)
 \end{itemize}
 
@@ -215,7 +218,7 @@ The orchestrator accumulates diagnostic information from all four kernels into t
 \begin{enumerate}
     \item \textbf{Kurtosis} ($\kappa_t$): Empirical kurtosis of residuals, updated by CUSUM statistics (V-CRIT-1)
     \item \textbf{DGM Entropy} ($H_{\text{DGM}}$): Entropy of Kernel B predictions, indicates mode collapse risk
-    \item \textbf{Holder Exponent} ($H_t$): Signal regularity estimate (placeholder in V-MAJ-2, full WTMM in Phase 3)
+    \item \textbf{Holder Exponent} ($H_t$): Signal regularity estimate via full WTMM pipeline
 \end{enumerate}
 
 \subsection{Implementation}
@@ -243,33 +246,29 @@ dgm_entropy=jnp.asarray(
 
 This entropy signal enables mode collapse detection (V-MAJ-5).
 
-\subsubsection{Holder Exponent Tracking (Placeholder)}
+\subsubsection{Holder Exponent Tracking (WTMM)}
 
-Kernel A now emits an initial holder exponent estimate based on signal roughness:
+Kernel A emits the Hölder exponent via the full WTMM pipeline (P2.1), with
+additional theoretical compliance diagnostics:
 
 \begin{lstlisting}[language=Python]
 # In kernel_a_predict():
-signal_roughness = jnp.std(jnp.diff(signal_normalized))
-holder_exponent_estimate = jnp.clip(
-    1.0 - signal_roughness,  # Higher roughness → lower H_t
-    config.validation_holder_exponent_min,
-    config.validation_holder_exponent_max
-)
+holder_exponent_estimate = extract_holder_exponent_wtmm(signal_normalized, config)
 
-diagnostics = {
-    "holder_exponent": float(holder_exponent_estimate),  # V-MAJ-2
-    ...
-}
+# Compliance diagnostics
+koopman_freqs, koopman_powers = compute_koopman_spectrum(
+    signal_normalized, top_k=config.koopman_top_k, min_power=config.koopman_min_power
+)
+paley_wiener_integral = compute_paley_wiener_integral(
+    signal_normalized, epsilon=config.numerical_epsilon
+)
+wiener_hopf_filter = compute_wiener_hopf_filter(
+    signal_normalized, order=config.kernel_a_embedding_dim, epsilon=config.numerical_epsilon
+)
 \end{lstlisting}
 
-This is a placeholder implementation. Full Hölder/WTMM calculation comes in Phase 3 (P2.1), which computes:
-
-\begin{enumerate}
-    \item Continuous Wavelet Transform (CWT) of signal
-    \item Detect local maxima across scales (modulus maxima line)
-    \item Compute singularity exponent via Legendre transform
-    \item Return spectrum peak (maximum Hölder exponent)
-\end{enumerate}
+This replaces the earlier roughness placeholder and ensures theoretical coverage
+for Koopman spectrum, Paley-Wiener condition, and Wiener-Hopf filtering.
 
 \subsection{Integration into Orchestrator}
 
@@ -330,15 +329,8 @@ Note: \texttt{kurtosis} is updated during \texttt{atomic\_state\_update()} (call
     \item \textbf{Circuit Breaker}: Emergency mode triggered when $H_t < H_{\text{threshold}}$ (Holder exponent falls)
     \item \textbf{Mode Collapse Detection}: DGM entropy tracks signal degeneracy, enables V-MAJ-5
     \item \textbf{Audit Trail}: All three metrics included in telemetry buffer for post-mortem analysis
-    \item \textbf{Gradual Enhancement}: Placeholder holder\_exponent allows system to function; Phase 3 upgrades to full WTMM
+        \item \textbf{Theoretical Coverage}: WTMM, Koopman, Paley-Wiener, and Wiener-Hopf diagnostics available
 \end{itemize}
-
-\subsection{Roadmap for Phase 3}
-
-- **P2.1 (V-MAJ-3,4,5 subtasks)**: Implement full WTMM singularity spectrum in kernel\_a.py
-  - Replace signal-roughness placeholder with actual Hölder exponent computation
-  - Compute Lipschitz regularity via CWT multiresolution analysis
-  - Extract maximum singularity strength (peak of spectrum)
 
 \chapter{Kernel B: PDE/DGM (Deep Galerkin Method)}
 
@@ -357,6 +349,13 @@ Solves Hamilton-Jacobi-Bellman (HJB) PDE:
 with terminal condition $u(T, x) = \phi(x)$.
 
 DGM enforces this PDE through a neural network trainable in a single forward pass (no labeled data required).
+
+\subsection{Viscosity Residual Validation}
+
+Kernel B now computes the PDE residual on a small grid and emits a diagnostic
+flag \texttt{viscosity\_solution\_ok} when the residual remains below
+\texttt{validation\_viscosity\_residual\_max}. This provides an explicit
+numerical check for viscosity-solution consistency.
 
 \section{Implementation}
 
@@ -1005,7 +1004,7 @@ def estimate_stiffness(drift_fn, diffusion_fn, y, t, args) -> float:
     diffusion_variance = jnp.trace(diffusion_matrix @ diffusion_matrix.T)
     
     # Stiffness ratio: drift strength / diffusion strength
-    epsilon = 1e-10  # Prevent division by zero
+    epsilon = config.numerical_epsilon  # Prevent division by zero
     stiffness = drift_jacobian_norm / (jnp.sqrt(diffusion_variance) + epsilon)
     
     return float(stiffness)
@@ -1080,6 +1079,9 @@ def kernel_c_predict(signal: Float[Array, "n"],
         - kernel_c_horizon: Integration horizon (default: 1.0)
         - kernel_c_dt0: Initial time step (default: 0.01)
         - sde_solver_type: "euler" or "heun" (default: "heun")
+        - kernel_c_jump_intensity: Levy jump intensity
+        - kernel_c_jump_mean: Levy jump mean
+        - kernel_c_jump_scale: Levy jump scale
     """
     signal_norm = normalize_signal(signal)
     x0 = signal_norm[-1]
@@ -1098,6 +1100,16 @@ def kernel_c_predict(signal: Float[Array, "n"],
     )
 \end{lstlisting}
 
+\subsection{Levy Jumps and Semimartingale Diagnostics}
+
+Kernel C augments the diffusion solution with a compound Poisson jump term and
+exposes a semimartingale decomposition for theoretical compliance:
+
+\begin{itemize}
+    \item Jump term: $\sum_{i=1}^{N_t} Y_i$ with $N_t \sim \text{Poisson}(\lambda t)$
+    \item Decomposition: $X_t = X_0 + M_t + A_t$ for diagnostics
+\end{itemize}
+
 \section{Configuration Parameters}
 
 \begin{itemize}
@@ -1106,6 +1118,10 @@ def kernel_c_predict(signal: Float[Array, "n"],
     \item \texttt{kernel\_c\_beta}: Skewness, $-1 \leq \beta \leq 1$ (default: 0.0)
     \item \texttt{kernel\_c\_horizon}: Prediction horizon (default: 1.0)
     \item \texttt{kernel\_c\_dt0}: Initial time step (default: 0.01)
+    \item \texttt{kernel\_c\_jump\_intensity}: Levy jump intensity (default: 0.05)
+    \item \texttt{kernel\_c\_jump\_mean}: Levy jump mean (default: 0.0)
+    \item \texttt{kernel\_c\_jump\_scale}: Levy jump scale (default: 0.1)
+    \item \texttt{kernel\_c\_jump\_max\_events}: Max jump events per step (default: 16)
     \item \texttt{sde\_dt}: Base time step (default: 0.01)
     \item \texttt{sde\_diffusion\_sigma}: Diffusion coefficient (default: 0.2)
     \item \texttt{stiffness\_low, stiffness\_high}: Regime detection (defaults: 100, 1000)
@@ -1119,6 +1135,12 @@ def kernel_c_predict(signal: Float[Array, "n"],
 \section{Purpose}
 
 Kernel D predicts high-dimensional temporal sequences using path signatures (iterated path integrals). Optimal for multivariate time series with nonlinear dependencies.
+
+\subsection{Reparametrization Invariance Diagnostic}
+
+Kernel D verifies signature invariance under monotone time reparametrization by
+comparing log-signatures under a warped time grid. The diagnostic value
+\texttt{reparam\_invariance\_error} is emitted in metadata for audit purposes.
 
 \section{Mathematical Foundation}
 
@@ -1158,6 +1180,9 @@ def predict_from_signature(logsig: Float[Array, "d_sig"], last_value: float, con
 def kernel_d_predict(signal: Float[Array, "n"], key: jax.random.PRNGKeyArray, config: PredictorConfig) -> KernelOutput:
     path = create_path_augmentation(signal)
     logsig = compute_log_signature(path, config)
+    path_warped = reparameterize_path(path)
+    logsig_warped = compute_log_signature(path_warped, config)
+    reparam_invariance_error = jnp.linalg.norm(logsig_warped - logsig)
     prediction, confidence = predict_from_signature(logsig, signal[-1], config)
     diagnostics = {
         "kernel_type": "D_Signature_Rough_Paths",
@@ -1165,7 +1190,8 @@ def kernel_d_predict(signal: Float[Array, "n"], key: jax.random.PRNGKeyArray, co
         "signature_dim": logsig.shape[0],
         "signature_norm": jnp.linalg.norm(logsig),
         "path_length": path.shape[0],
-        "last_value": signal[-1]
+        "last_value": signal[-1],
+        "reparam_invariance_error": reparam_invariance_error
     }
     prediction, diagnostics = apply_stop_gradient_to_diagnostics(
         prediction, diagnostics

@@ -30,6 +30,29 @@ class FusionResult:
     sinkhorn_epsilon: Float[Array, ""]
     sinkhorn_transport: Float[Array, "4 4"]
     sinkhorn_max_err: Float[Array, ""]
+    fisher_rao_distance: Float[Array, ""]
+
+
+def compute_fisher_rao_distance(
+    current_weights: Float[Array, "n"],
+    target_weights: Float[Array, "n"],
+    config: PredictorConfig
+) -> Float[Array, ""]:
+    """
+    Compute Fisher-Rao distance on the probability simplex.
+
+    Formula:
+        d_FR(p, q) = 2 * arccos(sum_i sqrt(p_i * q_i))
+
+    References:
+        - Theory.tex §3.6: Fisher-Rao metric
+    """
+    eps = config.numerical_epsilon
+    p = jnp.clip(current_weights, eps, 1.0)
+    q = jnp.clip(target_weights, eps, 1.0)
+    inner = jnp.sum(jnp.sqrt(p * q))
+    inner = jnp.clip(inner, 0.0, 1.0)
+    return 2.0 * jnp.arccos(inner)
 
 
 def _normalize_confidences(
@@ -82,6 +105,12 @@ def fuse_kernel_outputs(
         config=config,
     )
 
+    fisher_rao_distance = compute_fisher_rao_distance(
+        current_weights=current_weights,
+        target_weights=target_weights,
+        config=config,
+    )
+
     updated_weights = _jko_update_weights(current_weights, target_weights, config)
 
     PredictionResult.validate_simplex(updated_weights, config.validation_simplex_atol)
@@ -99,4 +128,5 @@ def fuse_kernel_outputs(
         sinkhorn_epsilon=sinkhorn_result.epsilon,
         sinkhorn_transport=sinkhorn_result.transport_matrix,
         sinkhorn_max_err=sinkhorn_result.max_err,
+        fisher_rao_distance=fisher_rao_distance,
     )

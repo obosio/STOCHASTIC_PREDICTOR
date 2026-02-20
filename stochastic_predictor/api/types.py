@@ -41,6 +41,12 @@ class PredictorConfig:
     # JKO Orchestrator (Optimal Transport)
     epsilon: float = 1e-3           # Entropic Regularization (Sinkhorn)
     learning_rate: float = 0.01     # Learning Rate (tau in JKO)
+    jko_domain_length: float = 1.0  # Domain length for JKO scaling
+    entropy_window_relaxation_factor: float = 5.0  # Relaxation multiplier for entropy window
+    entropy_window_bounds_min: int = 10  # Minimum entropy window
+    entropy_window_bounds_max: int = 500  # Maximum entropy window
+    learning_rate_safety_factor: float = 0.8  # Safety factor for learning rate stability
+    learning_rate_minimum: float = 1e-6  # Minimum learning rate
     sinkhorn_epsilon_min: float = 0.01  # Minimum epsilon for volatility coupling
     sinkhorn_epsilon_0: float = 0.1     # Base epsilon before coupling
     sinkhorn_alpha: float = 0.5         # Volatility coupling coefficient
@@ -110,6 +116,9 @@ class PredictorConfig:
     kernel_a_bandwidth: float = 0.1             # Gaussian kernel bandwidth (smoothness)
     kernel_a_embedding_dim: int = 5             # Time-delay embedding dimension (Takens)
     kernel_a_min_variance: float = 1e-10        # Minimum variance clipping threshold (numerical stability)
+    koopman_top_k: int = 5                      # Top-K Koopman spectral modes
+    koopman_min_power: float = 1e-10            # Minimum spectral power for Koopman modes
+    paley_wiener_integral_max: float = 100.0    # Max Paley-Wiener integral threshold
     
     # Kernel B Parameters (DGM)
     dgm_width_size: int = 64                    # Hidden layer width for DGM network
@@ -129,6 +138,10 @@ class PredictorConfig:
     kernel_c_dt0: float = 0.01                  # Initial time step (adaptive stepping)
     sde_initial_dt_factor: float = 10.0         # Safety factor for dt0 (dtmax / sde_initial_dt_factor)
     kernel_c_alpha_gaussian_threshold: float = 1.99  # Threshold for Gaussian regime detection (alpha > threshold)
+    kernel_c_jump_intensity: float = 0.05       # Levy jump intensity (events per unit time)
+    kernel_c_jump_mean: float = 0.0             # Mean jump size
+    kernel_c_jump_scale: float = 0.1            # Jump size scale (std dev)
+    kernel_c_jump_max_events: int = 16          # Max jump events per step (static shape)
     
     # Kernel D Parameters (Signatures)
     kernel_d_depth: int = 3                     # Log-signature truncation depth (L)
@@ -152,6 +165,7 @@ class PredictorConfig:
     validation_alpha_stable_exclusive_bounds: bool = True  # Use strict inequalities for alpha
     validation_beta_stable_min: float = -1.0          # Min bound for beta (skewness)
     validation_beta_stable_max: float = 1.0           # Max bound for beta (skewness)
+    validation_viscosity_residual_max: float = 1e-3    # Max PDE residual for viscosity check
     sanitize_replace_nan_value: float = 0.0           # Replacement value for NaN in sanitization
     sanitize_replace_inf_value: Optional[float] = None  # Replacement value for Inf (None to preserve)
     sanitize_clip_range: Optional[tuple] = None       # Tuple (min, max) for clipping (None to skip)
@@ -175,6 +189,18 @@ class PredictorConfig:
         # Simplex constraint implicit: learning_rate <= 1.0
         assert 0.0 < self.learning_rate <= 1.0, \
             f"learning_rate must be in (0, 1], got {self.learning_rate}"
+        assert self.jko_domain_length > 0.0, \
+            f"jko_domain_length must be > 0, got {self.jko_domain_length}"
+        assert self.entropy_window_relaxation_factor > 0.0, \
+            "entropy_window_relaxation_factor must be > 0"
+        assert self.entropy_window_bounds_min > 0, \
+            "entropy_window_bounds_min must be > 0"
+        assert self.entropy_window_bounds_max >= self.entropy_window_bounds_min, \
+            "entropy_window_bounds_max must be >= entropy_window_bounds_min"
+        assert 0.0 < self.learning_rate_safety_factor <= 1.0, \
+            "learning_rate_safety_factor must be in (0, 1]"
+        assert self.learning_rate_minimum > 0.0, \
+            "learning_rate_minimum must be > 0"
         
         # Entropic regularization must be positive
         assert self.epsilon > 0, \
@@ -191,6 +217,12 @@ class PredictorConfig:
             f"entropy_window must be > 0, got {self.entropy_window}"
         assert 0.0 < self.entropy_threshold <= 1.0, \
             f"entropy_threshold must be in (0, 1], got {self.entropy_threshold}"
+        assert self.koopman_top_k > 0, \
+            "koopman_top_k must be > 0"
+        assert self.koopman_min_power > 0.0, \
+            "koopman_min_power must be > 0"
+        assert self.paley_wiener_integral_max > 0.0, \
+            "paley_wiener_integral_max must be > 0"
         
         # Log-signature depth reasonable (exponential complexity)
         assert 1 <= self.log_sig_depth <= 5, \
@@ -203,6 +235,12 @@ class PredictorConfig:
             f"sde_numel_integrations must be > 0, got {self.sde_numel_integrations}"
         assert self.stiffness_low > 0 and self.stiffness_high > self.stiffness_low, \
             f"stiffness thresholds must satisfy 0 < low < high, got {self.stiffness_low}, {self.stiffness_high}"
+        assert self.kernel_c_jump_intensity >= 0.0, \
+            "kernel_c_jump_intensity must be >= 0"
+        assert self.kernel_c_jump_scale >= 0.0, \
+            "kernel_c_jump_scale must be >= 0"
+        assert self.kernel_c_jump_max_events > 0, \
+            "kernel_c_jump_max_events must be > 0"
         
         # Holder exponent bounds (stochastic processes)
         assert 0.0 < self.holder_threshold < 1.0, \
@@ -241,6 +279,18 @@ class PredictorConfig:
             f"frozen_signal_recovery_ratio must be > 0, got {self.frozen_signal_recovery_ratio}"
         assert self.frozen_signal_recovery_steps > 0, \
             f"frozen_signal_recovery_steps must be > 0, got {self.frozen_signal_recovery_steps}"
+
+        # Stability parameter validation bounds
+        assert self.validation_alpha_stable_min >= 0.0, \
+            "validation_alpha_stable_min must be >= 0"
+        assert self.validation_alpha_stable_max <= 2.0, \
+            "validation_alpha_stable_max must be <= 2"
+        assert self.validation_beta_stable_min >= -1.0, \
+            "validation_beta_stable_min must be >= -1"
+        assert self.validation_beta_stable_max <= 1.0, \
+            "validation_beta_stable_max must be <= 1"
+        assert self.validation_viscosity_residual_max > 0.0, \
+            "validation_viscosity_residual_max must be > 0"
         
         # TTL/Nyquist coherence
         assert self.staleness_ttl_ns > 0 and self.besov_nyquist_interval_ns > 0, \

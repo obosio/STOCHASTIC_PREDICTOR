@@ -93,6 +93,31 @@ def create_path_augmentation(
 
 
 @jax.jit
+def reparameterize_path(
+    path: Float[Array, "n d"]
+) -> Float[Array, "n d"]:
+    """
+    Apply monotone time reparameterization for invariance check.
+
+    Uses quadratic time warp t -> t^2 and resamples path.
+
+    Args:
+        path: Input path (n x d)
+
+    Returns:
+        Reparameterized path (n x d)
+
+    References:
+        - Theory.tex §5.2: Reparametrization invariance
+    """
+    n = path.shape[0]
+    t = jnp.linspace(0.0, 1.0, n)
+    warped = t ** 2
+    indices = jnp.clip((warped * (n - 1)).astype(jnp.int32), 0, n - 1)
+    return path[indices]
+
+
+@jax.jit
 def predict_from_signature(
     logsig: Float[Array, "signature_dim"],
     last_value: float,
@@ -190,6 +215,11 @@ def kernel_d_predict(
     
     # Step 2: Compute log-signature
     logsig = compute_log_signature(path, config)
+
+    # Reparametrization invariance check (diagnostic)
+    path_warped = reparameterize_path(path)
+    logsig_warped = compute_log_signature(path_warped, config)
+    reparam_invariance_error = jnp.linalg.norm(logsig_warped - logsig)
     
     # Step 3: Predict from signature (config injection pattern)
     last_value = signal[-1]
@@ -206,7 +236,8 @@ def kernel_d_predict(
         "signature_dim": logsig.shape[0],
         "signature_norm": jnp.linalg.norm(logsig),
         "path_length": path.shape[0],
-        "last_value": last_value
+        "last_value": last_value,
+        "reparam_invariance_error": reparam_invariance_error,
     }
     
     # Apply stop_gradient to diagnostics

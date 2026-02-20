@@ -19,6 +19,12 @@ staleness_ttl_ns = 500_000_000  # TTL: 500ms (degraded mode trigger)
 # JKO Orchestrator (Optimal Transport)
 epsilon = 0.001  # Entropic regularization (Sinkhorn)
 learning_rate = 0.01  # JKO learning rate (tau)
+jko_domain_length = 1.0  # Domain length for JKO scaling
+entropy_window_relaxation_factor = 5.0  # Relaxation multiplier for entropy window
+entropy_window_bounds_min = 10  # Minimum entropy window
+entropy_window_bounds_max = 500  # Maximum entropy window
+learning_rate_safety_factor = 0.8  # Safety factor for learning rate stability
+learning_rate_minimum = 1e-6  # Minimum learning rate
 
 # Sinkhorn parameters (dispersion-coupled, see doc/Predictor_Estocastico_Implementacion.tex §2.4)
 sinkhorn_epsilon_min = 0.01
@@ -80,6 +86,9 @@ kernel_a_bandwidth = 0.1                # Gaussian kernel bandwidth (smoothness)
 kernel_a_embedding_dim = 5              # Time-delay embedding dimension (Takens)
 kernel_a_min_variance = 1e-10           # Minimum variance clipping (numerical stability)
 kernel_ridge_lambda = 1e-6              # Ridge regularization parameter
+koopman_top_k = 5                       # Top-K Koopman spectral modes
+koopman_min_power = 1e-10               # Minimum spectral power for Koopman modes
+paley_wiener_integral_max = 100.0       # Max Paley-Wiener integral threshold
 
 # Kernel C (SDE Integration - Levy Process)
 # SDE scheme switching stiffness thresholds (Rama C, see doc/Predictor_Estocastico_Teoria.tex §2.3.3)
@@ -94,6 +103,10 @@ kernel_c_beta = 0.0                     # Skewness parameter (-1 <= beta <= 1)
 kernel_c_horizon = 1.0                  # Prediction horizon (integration time)
 kernel_c_dt0 = 0.01                     # Initial time step (adaptive stepping)
 kernel_c_alpha_gaussian_threshold = 1.99  # Gaussian regime threshold (alpha > threshold)
+kernel_c_jump_intensity = 0.05          # Levy jump intensity (events per unit time)
+kernel_c_jump_mean = 0.0                # Mean jump size
+kernel_c_jump_scale = 0.1               # Jump size scale (std dev)
+kernel_c_jump_max_events = 16           # Max jump events per step (static shape)
 
 # Phase 6: SDE Solver Hyperparameters (Zero-Heuristics - Kernel C)
 sde_brownian_tree_tol = 1e-3                # Brownian tree tolerance
@@ -224,6 +237,7 @@ validation_alpha_stable_exclusive_bounds = true  # Use strict inequalities?
 # Beta (skewness) parameter validation
 validation_beta_stable_min = -1.0           # Min beta (skewness parameter)
 validation_beta_stable_max = 1.0            # Max beta (skewness parameter)
+validation_viscosity_residual_max = 1e-3    # Max PDE residual for viscosity check
 
 # Array sanitization policies
 sanitize_replace_nan_value = 0.0            # Default NaN replacement value

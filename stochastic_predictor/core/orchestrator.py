@@ -255,8 +255,7 @@ def compute_adaptive_stiffness_thresholds(
 
 def compute_adaptive_jko_params(
     volatility_sigma_squared: float,
-    domain_length: float = 1.0,
-    sinkhorn_epsilon: float = 0.001
+    config: PredictorConfig
 ) -> tuple[int, float]:
     """
     Compute regime-dependent JKO flow hyperparameters.
@@ -269,8 +268,7 @@ def compute_adaptive_jko_params(
     
     Args:
         volatility_sigma_squared: Empirical variance σ² from EMA estimator
-        domain_length: Spatial domain characteristic length L (default 1.0)
-        sinkhorn_epsilon: Entropic regularization ε
+        config: PredictorConfig with JKO scaling parameters
     
     Returns:
         (entropy_window, learning_rate) where:
@@ -296,19 +294,23 @@ def compute_adaptive_jko_params(
         - Theory.tex §3.4.1 Proposition (Learning Rate Stability Criterion)
     """
     # Relaxation time T_rlx ∝ L²/σ²
-    volatility_sigma_squared = max(volatility_sigma_squared, 1e-6)  # Guard against zero
-    relaxation_time = (domain_length ** 2) / volatility_sigma_squared
+    volatility_sigma_squared = max(volatility_sigma_squared, config.numerical_epsilon)
+    relaxation_time = (config.jko_domain_length ** 2) / volatility_sigma_squared
     
-    # Entropy window ≈ 5-10 relaxation times (empirical balance)
-    entropy_window_float = 5.0 * relaxation_time
-    entropy_window = int(jnp.clip(entropy_window_float, 10, 500))
+    # Entropy window ≈ relaxation_factor * relaxation_time
+    entropy_window_float = config.entropy_window_relaxation_factor * relaxation_time
+    entropy_window = int(jnp.clip(
+        entropy_window_float,
+        config.entropy_window_bounds_min,
+        config.entropy_window_bounds_max,
+    ))
     
     # Learning rate stability: η < 2ε·σ²
-    learning_rate_max = 2.0 * sinkhorn_epsilon * volatility_sigma_squared
-    learning_rate = 0.8 * learning_rate_max  # 80% safety factor
+    learning_rate_max = 2.0 * config.sinkhorn_epsilon_0 * volatility_sigma_squared
+    learning_rate = config.learning_rate_safety_factor * learning_rate_max
     
     # Ensure minimum learning rate (prevent underflow)
-    learning_rate = max(learning_rate, 1e-6)
+    learning_rate = max(learning_rate, config.learning_rate_minimum)
     
     return entropy_window, float(learning_rate)
 
@@ -439,7 +441,7 @@ def orchestrate_step(
     # Adaptive JKO parameters (volatility-coupled learning rate + entropy window)
     adaptive_entropy_window, adaptive_learning_rate = compute_adaptive_jko_params(
         float(state.ema_variance),
-        sinkhorn_epsilon=float(config.sinkhorn_epsilon_0),
+        config=config,
     )
     fusion_config = replace(
         config,
