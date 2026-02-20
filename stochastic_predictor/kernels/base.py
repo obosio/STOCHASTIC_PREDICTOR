@@ -17,6 +17,7 @@ Design Principles:
 """
 
 from abc import ABC, abstractmethod
+from functools import partial
 from typing import Protocol, NamedTuple
 import jax
 import jax.numpy as jnp
@@ -168,7 +169,7 @@ def apply_stop_gradient_to_diagnostics(
     return prediction, diagnostics_stopped
 
 
-@jax.jit(static_argnames=["min_length"])
+@partial(jax.jit, static_argnames=("min_length",))
 def validate_kernel_input(
     signal: Float[Array, "n"],
     min_length: int
@@ -229,7 +230,7 @@ def compute_signal_statistics(
     }
 
 
-@jax.jit(static_argnames=["method"])
+@partial(jax.jit, static_argnames=("method",))
 def normalize_signal(
     signal: Float[Array, "n"],
     method: str,
