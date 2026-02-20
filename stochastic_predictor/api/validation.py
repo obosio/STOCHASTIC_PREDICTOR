@@ -538,7 +538,7 @@ def ensure_float64(
 def sanitize_external_observation(
     magnitude: Union[float, Float[Array, "1"]],
     timestamp_ns: int,
-    metadata: dict = None
+    metadata: dict | None = None
 ) -> tuple[Float[Array, "1"], int, dict]:
     """
     Sanitize external observation to enforce float64 precision.

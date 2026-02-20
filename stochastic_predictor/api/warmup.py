@@ -454,7 +454,7 @@ def profile_warmup_and_recommend_timeout(
     max_kernel_time = max(numeric_timings.values())
     
     # Determine slowest kernel (for diagnostic purposes)
-    slowest_kernel = max(numeric_timings, key=numeric_timings.get)
+    slowest_kernel = max(numeric_timings, key=lambda k: numeric_timings[k])
     
     # Recommendation logic based on max kernel compilation time
     if max_kernel_time > 500.0:
