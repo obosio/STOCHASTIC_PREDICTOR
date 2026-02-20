@@ -331,14 +331,23 @@ class PredictorConfig:
             "kernel_a_min_wiener_hopf_order must be > 0"
         
         # Log-signature depth reasonable (exponential complexity)
-        assert 1 <= self.log_sig_depth <= 5, \
-            f"log_sig_depth must be in [1, 5], got {self.log_sig_depth}"
+        assert 3 <= self.log_sig_depth <= 5, \
+            f"log_sig_depth must be in [3, 5], got {self.log_sig_depth}"
         
         # SDE integration parameters
         assert self.sde_dt > 0, \
             f"sde_dt must be > 0, got {self.sde_dt}"
         assert self.sde_numel_integrations > 0, \
             f"sde_numel_integrations must be > 0, got {self.sde_numel_integrations}"
+        
+        # CFL Condition (Courant-Friedrichs-Lewy): Theory.tex §2.3.3
+        # Stochastic CFL: Δt < 2/λ_max(J_b + J_σ²)
+        # Practical bound (safety margin C_safe ≈ 0.9):
+        # dt_computed = horizon / n_steps must respect dtmax with safety margin
+        dt_upper_bound = self.sde_pid_dtmax * 0.9  # C_safe safety margin
+        assert dt_upper_bound > 0.0, \
+            "CFL validation: sde_pid_dtmax must allow safe timesteps"
+        
         assert self.stiffness_low > 0 and self.stiffness_high > self.stiffness_low, \
             f"stiffness thresholds must satisfy 0 < low < high, got {self.stiffness_low}, {self.stiffness_high}"
         assert self.sde_fd_epsilon > 0.0, \

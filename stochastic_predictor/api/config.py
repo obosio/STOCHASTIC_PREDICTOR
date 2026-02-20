@@ -568,20 +568,36 @@ class PredictorConfigInjector:
         Verify that JAX is configured per config.toml specifications.
         
         Compares JAX runtime config with config.toml requirements.
+        POLICY: Zero-Heuristics - Explicit config validation, no silent defaults
         
         Returns:
             Dictionary of verification flags: {check_name: passed}
+            
+        Raises:
+            ValueError: If required JAX configuration is missing from [core] section
         """
         checks = {}
         
-        # Check JAX precision mode
-        expected_dtype = self.config_manager.get("core", "jax_default_dtype", "float32")
+        # Check JAX precision mode - explicit validation, no defaults
+        core_section = self.config_manager.get_section("core")
+        if "jax_default_dtype" not in core_section:
+            raise ValueError(
+                "Missing required config: [core].jax_default_dtype. "
+                "Zero-Heuristics policy forbids silent defaults."
+            )
+        expected_dtype = core_section["jax_default_dtype"]
+        
         # Note: JAX config attributes vary by version; verify using device capabilities
         current_devices = jax.devices()
         checks["jax_device_available"] = len(current_devices) > 0
         
-        # Check platform configuration
-        expected_platform = self.config_manager.get("core", "jax_platforms", "cpu")
+        # Check platform configuration - explicit validation, no defaults
+        if "jax_platforms" not in core_section:
+            raise ValueError(
+                "Missing required config: [core].jax_platforms. "
+                "Zero-Heuristics policy forbids silent defaults."
+            )
+        expected_platform = core_section["jax_platforms"]
         checks["jax_platform_matches"] = any(
             expected_platform in str(d).lower() for d in current_devices
         )

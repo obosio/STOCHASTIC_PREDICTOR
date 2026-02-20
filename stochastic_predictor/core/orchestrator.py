@@ -211,8 +211,16 @@ def apply_host_architecture_scaling(
     This function should be called by the host when running non-vmapped
     inference loops. It re-runs Kernel B with a scaled architecture when
     entropy indicates a regime transition.
+    
+    POLICY: Zero-Heuristics - Metadata must always contain entropy_dgm
     """
-    entropy_current = jnp.asarray(output_b.metadata.get("entropy_dgm", 0.0))
+    # COMPLIANCE: Zero-Heuristics - Explicit metadata validation, no silent fallbacks
+    if "entropy_dgm" not in output_b.metadata:
+        raise ValueError(
+            "Kernel B output missing required metadata 'entropy_dgm'. "
+            "Zero-Heuristics policy forbids silent defaults."
+        )
+    entropy_current = jnp.asarray(output_b.metadata["entropy_dgm"])
     entropy_ratio = compute_entropy_ratio(entropy_current, baseline_entropy, config)
     entropy_ratio_value = float(entropy_ratio)
     trigger = scaling_threshold if scaling_threshold is not None else config.entropy_scaling_trigger
@@ -490,7 +498,13 @@ def orchestrate_step(
     key_a, key_b, key_c, key_d = jax.random.split(state.rng_key, KernelType.N_KERNELS)
 
     output_a = kernel_a_predict(signal, key_a, config)
-    holder_exponent_current = jnp.asarray(output_a.metadata.get("holder_exponent", 0.0))
+    # COMPLIANCE: Zero-Heuristics - holder_exponent must be present in Kernel A output
+    if "holder_exponent" not in output_a.metadata:
+        raise ValueError(
+            "Kernel A output missing required metadata 'holder_exponent'. "
+            "Zero-Heuristics policy forbids silent defaults."
+        )
+    holder_exponent_current = jnp.asarray(output_a.metadata["holder_exponent"])
     fractal_dimension = 2.0 - holder_exponent_current
     robustness_triggered = (
         holder_exponent_current < config.holder_threshold
@@ -510,7 +524,13 @@ def orchestrate_step(
 
     # Kernel B entropy from current step (may trigger architecture scaling)
     output_b = kernel_b_predict(signal, key_b, config, ema_variance=state.ema_variance)
-    entropy_current = jnp.asarray(output_b.metadata.get("entropy_dgm", 0.0))
+    # COMPLIANCE: Zero-Heuristics - entropy_dgm must be present in Kernel B output
+    if "entropy_dgm" not in output_b.metadata:
+        raise ValueError(
+            "Kernel B output missing required metadata 'entropy_dgm'. "
+            "Zero-Heuristics policy forbids silent defaults."
+        )
+    entropy_current = jnp.asarray(output_b.metadata["entropy_dgm"])
     baseline_entropy = jnp.asarray(state.baseline_entropy)
     baseline_entropy = jnp.where(
         (baseline_entropy <= 0.0) & (entropy_current > 0.0),
@@ -625,15 +645,23 @@ def orchestrate_step(
 
     # Update Kernel B diagnostics to use current-step volatility threshold
     entropy_threshold_current = compute_adaptive_entropy_threshold(ema_variance_current, config)
+    
+    # COMPLIANCE: Zero-Heuristics - entropy_dgm is required, no silent fallback
+    if "entropy_dgm" not in kernel_outputs[KernelType.KERNEL_B].metadata:
+        raise ValueError(
+            "Kernel B metadata missing 'entropy_dgm'. "
+            "Zero-Heuristics policy forbids silent defaults."
+        )
+    
     output_b = kernel_outputs[KernelType.KERNEL_B]._replace(
         metadata={
             **kernel_outputs[KernelType.KERNEL_B].metadata,
             "entropy_threshold_adaptive": entropy_threshold_current,
             "architecture_scaling_triggered": scaling_triggered,
-            "mode_collapse": jnp.asarray(
-                kernel_outputs[KernelType.KERNEL_B].metadata.get("entropy_dgm", 0.0)
-            )
-            < entropy_threshold_current,
+            "mode_collapse": (
+                jnp.asarray(kernel_outputs[KernelType.KERNEL_B].metadata["entropy_dgm"])
+                < entropy_threshold_current
+            ),
         },
     )
     kernel_outputs = (
@@ -699,11 +727,23 @@ def orchestrate_step(
     final_rho = jnp.where(in_grace_period, state.rho, final_rho)
     final_rho = jnp.where(robustness_triggered, kernel_d_simplex, final_rho)
 
+    # COMPLIANCE: Zero-Heuristics - validate required metadata before state update
+    if "holder_exponent" not in kernel_outputs[KernelType.KERNEL_A].metadata:
+        raise ValueError(
+            "Kernel A metadata missing 'holder_exponent'. "
+            "Zero-Heuristics policy forbids silent defaults."
+        )
+    if "entropy_dgm" not in kernel_outputs[KernelType.KERNEL_B].metadata:
+        raise ValueError(
+            "Kernel B metadata missing 'entropy_dgm'. "
+            "Zero-Heuristics policy forbids silent defaults."
+        )
+
     updated_state = replace(
         updated_state,
         rho=final_rho,
-        holder_exponent=jnp.asarray(kernel_outputs[KernelType.KERNEL_A].metadata.get("holder_exponent", 0.0)),  # V-MAJ-2: State update
-        dgm_entropy=jnp.asarray(kernel_outputs[KernelType.KERNEL_B].metadata.get("entropy_dgm", 0.0)),
+        holder_exponent=jnp.asarray(kernel_outputs[KernelType.KERNEL_A].metadata["holder_exponent"]),  # V-MAJ-2: State update
+        dgm_entropy=jnp.asarray(kernel_outputs[KernelType.KERNEL_B].metadata["entropy_dgm"]),
         last_update_ns=timestamp_ns if not reject_observation else state.last_update_ns,
         rng_key=jax.random.split(state.rng_key, config.prng_split_count)[1],
     )
@@ -896,11 +936,22 @@ def orchestrate_step_batch(
         )
         
         # Update weights and diagnostics
+        # COMPLIANCE: Zero-Heuristics - validate required metadata before state update
+        if "holder_exponent" not in output_a.metadata:
+            raise ValueError(
+                "Kernel A metadata missing 'holder_exponent'. "
+                "Zero-Heuristics policy forbids silent defaults."
+            )
+        if "entropy_dgm" not in output_b.metadata:
+            raise ValueError(
+                "Kernel B metadata missing 'entropy_dgm'. "
+                "Zero-Heuristics policy forbids silent defaults."
+            )
         updated_state = replace(
             updated_state,
             rho=fusion.updated_weights,
-            holder_exponent=jnp.asarray(output_a.metadata.get("holder_exponent", 0.0)),
-            dgm_entropy=jnp.asarray(output_b.metadata.get("entropy_dgm", 0.0)),
+            holder_exponent=jnp.asarray(output_a.metadata["holder_exponent"]),
+            dgm_entropy=jnp.asarray(output_b.metadata["entropy_dgm"]),
             rng_key=jax.random.split(state.rng_key, config.prng_split_count)[1],
         )
         

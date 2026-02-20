@@ -535,14 +535,30 @@ class BayesianMetaOptimizer:
                 "Install with: pip install optuna>=3.0"
             )
 
-        n_trials = n_trials or self.meta_config.n_trials
+        # COMPLIANCE: Zero-Heuristics - explicit validation of n_trials, no or-pattern fallback
+        if n_trials is None:
+            if self.meta_config is None:
+                raise ValueError(
+                    "n_trials is None and meta_config is not available. "
+                    "Zero-Heuristics policy forbids implicit fallback patterns."
+                )
+            n_trials = self.meta_config.n_trials
+        if n_trials <= 0:
+            raise ValueError(f"n_trials must be > 0, got {n_trials}")
         
         # Create Optuna study with TPE sampler (multivariate Gaussian Process)
-        seed = (
-            self.base_config.prng_seed
-            if self.base_config is not None
-            else get_config().get("core", "prng_seed", 42)
-        )
+        # COMPLIANCE: Zero-Heuristics - explicit prng_seed validation, no default fallback
+        if self.base_config is not None and self.base_config.prng_seed is not None:
+            seed = self.base_config.prng_seed
+        else:
+            # Fallback: must read explicit config value, not silent default
+            core_section = get_config().get_section("core")
+            if "prng_seed" not in core_section:
+                raise ValueError(
+                    "Missing required config: [core].prng_seed. "
+                    "Zero-Heuristics policy forbids silent defaults."
+                )
+            seed = core_section["prng_seed"]
         sampler = TPESampler(
             multivariate=self.meta_config.multivariate,
             n_startup_trials=self.meta_config.n_startup_trials,
