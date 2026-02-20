@@ -1,14 +1,17 @@
 """
 Meta Test Validator - Structural Coverage Analyzer
 
-Validation Scope: Python/ (api, core, io, kernels modules only)
+Validation Scope: Python/* (all submodules discovered dynamically)
 Tests File: tests/scripts/code_structure.py
 
 Validates that code_structure.py covers 100% of public functions
-that should be tested according to the codebase structure.
+from all Python submodules' __all__ exports.
+
+Auto-Discovery: Scans Python/ directory for all __init__.py files
+and extracts their __all__ definitions. No hardcoded module lists.
 
 Reports:
-  1. Functions that MUST be tested (from __all__ exports in Python/)
+  1. Functions that MUST be tested (from __all__ exports in Python/*/  )
   2. Functions that ARE tested (by name matching in code_structure.py)
   3. Functions that NEED testing (gap analysis)
   4. Tests that reference non-existent functions (orphans)
@@ -52,24 +55,26 @@ class StructuralCoverageValidator:
         self.test_functions: Dict[str, str] = {}  # test_name -> test_class
         
     def extract_public_api(self) -> Dict[str, Set[str]]:
-        """Extract all public functions from __all__ exports and modules."""
+        """Extract all public functions from __all__ exports and modules.
         
-        # Key modules to check
-        modules_to_check = [
-            "Python/api/__init__.py",
-            "Python/kernels/__init__.py",
-            "Python/core/__init__.py",
-        ]
+        Automatically discovers all Python submodules (api/, core/, io/, kernels/, etc.)
+        by scanning Python/* directories for __init__.py files.
+        """
         
-        for module_path in modules_to_check:
-            full_path = self.root / module_path
-            if not full_path.exists():
-                continue
-                
-            with open(full_path, 'r', encoding='utf-8') as f:
+        python_dir = self.root / "Python"
+        if not python_dir.exists():
+            return self.public_functions
+        
+        # Dynamically discover all Python submodules
+        init_files = sorted(python_dir.glob("*/__init__.py"))
+        
+        for init_file in init_files:
+            module_rel_path = f"Python/{init_file.parent.name}/__init__.py"
+            
+            with open(init_file, 'r', encoding='utf-8') as f:
                 content = f.read()
             
-            # Extract __all__ using regex as fallback
+            # Extract __all__ using AST
             exports = set()
             
             try:
@@ -83,10 +88,10 @@ class StructuralCoverageValidator:
                                         if isinstance(elt, ast.Constant) and isinstance(elt.value, str):
                                             exports.add(elt.value)
             except Exception as e:
-                print(f"⚠️  Error parsing {module_path}: {e}")
+                print(f"⚠️  Error parsing {module_rel_path}: {e}")
             
             if exports:
-                self.public_functions[module_path] = exports
+                self.public_functions[module_rel_path] = exports
         
         return self.public_functions
     
