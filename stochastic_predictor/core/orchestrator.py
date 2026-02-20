@@ -11,7 +11,7 @@ import jax
 import jax.numpy as jnp
 from jaxtyping import Array, Float
 
-from stochastic_predictor.api.state_buffer import atomic_state_update, reset_cusum_statistics
+from stochastic_predictor.api.state_buffer import atomic_state_update, reset_cusum_statistics, update_ema_variance
 from stochastic_predictor.api.types import InternalState, KernelType, OperatingMode, PredictionResult, PredictorConfig, ProcessState
 from stochastic_predictor.api.validation import validate_simplex
 from stochastic_predictor.api.prng import RNG_SPLIT_COUNT
@@ -19,6 +19,7 @@ from stochastic_predictor.core.fusion import FusionResult, fuse_kernel_outputs
 from stochastic_predictor.io.loaders import evaluate_ingestion
 from stochastic_predictor.io.telemetry import TelemetryBuffer, TelemetryRecord, should_emit_hash, parity_hashes  # P2.3: Telemetry integration
 from stochastic_predictor.kernels import kernel_a_predict, kernel_b_predict, kernel_c_predict, kernel_d_predict
+from stochastic_predictor.kernels.kernel_b import compute_adaptive_entropy_threshold
 from stochastic_predictor.kernels.base import KernelOutput, validate_kernel_input
 
 if TYPE_CHECKING:
@@ -438,61 +439,44 @@ def orchestrate_step(
     # Store recovery counter for telemetry (V-MAJ-7)
     degraded_recovery_counter = degraded_mode_recovery_counter
 
-    # Adaptive JKO parameters (volatility-coupled learning rate + entropy window)
-    adaptive_entropy_window, adaptive_learning_rate = compute_adaptive_jko_params(
-        float(state.ema_variance),
-        config=config,
-    )
-    fusion_config = replace(
-        config,
-        learning_rate=adaptive_learning_rate,
-        entropy_window=adaptive_entropy_window,
-    )
+    # Run kernels with current-step coupling (no t-1 lag)
+    key_a, key_b, key_c, key_d = jax.random.split(state.rng_key, KernelType.N_KERNELS)
 
-    # Hölder-informed stiffness thresholds (Kernel C)
-    theta_low, theta_high = compute_adaptive_stiffness_thresholds(float(state.holder_exponent))
+    output_a = kernel_a_predict(signal, key_a, config)
+    holder_exponent_current = float(output_a.metadata.get("holder_exponent", 0.0))
+
+    # Hölder-informed stiffness thresholds (Kernel C) from current WTMM
+    theta_low, theta_high = compute_adaptive_stiffness_thresholds(holder_exponent_current)
     kernel_c_config = replace(config, stiffness_low=theta_low, stiffness_high=theta_high)
+    output_c = kernel_c_predict(signal, key_c, kernel_c_config)
 
-    # Entropy-topology coupling for DGM (Kernel B) - based on previous entropy
-    kernel_b_config = config
-    
-    # Pure JAX tensor operations for entropy-based scaling decision
-    # Avoid Python float() casting on dynamic arrays
-    entropy_valid = (state.dgm_entropy > 0.0) & (state.baseline_entropy > 0.0)
-    entropy_ratio = jnp.where(
-        entropy_valid,
-        state.dgm_entropy / state.baseline_entropy,
-        jnp.array(1.0)  # Default to no scaling if either entropy is invalid
-    )
-    
-    # Determine if scaling should trigger (jnp.where, no Python if)
+    # Kernel B entropy from current step (may trigger architecture scaling)
+    output_b = kernel_b_predict(signal, key_b, config, ema_variance=state.ema_variance)
+    entropy_current = float(output_b.metadata.get("entropy_dgm", 0.0))
+    baseline_entropy = float(state.baseline_entropy)
+    if baseline_entropy <= 0.0 and entropy_current > 0.0:
+        baseline_entropy = entropy_current
+
+    entropy_ratio = compute_entropy_ratio(entropy_current, baseline_entropy)
     scaling_triggered = entropy_ratio > 2.0
-    
-    # Conditionally create scaled config using jax.lax.cond for proper XLA inlining
-    def scale_config(entropy_ratio_val):
-        new_width, new_depth = scale_dgm_architecture(config, float(entropy_ratio_val))
-        return replace(config, dgm_width_size=new_width, dgm_depth=new_depth)
-    
-    def no_scale_config(_):
-        return config
-    
-    kernel_b_config = jax.lax.cond(
-        scaling_triggered,
-        scale_config,
-        no_scale_config,
-        entropy_ratio
-    )
+    kernel_b_config = config
+    if scaling_triggered:
+        new_width, new_depth = scale_dgm_architecture(config, entropy_ratio)
+        kernel_b_config = replace(config, dgm_width_size=new_width, dgm_depth=new_depth)
+        output_b = kernel_b_predict(signal, key_b, kernel_b_config, ema_variance=state.ema_variance)
 
-    kernel_outputs = _run_kernels(
-        signal,
-        state.rng_key,
-        config,
-        freeze_kernel_d=ingestion_decision.freeze_kernel_d,
-        ema_variance=state.ema_variance,  # V-MAJ-1: Pass for adaptive entropy threshold
-        config_b=kernel_b_config,
-        config_c=kernel_c_config,
-    )
+    output_d = kernel_d_predict(signal, key_d, config)
 
+    if ingestion_decision.freeze_kernel_d:
+        output_d = KernelOutput(
+            prediction=output_d.prediction,
+            confidence=output_d.confidence,
+            metadata={**output_d.metadata, "frozen": True},
+        )
+
+    kernel_outputs = (output_a, output_b, output_c, output_d)
+
+    fusion_config = config
     if degraded_mode or ingestion_decision.suspend_jko_update:
         predictions = jnp.array([ko.prediction for ko in kernel_outputs]).reshape(-1)
         updated_weights = state.rho
@@ -501,11 +485,42 @@ def orchestrate_step(
         sinkhorn_converged = jnp.array(False)
         free_energy = jnp.array(0.0)
         sinkhorn_epsilon = jnp.array(0.0)
+        ema_variance_current = state.ema_variance
     else:
-        fusion = fuse_kernel_outputs(
+        # Provisional fusion to update volatility for current step
+        provisional_window, provisional_lr = compute_adaptive_jko_params(
+            float(state.ema_variance),
+            config=config,
+        )
+        provisional_config = replace(
+            config,
+            learning_rate=provisional_lr,
+            entropy_window=provisional_window,
+        )
+        provisional_fusion = fuse_kernel_outputs(
             kernel_outputs=kernel_outputs,
             current_weights=state.rho,
             ema_variance=state.ema_variance,
+            config=provisional_config,
+        )
+        provisional_prediction = provisional_fusion.fused_prediction
+        provisional_residual = jnp.abs(signal[-1] - provisional_prediction)
+        ema_variance_current = update_ema_variance(state, provisional_residual, config.volatility_alpha).ema_variance
+
+        adaptive_entropy_window, adaptive_learning_rate = compute_adaptive_jko_params(
+            float(ema_variance_current),
+            config=config,
+        )
+        fusion_config = replace(
+            config,
+            learning_rate=adaptive_learning_rate,
+            entropy_window=adaptive_entropy_window,
+        )
+
+        fusion = fuse_kernel_outputs(
+            kernel_outputs=kernel_outputs,
+            current_weights=state.rho,
+            ema_variance=ema_variance_current,
             config=fusion_config,
         )
         updated_weights = fusion.updated_weights
@@ -513,6 +528,25 @@ def orchestrate_step(
         sinkhorn_converged = jnp.asarray(fusion.sinkhorn_converged)
         free_energy = jnp.asarray(fusion.free_energy)
         sinkhorn_epsilon = jnp.asarray(fusion.sinkhorn_epsilon)
+
+    # Update Kernel B diagnostics to use current-step volatility threshold
+    entropy_threshold_current = compute_adaptive_entropy_threshold(ema_variance_current, config)
+    output_b = KernelOutput(
+        prediction=kernel_outputs[KernelType.KERNEL_B].prediction,
+        confidence=kernel_outputs[KernelType.KERNEL_B].confidence,
+        metadata={
+            **kernel_outputs[KernelType.KERNEL_B].metadata,
+            "entropy_threshold_adaptive": entropy_threshold_current,
+            "mode_collapse": float(kernel_outputs[KernelType.KERNEL_B].metadata.get("entropy_dgm", 0.0))
+            < entropy_threshold_current,
+        },
+    )
+    kernel_outputs = (
+        kernel_outputs[KernelType.KERNEL_A],
+        output_b,
+        kernel_outputs[KernelType.KERNEL_C],
+        kernel_outputs[KernelType.KERNEL_D],
+    )
 
     PredictionResult.validate_simplex(updated_weights, config.validation_simplex_atol)
     is_simplex, msg = validate_simplex(updated_weights, config.validation_simplex_atol, "weights")
@@ -584,8 +618,8 @@ def orchestrate_step(
         updated_state = replace(updated_state, grace_counter=grace_counter)
 
     # V-MAJ-5: Mode Collapse Detection (consecutive low-entropy steps)
-    # If dgm_entropy < threshold → increment counter, else reset
-    dgm_entropy_threshold = config.entropy_threshold
+    # Use current-step volatility-adaptive threshold
+    dgm_entropy_threshold = compute_adaptive_entropy_threshold(ema_variance_current, config)
     low_entropy = float(updated_state.dgm_entropy) < dgm_entropy_threshold
     mode_collapse_counter = updated_state.mode_collapse_consecutive_steps
     

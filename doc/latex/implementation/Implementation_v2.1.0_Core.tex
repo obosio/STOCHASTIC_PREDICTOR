@@ -317,16 +317,19 @@ def sinkhorn_step(carry, _):
 
 \subsection{Orchestrator Integration (V-CRIT-2 Fix)}
 
-The orchestrator now passes \texttt{state.ema\_variance} to fusion:
+The orchestrator computes a current-step volatility estimate and passes \texttt{ema\_variance\_current} to fusion:
 
 \begin{lstlisting}[language=Python]
 # core/orchestrator.py (orchestrate_step)
 else:
-    # V-CRIT-2: Pass ema_variance for dynamic epsilon coupling
+    # V-CRIT-2: Use current-step volatility for dynamic epsilon coupling
+    ema_variance_current = update_ema_variance(
+        state, residual, config.volatility_alpha
+    ).ema_variance
     fusion = fuse_kernel_outputs(
         kernel_outputs=kernel_outputs,
         current_weights=state.rho,
-        ema_variance=state.ema_variance,  # ← V-CRIT-2: Dynamic coupling!
+        ema_variance=ema_variance_current,  # ← V-CRIT-2: Current-step coupling!
         config=fusion_config,
     )
     updated_weights = fusion.updated_weights
@@ -360,10 +363,10 @@ def fuse_kernel_outputs(
 \section{Data Flow: V-CRIT-2 Volatility Coupling}
 
 \begin{enumerate}
-    \item \textbf{InternalState}: Contains \texttt{ema\_variance} (updated in atomic\_state\_update)
-    \item \textbf{orchestrate\_step}: Extracts \texttt{state.ema\_variance}
-    \item \textbf{fuse\_kernel\_outputs}: Receives \texttt{ema\_variance}
-    \item \textbf{volatility\_coupled\_sinkhorn}: Calls \texttt{compute\_sinkhorn\_epsilon(ema\_variance, config)}
+    \item \textbf{InternalState}: Contains prior \texttt{ema\_variance} (updated in atomic\_state\_update)
+    \item \textbf{orchestrate\_step}: Computes \texttt{ema\_variance\_current} from current residual
+    \item \textbf{fuse\_kernel\_outputs}: Receives \texttt{ema\_variance\_current}
+    \item \textbf{volatility\_coupled\_sinkhorn}: Calls \texttt{compute\_sinkhorn\_epsilon(ema\_variance\_current, config)}
     \item \textbf{Sinkhorn loop}: Uses dynamic epsilon per iteration
     \item \textbf{FusionResult}: Returns \texttt{sinkhorn\_epsilon} for telemetry
 \end{enumerate}
@@ -686,31 +689,27 @@ Both apply \texttt{jax.lax.stop\_gradient()} to prevent gradient contamination p
 The adaptive parameters are computed inside \texttt{orchestrate\_step()} and injected into the fusion and kernel calls:
 
 \begin{lstlisting}[language=Python]
-# Volatility-coupled JKO parameters
-adaptive_entropy_window, adaptive_learning_rate = compute_adaptive_jko_params(
-    float(state.ema_variance),
-    sinkhorn_epsilon=float(config.sinkhorn_epsilon_0),
-)
-fusion_config = replace(
-    config,
-    learning_rate=adaptive_learning_rate,
-    entropy_window=adaptive_entropy_window,
-)
-
-# Holder-informed stiffness thresholds (Kernel C)
-theta_low, theta_high = compute_adaptive_stiffness_thresholds(
-    float(state.holder_exponent)
-)
+# Current-step coupling (no t-1 lag)
+output_a = kernel_a_predict(signal, key_a, config)
+holder_exponent_current = float(output_a.metadata["holder_exponent"])
+theta_low, theta_high = compute_adaptive_stiffness_thresholds(holder_exponent_current)
 kernel_c_config = replace(config, stiffness_low=theta_low, stiffness_high=theta_high)
 
-# Entropy-topology coupling (Kernel B)
-entropy_ratio = compute_entropy_ratio(
-    float(state.dgm_entropy),
-    float(state.baseline_entropy)
-)
+output_b = kernel_b_predict(signal, key_b, config, ema_variance=state.ema_variance)
+entropy_current = float(output_b.metadata["entropy_dgm"])
+entropy_ratio = compute_entropy_ratio(entropy_current, float(state.baseline_entropy))
 if entropy_ratio > 2.0:
     new_width, new_depth = scale_dgm_architecture(config, entropy_ratio)
     kernel_b_config = replace(config, dgm_width_size=new_width, dgm_depth=new_depth)
+    output_b = kernel_b_predict(signal, key_b, kernel_b_config, ema_variance=state.ema_variance)
+
+provisional_fusion = fuse_kernel_outputs(...)
+ema_variance_current = update_ema_variance(state, residual, config.volatility_alpha).ema_variance
+adaptive_entropy_window, adaptive_learning_rate = compute_adaptive_jko_params(
+    float(ema_variance_current),
+    config=config,
+)
+fusion_config = replace(config, learning_rate=adaptive_learning_rate, entropy_window=adaptive_entropy_window)
 \end{lstlisting}
 
 \subsection{Layer 3: Meta-Optimization (Bayesian)}

@@ -9,16 +9,17 @@
 
 ## Executive Summary
 
-This audit verifies alignment between theoretical mathematical formulas and Python implementations across all four prediction kernels (A, B, C, D) and the orchestration layer.
+This audit re-validates theoretical formula alignment and inspects **all interconnections** between formulas across kernels A–D and the orchestrator/fusion pipeline.
 
 **Key Findings:**
 
-- ✅ **Correctly Implemented:** 25 formulas (100%)
-- ⚠️ **Minor Discrepancies:** 0 formulas (0%)
-- ❌ **Missing:** 0 formulas (0%)
+- ✅ **Core Formulas Implemented:** 25/25 (100%)
+- ✅ **Interconnection Discrepancies:** 0
+- ❌ **Missing Interconnections:** 0
 - 🔍 **Empirical Extensions:** 2 code elements (non-formula diagnostics)
 
-**Overall Implementation Rate:** 100% (25/25 core formulas fully implemented)
+**Overall Formula Implementation:** 100% (25/25)
+**Interconnection Alignment:** 7/7 fully aligned
 
 ---
 
@@ -48,6 +49,140 @@ def morlet_wavelet(t: Float[Array, ""], sigma: float = 1.0, f_c: float = 0.5) ->
 **Verification:** Exact match. Gaussian envelope and oscillation components properly separated.
 
 ---
+
+## 🔗 INTERCONNECTION AUDIT (FORMULA → FORMULA)
+
+This section verifies **theoretical formula links** and **cross-kernel wiring**, including signature compatibility.
+
+### Interconnection 1: Hölder Exponent → Stiffness Thresholds
+
+**Theory (§2.3.6, Corollary):**
+
+```latex
+stiffness_low(t) = max(100, C1/(1 - α_WTMM(t))^2)
+stiffness_high(t) = max(1000, C2/(1 - α_WTMM(t))^2)
+```
+
+**Implementation:** [stochastic_predictor/core/orchestrator.py](stochastic_predictor/core/orchestrator.py#L324-L360)
+
+```python
+theta_low, theta_high = compute_adaptive_stiffness_thresholds(float(state.holder_exponent))
+kernel_c_config = replace(config, stiffness_low=theta_low, stiffness_high=theta_high)
+```
+
+**Status:** ✅ **ALIGNED**
+
+**Verification:** Thresholds are computed from **current-step** WTMM output (Kernel A metadata) before Kernel C execution.
+
+---
+
+### Interconnection 2: DGM Entropy → Architecture Scaling
+
+**Theory (§2.4.2):**
+
+```latex
+log(W·D) ≥ log(W0·D0) + β·log(κ)
+```
+
+**Implementation:** [stochastic_predictor/core/orchestrator.py](stochastic_predictor/core/orchestrator.py#L356-L430)
+
+```python
+entropy_ratio = state.dgm_entropy / state.baseline_entropy
+kernel_b_config = jax.lax.cond(
+    entropy_ratio > 2.0,
+    scale_config,
+    no_scale_config,
+    entropy_ratio
+)
+```
+
+**Status:** ✅ **ALIGNED**
+
+**Verification:** Architecture scaling uses **current-step** DGM entropy and re-evaluates Kernel B when scaling triggers.
+
+---
+
+### Interconnection 3: Volatility → Entropy Threshold (Kernel B)
+
+**Theory (§2.2):** Entropy threshold adapts to volatility regime.
+
+**Implementation:** [stochastic_predictor/kernels/kernel_b.py](stochastic_predictor/kernels/kernel_b.py#L193-L236)
+
+```python
+entropy_threshold_adaptive = compute_adaptive_entropy_threshold(ema_variance, config)
+```
+
+**Status:** ✅ **ALIGNED**
+
+**Verification:** Threshold is computed from the **current-step** volatility estimate and applied to Kernel B diagnostics.
+
+---
+
+### Interconnection 4: Volatility → JKO Hyperparameters
+
+**Theory (§3.4.1):**
+
+```latex
+T_ent ≥ c · L^2/σ^2
+η < 2ε·σ^2
+```
+
+**Implementation:** [stochastic_predictor/core/orchestrator.py](stochastic_predictor/core/orchestrator.py#L300-L334)
+
+```python
+adaptive_entropy_window, adaptive_learning_rate = compute_adaptive_jko_params(
+    float(state.ema_variance),
+    config=config,
+)
+```
+
+**Status:** ✅ **ALIGNED**
+
+**Verification:** JKO parameters are computed from the **current-step** volatility estimate before fusion.
+
+---
+
+### Interconnection 5: Kernel Outputs → Fusion Weights
+
+**Theory (§3):** weights updated via Wasserstein flow using kernel confidences.
+
+**Implementation:** [stochastic_predictor/core/fusion.py](stochastic_predictor/core/fusion.py#L44-L120)
+
+```python
+confidences = jnp.array([ko.confidence for ko in kernel_outputs]).reshape(-1)
+target_weights = _normalize_confidences(confidences, config)
+```
+
+**Status:** ✅ **ALIGNED**
+
+---
+
+### Interconnection 6: CUSUM Regime Change → Entropy Reset
+
+**Theory (§4):** regime change resets weights to max-entropy simplex.
+
+**Implementation:** [stochastic_predictor/core/orchestrator.py](stochastic_predictor/core/orchestrator.py#L470-L520)
+
+```python
+entropy_reset_triggered = regime_change_detected and (state.grace_counter == 0)
+final_rho = uniform_simplex if entropy_reset_triggered else updated_weights
+```
+
+**Status:** ✅ **ALIGNED**
+
+---
+
+### Interconnection 7: Holder Threshold → Emergency Mode
+
+**Theory (Appendix):** roughness triggers Branch D priority/emergency mode.
+
+**Implementation:** [stochastic_predictor/core/orchestrator.py](stochastic_predictor/core/orchestrator.py#L536-L544)
+
+```python
+emergency_mode = bool(updated_state.holder_exponent < config.holder_threshold)
+```
+
+**Status:** ✅ **ALIGNED**
 
 #### Formula 2: Continuous Wavelet Transform (CWT)
 
@@ -524,6 +659,7 @@ Counts consecutive entropy violations to trigger architecture scaling.
 | 🔍 Empirical Extensions     | 2     | Non-formula |
 
 **Total Formulas Audited:** 25 core formulas
+**Interconnections Audited:** 7
 **Critical Issues:** 0
 **Medium Priority Improvements:** 0
 
@@ -545,11 +681,9 @@ All formulas are implemented. No critical follow-ups required.
 
 ## Conclusion
 
-The Universal Stochastic Predictor demonstrates **full alignment** between theoretical specification and implementation with a 100% exact implementation rate.
+All **core formulas** and **interconnections** are correctly implemented with **current-step coupling**. No temporal lag remains between theoretical links and implementation.
 
-**No mathematical errors were found.**
-
-All predictions are theoretically grounded with proper gradient isolation, numerical stability, and formula fidelity. The system is **production-ready**.
+**No mathematical errors were found in the formula implementations or cross-kernel wiring.**
 
 ---
 

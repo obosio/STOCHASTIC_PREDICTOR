@@ -601,7 +601,7 @@ where:
 The effective entropy mode collapse threshold becomes:
 
 \begin{equation}
-\text{threshold}_t = \gamma_t \cdot \text{config.entropy\_threshold\_base}
+\text{threshold}_t = \gamma_t
 \end{equation}
 
 \subsection{Implementation}
@@ -681,8 +681,7 @@ def kernel_b_predict(signal: Float[Array, "n"],
     
     # V-MAJ-1: Compute adaptive entropy threshold
     if ema_variance is not None:
-        gamma_t = compute_adaptive_entropy_threshold(ema_variance, config)
-        entropy_threshold = gamma_t * config.entropy_threshold_base
+        entropy_threshold = compute_adaptive_entropy_threshold(ema_variance, config)
     else:
         # Fallback to static threshold if ema_variance not provided
         entropy_threshold = config.entropy_threshold
@@ -695,9 +694,8 @@ def kernel_b_predict(signal: Float[Array, "n"],
         confidence=jnp.std(predictions),
         metadata={
             "entropy": entropy,
-            "entropy_threshold": entropy_threshold,
-            "gamma_t": gamma_t,  # V-MAJ-1: Log adaptive multiplier
-            "sigma_t": jnp.sqrt(ema_variance) if ema_variance is not None else 0.0
+            "entropy_threshold_adaptive": entropy_threshold,
+            "mode_collapse": mode_collapse,
         }
     )
 \end{lstlisting}
@@ -722,23 +720,30 @@ New parameters added to \texttt{PredictorConfig}:
 
 \subsection{Integration into Orchestrator}
 
-The orchestrator passes \texttt{state.ema\_variance} through the kernel call chain:
+The orchestrator calls Kernel B directly and refreshes diagnostics with the
+current-step volatility estimate:
 
 \begin{lstlisting}[language=Python]
 # In orchestrate_step():
-kernel_outputs = _run_kernels(
-    signal=signal,
-    rng_key=state.rng_key,
-    config=config,
-    ema_variance=state.ema_variance  # V-MAJ-1: Pass for adaptive threshold
-)
-
-# In _run_kernels():
-kernel_b_output = kernel_b_predict(
+output_b = kernel_b_predict(
     signal=signal,
     key=key_b,
     config=config,
-    ema_variance=ema_variance  # V-MAJ-1: New optional parameter
+    ema_variance=state.ema_variance  # V-MAJ-1: adaptive threshold input
+)
+
+entropy_threshold_current = compute_adaptive_entropy_threshold(
+    ema_variance_current, config
+)
+output_b = KernelOutput(
+    prediction=output_b.prediction,
+    confidence=output_b.confidence,
+    metadata={
+        **output_b.metadata,
+        "entropy_threshold_adaptive": entropy_threshold_current,
+        "mode_collapse": float(output_b.metadata.get("entropy", 0.0))
+        < entropy_threshold_current,
+    },
 )
 \end{lstlisting}
 
@@ -750,7 +755,7 @@ kernel_b_output = kernel_b_predict(
     \item \textbf{Zero-Heuristics}: All multipliers ($\gamma_{\min}$, $\gamma_{\max}$, $\gamma_{\text{default}}$) configurable in config.toml
     \item \textbf{JIT-Compatible}: Pure JAX function, GPU/TPU ready
     \item \textbf{Backward Compatible}: Fallback to static threshold if ema\_variance not provided
-    \item \textbf{Diagnostic Rich}: Logs gamma\_t and sigma\_t for audit trail
+    \item \textbf{Diagnostic Rich}: Logs \texttt{entropy\_threshold\_adaptive} for audit trail
 \end{itemize}
 
 \subsection{Interaction with V-CRIT-1 (CUSUM Kurtosis)}
@@ -760,7 +765,7 @@ While V-CRIT-1 provides regime detection via CUSUM alarms triggered by kurtosis 
 \begin{enumerate}
     \item \textbf{V-CRIT-1}: Detects regime changes via $\kappa_t$ spikes $\to$ triggers alarm with grace period
     \item \textbf{V-MAJ-1}: Adapts entropy threshold smoothly based on $\sigma_t$ $\to$ detects mode collapse before regime change
-    \item \textbf{Orchestrator}: Receives both signals (\texttt{should\_alarm} from V-CRIT-1, \texttt{gamma\_t} from V-MAJ-1) for comprehensive market intelligence
+    \item \textbf{Orchestrator}: Receives both signals (\texttt{should\_alarm} from V-CRIT-1, \texttt{entropy\_threshold\_adaptive} from V-MAJ-1) for comprehensive market intelligence
 \end{enumerate}
 
 \section{Enhanced Hölder Exponent Estimation via WTMM (P2.1 Upgrade to V-MAJ-2)}
@@ -1387,7 +1392,7 @@ orchestrate_step():
 \subsection{Integration with Other Violations}
 
 \begin{itemize}
-    \item \textbf{V-MAJ-1 (Entropy Threshold Adaptive)}: V-MAJ-1's $\gamma_t$ multiplier affects the effective threshold; V-MAJ-5 uses the resulting threshold
+    \item \textbf{V-MAJ-1 (Entropy Threshold Adaptive)}: V-MAJ-1 defines \texttt{entropy\_threshold\_adaptive}; V-MAJ-5 uses the resulting threshold
     \item \textbf{V-MAJ-7 (Degraded Mode Hysteresis)}: Mode collapse warning can trigger hysteretic transition to degraded inference
     \item \textbf{V-CRIT-1 (CUSUM Grace Period)}: Mode collapse warnings are independent of CUSUM alarms; both can drive circuit breaker
 \end{itemize}
