@@ -289,8 +289,8 @@ def compute_adaptive_entropy_threshold(
     sigma_t = jnp.sqrt(jnp.maximum(ema_variance, config.numerical_epsilon))
     
     # Volatility regime classification
-    high_vol_threshold = 0.2
-    low_vol_threshold = 0.05
+    high_vol_threshold = config.entropy_volatility_high_threshold
+    low_vol_threshold = config.entropy_volatility_low_threshold
     
     # V-MAJ-1: Piecewise linear interpolation based on volatility
     gamma = jnp.where(
@@ -330,8 +330,8 @@ def kernel_b_predict(
                 kernel_b_sigma, kernel_b_horizon, dgm_entropy_num_bins, 
                 kernel_b_spatial_samples, entropy_gamma_* (V-MAJ-1)
         model: Pre-trained DGM model (if None, creates dummy)
-        ema_variance: Optional EWMA variance for adaptive threshold [V-MAJ-1]
-                     If None, falls back to fixed entropy_threshold
+        ema_variance: EWMA variance for adaptive threshold [V-MAJ-1]
+                 Required for mode-collapse detection
     
     Returns:
         KernelOutput with prediction, confidence, and diagnostics
@@ -391,14 +391,12 @@ def kernel_b_predict(
     entropy_dgm = jax.lax.stop_gradient(entropy_dgm)
     
     # Check for mode collapse [V-MAJ-1: Adaptive threshold]
-    if ema_variance is not None:
-        # V-MAJ-1: Use adaptive threshold based on volatility regime
-        entropy_threshold_adaptive = compute_adaptive_entropy_threshold(ema_variance, config)
-        mode_collapse = entropy_dgm < entropy_threshold_adaptive
-    else:
-        # Fallback: Use fixed threshold from config
-        entropy_threshold_adaptive = config.entropy_threshold
-        mode_collapse = entropy_dgm < entropy_threshold_adaptive
+    if ema_variance is None:
+        raise ValueError("ema_variance is required for adaptive entropy threshold.")
+
+    # V-MAJ-1: Use adaptive threshold based on volatility regime
+    entropy_threshold_adaptive = compute_adaptive_entropy_threshold(ema_variance, config)
+    mode_collapse = entropy_dgm < entropy_threshold_adaptive
     
     # Diagnostics
     diagnostics = {

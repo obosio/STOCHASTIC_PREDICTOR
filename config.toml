@@ -31,6 +31,7 @@ sinkhorn_epsilon_min = 0.01
 sinkhorn_epsilon_0 = 0.1
 sinkhorn_alpha = 0.5  # Coupling coefficient to volatility
 sinkhorn_max_iter = 200  # Max Sinkhorn iterations (scan length)
+sinkhorn_inner_iterations = 10  # Inner log-domain stabilization iterations
 
 # Entropy monitoring (adaptive threshold based on volatility regime)
 entropy_window = 100
@@ -38,6 +39,11 @@ entropy_threshold = 0.8          # Deprecated: use entropy_gamma_* parameters
 entropy_gamma_min = 0.5          # Crisis mode: lenient mode collapse detection
 entropy_gamma_max = 1.0          # Low-vol mode: strict mode collapse detection
 entropy_gamma_default = 0.8      # Normal mode: balanced mode collapse detection
+entropy_volatility_low_threshold = 0.05   # Low-volatility sigma threshold
+entropy_volatility_high_threshold = 0.2   # High-volatility sigma threshold
+entropy_ratio_min = 0.1                  # Entropy ratio lower bound
+entropy_ratio_max = 10.0                 # Entropy ratio upper bound
+entropy_baseline_floor = 1e-6            # Baseline entropy floor
 mode_collapse_min_threshold = 10  # Minimum consecutive steps before mode collapse warning
 mode_collapse_window_ratio = 0.1  # Ratio of entropy_window for mode collapse warning threshold
 
@@ -61,6 +67,17 @@ max_past_drift_ns = 86_400_000_000_000  # 24 hours (stale data threshold)
 # Circuit breaker
 holder_threshold = 0.4  # Holder exponent critical threshold
 
+# DGM entropy-topology coupling
+dgm_entropy_coupling_beta = 0.7  # Coupling beta for DGM scaling
+dgm_max_capacity_factor = 4.0    # Max width*depth multiplier
+
+# Holder-informed stiffness calibration
+stiffness_calibration_c1 = 25.0  # Low-threshold calibration constant
+stiffness_calibration_c2 = 250.0  # High-threshold calibration constant
+stiffness_min_low = 100.0        # Minimum low threshold
+stiffness_min_high = 1000.0      # Minimum high threshold
+holder_exponent_guard = 1e-3     # Guard against alpha -> 1 singularity
+
 # Recovery hysteresis
 inference_recovery_hysteresis = 0.8
 
@@ -82,8 +99,22 @@ warmup_signal_length = 100              # Representative signal length for JIT w
 wtmm_buffer_size = 128                  # Sliding memory buffer
 besov_cone_c = 1.5                      # Besov cone of influence
 besov_nyquist_interval_ns = 100_000_000 # Nyquist interval (100ms)
+wtmm_num_scales = 16                    # Number of WTMM scales
+wtmm_scale_min = 1.0                    # Minimum WTMM scale
+wtmm_sigma = 1.0                        # Morlet wavelet sigma
+wtmm_fc = 0.5                           # Morlet wavelet central frequency
+wtmm_modulus_threshold = 0.01           # Modulus maxima threshold
+wtmm_max_link_distance = 2.0            # Max link distance for maxima chains
+wtmm_q_min = -2.0                       # Min q for partition function
+wtmm_q_max = 2.0                        # Max q for partition function
+wtmm_q_steps = 9                        # Number of q values
+wtmm_h_min = 0.0                        # Min Holder exponent grid
+wtmm_h_max = 1.5                        # Max Holder exponent grid
+wtmm_h_steps = 151                      # Holder exponent grid size
+wtmm_tau_default_scale = 0.5            # Default tau scale for non-finite q
 kernel_a_bandwidth = 0.1                # Gaussian kernel bandwidth (smoothness)
 kernel_a_embedding_dim = 5              # Time-delay embedding dimension (Takens)
+kernel_a_min_wiener_hopf_order = 2      # Minimum Wiener-Hopf filter order
 kernel_a_min_variance = 1e-10           # Minimum variance clipping (numerical stability)
 kernel_ridge_lambda = 1e-6              # Ridge regularization parameter
 koopman_top_k = 5                       # Top-K Koopman spectral modes

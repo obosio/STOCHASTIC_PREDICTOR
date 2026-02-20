@@ -239,23 +239,33 @@ Bootstrap establishes \texttt{config.toml} for centralized parameter management:
 \begin{lstlisting}
 [core]
 jax_platforms = "cpu"
-jax_default_dtype = "float32"
+jax_default_dtype = "float64"
 
 [orchestration]
-cusum_grace_period = 20
-cusum_threshold = 5.0
+grace_period_steps = 20
+cusum_h = 5.0
 entropy_window = 100
 sinkhorn_epsilon_0 = 0.1
 sinkhorn_alpha = 0.5
+sinkhorn_max_iter = 200
+sinkhorn_inner_iterations = 10
+entropy_volatility_low_threshold = 0.05
+entropy_volatility_high_threshold = 0.2
 
 [kernels]
 stiffness_low = 100
 stiffness_high = 1000
 sde_dt = 0.01
+wtmm_num_scales = 16
+wtmm_scale_min = 1.0
+wtmm_sigma = 1.0
+wtmm_fc = 0.5
+wtmm_modulus_threshold = 0.01
+kernel_a_min_wiener_hopf_order = 2
 
 [io]
-market_feed_timeout = 30
-market_feed_max_retries = 3
+data_feed_timeout = 30
+data_feed_max_retries = 3
 \end{lstlisting}
 
 \chapter{Git Workflow and Versioning}

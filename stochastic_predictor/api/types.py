@@ -51,6 +51,7 @@ class PredictorConfig:
     sinkhorn_epsilon_0: float = 0.1     # Base epsilon before coupling
     sinkhorn_alpha: float = 0.5         # Volatility coupling coefficient
     sinkhorn_max_iter: int = 200        # Max Sinkhorn iterations (scan length)
+    sinkhorn_inner_iterations: int = 10 # Inner iterations for log-domain stability
     
     # Entropy Monitoring (Mode Collapse Detection)
     entropy_window: int = 100       # Sliding window for entropy computation
@@ -58,6 +59,11 @@ class PredictorConfig:
     entropy_gamma_min: float = 0.5  # Minimum gamma for crisis mode (lenient mode collapse detection)
     entropy_gamma_max: float = 1.0  # Maximum gamma for low-volatility mode (strict mode collapse detection)
     entropy_gamma_default: float = 0.8  # Default gamma for normal volatility regime
+    entropy_volatility_low_threshold: float = 0.05   # Low-volatility sigma threshold
+    entropy_volatility_high_threshold: float = 0.2   # High-volatility sigma threshold
+    entropy_ratio_min: float = 0.1                  # Entropy ratio lower bound
+    entropy_ratio_max: float = 10.0                 # Entropy ratio upper bound
+    entropy_baseline_floor: float = 1e-6            # Baseline entropy floor
     mode_collapse_min_threshold: int = 10  # Minimum number of consecutive steps before mode collapse warning
     mode_collapse_window_ratio: float = 0.1  # Ratio of entropy_window for mode collapse warning threshold
     
@@ -68,6 +74,19 @@ class PredictorConfig:
     wtmm_buffer_size: int = 128     # N_buf: Sliding memory
     besov_cone_c: float = 1.5       # Besov Cone of Influence
     kernel_ridge_lambda: float = 1e-6  # Ridge regularization parameter (Kernel A)
+    wtmm_num_scales: int = 16          # Number of WTMM scales
+    wtmm_scale_min: float = 1.0        # Minimum WTMM scale
+    wtmm_sigma: float = 1.0            # Morlet wavelet sigma
+    wtmm_fc: float = 0.5               # Morlet wavelet central frequency
+    wtmm_modulus_threshold: float = 0.01  # Modulus maxima threshold
+    wtmm_max_link_distance: float = 2.0   # Max link distance for maxima chains
+    wtmm_q_min: float = -2.0           # Min q for partition function
+    wtmm_q_max: float = 2.0            # Max q for partition function
+    wtmm_q_steps: int = 9              # Number of q values
+    wtmm_h_min: float = 0.0            # Min Holder exponent grid
+    wtmm_h_max: float = 1.5            # Max Holder exponent grid
+    wtmm_h_steps: int = 151            # Holder exponent grid size
+    wtmm_tau_default_scale: float = 0.5  # Default tau scale for non-finite q
     
     # Kernel C (SDE Integration)
     stiffness_low: int = 100        # Threshold for explicit Euler-Maruyama
@@ -78,6 +97,13 @@ class PredictorConfig:
     
     # Circuit Breaker (Holder Singularity)
     holder_threshold: float = 0.4   # H_min: Critical threshold
+    dgm_entropy_coupling_beta: float = 0.7  # DGM entropy-topology coupling beta
+    dgm_max_capacity_factor: float = 4.0   # Max width*depth multiplier
+    stiffness_calibration_c1: float = 25.0 # Calibration constant for stiffness low
+    stiffness_calibration_c2: float = 250.0 # Calibration constant for stiffness high
+    stiffness_min_low: float = 100.0       # Minimum low threshold
+    stiffness_min_high: float = 1000.0     # Minimum high threshold
+    holder_exponent_guard: float = 1e-3    # Guard against alpha -> 1
     
     # CUSUM (Regime Change Detection)
     cusum_h: float = 5.0            # h: Drift threshold
@@ -115,6 +141,7 @@ class PredictorConfig:
     # Kernel A Parameters (RKHS)
     kernel_a_bandwidth: float = 0.1             # Gaussian kernel bandwidth (smoothness)
     kernel_a_embedding_dim: int = 5             # Time-delay embedding dimension (Takens)
+    kernel_a_min_wiener_hopf_order: int = 2      # Minimum Wiener-Hopf order
     kernel_a_min_variance: float = 1e-10        # Minimum variance clipping threshold (numerical stability)
     koopman_top_k: int = 5                      # Top-K Koopman spectral modes
     koopman_min_power: float = 1e-10            # Minimum spectral power for Koopman modes
@@ -211,18 +238,50 @@ class PredictorConfig:
             f"sinkhorn_epsilon_0 must be >= epsilon_min, got {self.sinkhorn_epsilon_0}"
         assert 0.0 < self.sinkhorn_alpha <= 1.0, \
             f"sinkhorn_alpha must be in (0, 1], got {self.sinkhorn_alpha}"
+        assert self.sinkhorn_inner_iterations > 0, \
+            "sinkhorn_inner_iterations must be > 0"
         
         # Entropy monitoring constraints
         assert self.entropy_window > 0, \
             f"entropy_window must be > 0, got {self.entropy_window}"
         assert 0.0 < self.entropy_threshold <= 1.0, \
             f"entropy_threshold must be in (0, 1], got {self.entropy_threshold}"
+        assert 0.0 <= self.entropy_volatility_low_threshold < self.entropy_volatility_high_threshold, \
+            "entropy_volatility thresholds must satisfy 0 <= low < high"
+        assert 0.0 < self.entropy_ratio_min <= self.entropy_ratio_max, \
+            "entropy_ratio bounds must satisfy 0 < min <= max"
+        assert self.entropy_baseline_floor > 0.0, \
+            "entropy_baseline_floor must be > 0"
         assert self.koopman_top_k > 0, \
             "koopman_top_k must be > 0"
         assert self.koopman_min_power > 0.0, \
             "koopman_min_power must be > 0"
         assert self.paley_wiener_integral_max > 0.0, \
             "paley_wiener_integral_max must be > 0"
+        assert self.wtmm_num_scales > 0, \
+            "wtmm_num_scales must be > 0"
+        assert self.wtmm_scale_min > 0.0, \
+            "wtmm_scale_min must be > 0"
+        assert self.wtmm_sigma > 0.0, \
+            "wtmm_sigma must be > 0"
+        assert self.wtmm_fc > 0.0, \
+            "wtmm_fc must be > 0"
+        assert self.wtmm_modulus_threshold > 0.0, \
+            "wtmm_modulus_threshold must be > 0"
+        assert self.wtmm_max_link_distance > 0.0, \
+            "wtmm_max_link_distance must be > 0"
+        assert self.wtmm_q_steps > 1, \
+            "wtmm_q_steps must be > 1"
+        assert self.wtmm_q_max > self.wtmm_q_min, \
+            "wtmm_q_max must be > wtmm_q_min"
+        assert self.wtmm_h_steps > 1, \
+            "wtmm_h_steps must be > 1"
+        assert self.wtmm_h_max > self.wtmm_h_min, \
+            "wtmm_h_max must be > wtmm_h_min"
+        assert self.wtmm_tau_default_scale > 0.0, \
+            "wtmm_tau_default_scale must be > 0"
+        assert self.kernel_a_min_wiener_hopf_order > 0, \
+            "kernel_a_min_wiener_hopf_order must be > 0"
         
         # Log-signature depth reasonable (exponential complexity)
         assert 1 <= self.log_sig_depth <= 5, \
@@ -245,6 +304,20 @@ class PredictorConfig:
         # Holder exponent bounds (stochastic processes)
         assert 0.0 < self.holder_threshold < 1.0, \
             f"holder_threshold must be in (0, 1), got {self.holder_threshold}"
+        assert 0.0 < self.dgm_entropy_coupling_beta <= 1.0, \
+            "dgm_entropy_coupling_beta must be in (0, 1]"
+        assert self.dgm_max_capacity_factor >= 1.0, \
+            "dgm_max_capacity_factor must be >= 1"
+        assert self.stiffness_calibration_c1 > 0.0, \
+            "stiffness_calibration_c1 must be > 0"
+        assert self.stiffness_calibration_c2 > 0.0, \
+            "stiffness_calibration_c2 must be > 0"
+        assert self.stiffness_min_low > 0.0, \
+            "stiffness_min_low must be > 0"
+        assert self.stiffness_min_high > self.stiffness_min_low, \
+            "stiffness_min_high must be > stiffness_min_low"
+        assert 0.0 < self.holder_exponent_guard < 1.0, \
+            "holder_exponent_guard must be in (0, 1)"
         
         # CUSUM thresholds
         assert self.cusum_h > 0 and self.cusum_k >= 0, \

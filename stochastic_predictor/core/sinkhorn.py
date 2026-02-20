@@ -110,7 +110,7 @@ def volatility_coupled_sinkhorn(
     solver = sinkhorn.Sinkhorn(
         max_iterations=int(config.sinkhorn_max_iter),
         threshold=float(config.validation_simplex_atol),
-        inner_iterations=10  # Inner iterations for log-domain stability
+        inner_iterations=int(config.sinkhorn_inner_iterations)
     )
     
     # Dispatch to OTT solver with LinearProblem

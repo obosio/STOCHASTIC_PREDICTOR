@@ -85,7 +85,8 @@ def initialize_state(
 
 def compute_entropy_ratio(
     current_entropy: float,
-    baseline_entropy: float
+    baseline_entropy: float,
+    config: PredictorConfig
 ) -> float:
     """
     Compute entropy ratio κ for regime transition detection.
@@ -97,12 +98,12 @@ def compute_entropy_ratio(
         baseline_entropy: Baseline entropy H₀ (e.g., from initialization)
     
     Returns:
-        κ = H_current / H₀ ∈ [0.1, 10]
+        κ = H_current / H₀ clipped to config entropy ratio bounds
         
     Example:
         >>> baseline_entropy = 2.5
         >>> current_entropy = 10.0  # 4x increase during crisis
-        >>> κ = compute_entropy_ratio(current_entropy, baseline_entropy)
+        >>> κ = compute_entropy_ratio(current_entropy, baseline_entropy, config)
         >>> # κ = 4.0 → triggers architecture scaling
     
     References:
@@ -110,18 +111,21 @@ def compute_entropy_ratio(
         - Empirical observation: κ > 2 indicates regime transition
     """
     # Guard against division by zero
-    baseline_entropy = max(baseline_entropy, 1e-6)
+    baseline_entropy = max(baseline_entropy, config.entropy_baseline_floor)
     
     # Clip to reasonable bounds [0.1, 10]
-    kappa = jnp.clip(current_entropy / baseline_entropy, 0.1, 10.0)
+    kappa = jnp.clip(
+        current_entropy / baseline_entropy,
+        config.entropy_ratio_min,
+        config.entropy_ratio_max,
+    )
     
     return float(kappa)
 
 
 def scale_dgm_architecture(
     config: PredictorConfig,
-    entropy_ratio: float,
-    coupling_beta: float = 0.7
+    entropy_ratio: float
 ) -> tuple[int, int]:
     """
     Dynamically scale DGM architecture based on entropy regime.
@@ -153,7 +157,7 @@ def scale_dgm_architecture(
     Example:
         >>> config = PredictorConfig(dgm_width_size=64, dgm_depth=4)
         >>> κ = 4.0  # Entropy quadrupled during crisis
-        >>> new_width, new_depth = scale_dgm_architecture(config, κ, β=0.7)
+        >>> new_width, new_depth = scale_dgm_architecture(config, κ)
         >>> # Returns (128, 5) → capacity increased ~2.5×
     
     References:
@@ -166,11 +170,11 @@ def scale_dgm_architecture(
     baseline_capacity = baseline_width * baseline_depth
     
     # Required capacity from entropy scaling law
-    required_capacity_factor = entropy_ratio ** coupling_beta
+    required_capacity_factor = entropy_ratio ** config.dgm_entropy_coupling_beta
     required_capacity = baseline_capacity * required_capacity_factor
     
     # Clip to reasonable bounds [baseline, 4× baseline]
-    max_capacity = baseline_capacity * 4.0
+    max_capacity = baseline_capacity * config.dgm_max_capacity_factor
     required_capacity = min(required_capacity, max_capacity)
     
     # Maintain aspect ratio (width:depth)
@@ -194,8 +198,7 @@ def scale_dgm_architecture(
 
 def compute_adaptive_stiffness_thresholds(
     holder_exponent: float,
-    calibration_c1: float = 25.0,
-    calibration_c2: float = 250.0
+    config: PredictorConfig
 ) -> tuple[float, float]:
     """
     Compute Hölder-informed stiffness thresholds for adaptive SDE solver.
@@ -228,12 +231,12 @@ def compute_adaptive_stiffness_thresholds(
     Example:
         >>> # Multifractal regime (rough path)
         >>> α = 0.2
-        >>> θ_L, θ_H = compute_adaptive_stiffness_thresholds(α)
+        >>> θ_L, θ_H = compute_adaptive_stiffness_thresholds(α, config)
         >>> # Returns (390, 3906) → much higher than baseline (100, 1000)
         
         >>> # Smooth regime
         >>> α = 0.8
-        >>> θ_L, θ_H = compute_adaptive_stiffness_thresholds(α)
+        >>> θ_L, θ_H = compute_adaptive_stiffness_thresholds(α, config)
         >>> # Returns (625, 6250) → modest increase
     
     References:
@@ -242,14 +245,24 @@ def compute_adaptive_stiffness_thresholds(
           improves strong convergence error by 20%
     """
     # Validate input
-    holder_exponent = float(jnp.clip(holder_exponent, 0.0, 0.99))
+    max_holder = min(
+        config.validation_holder_exponent_max,
+        1.0 - config.holder_exponent_guard,
+    )
+    holder_exponent = float(jnp.clip(holder_exponent, 0.0, max_holder))
     
     # Guard against singularity at α → 1
-    denominator = max(1.0 - holder_exponent, 1e-3)
+    denominator = max(1.0 - holder_exponent, config.holder_exponent_guard)
     
     # Compute adaptive thresholds
-    theta_low = max(100.0, calibration_c1 / (denominator ** 2))
-    theta_high = max(1000.0, calibration_c2 / (denominator ** 2))
+    theta_low = max(
+        config.stiffness_min_low,
+        config.stiffness_calibration_c1 / (denominator ** 2),
+    )
+    theta_high = max(
+        config.stiffness_min_high,
+        config.stiffness_calibration_c2 / (denominator ** 2),
+    )
     
     return float(theta_low), float(theta_high)
 
@@ -446,7 +459,10 @@ def orchestrate_step(
     holder_exponent_current = float(output_a.metadata.get("holder_exponent", 0.0))
 
     # Hölder-informed stiffness thresholds (Kernel C) from current WTMM
-    theta_low, theta_high = compute_adaptive_stiffness_thresholds(holder_exponent_current)
+    theta_low, theta_high = compute_adaptive_stiffness_thresholds(
+        holder_exponent_current,
+        config,
+    )
     kernel_c_config = replace(config, stiffness_low=theta_low, stiffness_high=theta_high)
     output_c = kernel_c_predict(signal, key_c, kernel_c_config)
 
@@ -457,7 +473,7 @@ def orchestrate_step(
     if baseline_entropy <= 0.0 and entropy_current > 0.0:
         baseline_entropy = entropy_current
 
-    entropy_ratio = compute_entropy_ratio(entropy_current, baseline_entropy)
+    entropy_ratio = compute_entropy_ratio(entropy_current, baseline_entropy, config)
     scaling_triggered = entropy_ratio > 2.0
     kernel_b_config = config
     if scaling_triggered:

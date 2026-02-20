@@ -28,8 +28,8 @@ from .base import KernelOutput, apply_stop_gradient_to_diagnostics, normalize_si
 @jax.jit
 def morlet_wavelet(
     t: Float[Array, ""],
-    sigma: float = 1.0,
-    f_c: float = 0.5
+    sigma: float,
+    f_c: float
 ) -> Float[Array, ""]:
     """
     Morlet wavelet: complex exponential modulated by Gaussian.
@@ -55,7 +55,8 @@ def morlet_wavelet(
 def continuous_wavelet_transform(
     signal: Float[Array, "n"],
     scales: Float[Array, "m"],
-    mother_wavelet_fn=None
+    mother_wavelet_fn,
+    epsilon: float = 1e-10
 ) -> Float[Array, "m n"]:
     """
     Compute continuous wavelet transform (CWT) at multiple scales.
@@ -65,13 +66,13 @@ def continuous_wavelet_transform(
     Args:
         signal: Input signal (n,)
         scales: Array of scales to evaluate (m,)
-        mother_wavelet_fn: Wavelet function (default: Morlet)
+        mother_wavelet_fn: Wavelet function (required)
     
     Returns:
         CWT coefficients (m, n) where axis 0 is scale, axis 1 is position
     """
     if mother_wavelet_fn is None:
-        mother_wavelet_fn = morlet_wavelet
+        raise ValueError("mother_wavelet_fn is required for CWT computation.")
     
     n = signal.shape[0]
     
@@ -81,10 +82,10 @@ def continuous_wavelet_transform(
     # Compute CWT for each scale using convolution
     def cwt_scale(scale):
         # Create wavelet at this scale (domain: all time points)
-        psi_scale = jax.vmap(lambda ti: mother_wavelet_fn(ti / scale, sigma=1.0))(t)
+        psi_scale = jax.vmap(lambda ti: mother_wavelet_fn(ti / scale))(t)
         
         # Normalize wavelet energy
-        psi_norm = psi_scale / (jnp.sqrt(scale) + 1e-10)
+        psi_norm = psi_scale / (jnp.sqrt(scale) + epsilon)
         
         # Compute correlation between signal and wavelet (sliding dot product)
         # This is equivalent to convolution with reversed/conjugate wavelet
@@ -184,7 +185,8 @@ def link_wavelet_maxima(
 def compute_partition_function(
     chain_magnitudes: Float[Array, "n m"],
     scales: Float[Array, "m"],
-    q_range: Float[Array, "q"]
+    q_range: Float[Array, "q"],
+    epsilon: float
 ) -> tuple[Float[Array, "q m"], Float[Array, "q"]]:
     """
     Compute partition function Z_q(s) and scaling exponents τ(q).
@@ -226,10 +228,10 @@ def compute_partition_function(
             
             # Only sum nonzero magnitudes
             # Avoid division by zero for negative q
-            safe_mags = jnp.clip(mags_at_scale, 1e-12, None)
+            safe_mags = jnp.clip(mags_at_scale, epsilon, None)
             
             # Use mask to only count truly nonzero entries
-            mask = (mags_at_scale > 1e-12).astype(jnp.float64)
+            mask = (mags_at_scale > epsilon).astype(jnp.float64)
             
             # Compute sum, but only for positions with signal
             # Apply mask to zero out non-signal positions before power
@@ -247,11 +249,11 @@ def compute_partition_function(
     Z_q_scales = jax.vmap(partition_q)(q_range)  # Shape: (q, m)
     
     # Extract τ(q) via log-log regression: log Z_q(s) ~ τ(q) · log(s)
-    log_scales = jnp.log(jnp.clip(scales, 1e-8, None))
+    log_scales = jnp.log(jnp.clip(scales, epsilon, None))
     
     def extract_tau(z_q_vals):
         # z_q_vals shape: (m,) - Z_q values across scales
-        log_z_q = jnp.log(jnp.clip(z_q_vals, 1e-10, None))
+        log_z_q = jnp.log(jnp.clip(z_q_vals, epsilon, None))
         
         # Linear regression: slope = [Σ(x-x_mean)(y-y_mean)] / [Σ(x-x_mean)^2]
         x_mean = jnp.mean(log_scales)
@@ -273,7 +275,10 @@ def compute_partition_function(
 @jax.jit
 def compute_singularity_spectrum(
     tau_q: Float[Array, "q"],
-    q_range: Float[Array, "q"]
+    q_range: Float[Array, "q"],
+    h_min: float,
+    h_max: float,
+    h_steps: int
 ) -> tuple[Float[Array, ""], Float[Array, ""]]:
     """
     Compute singularity spectrum D(h) via Legendre transform.
@@ -302,7 +307,7 @@ def compute_singularity_spectrum(
     # Create fine grid of Hölder exponents h
     # Typically h ∈ [0, 1] for typical signals (Brownian motion h=0.5)
     # Allow up to 1.5 for more singular cases
-    h_range = jnp.linspace(0.0, 1.5, 151)
+    h_range = jnp.linspace(h_min, h_max, h_steps)
     
     def spectrum_at_h(h):
         # For this h, compute D(h) = min_q [τ(q) - q·h]
@@ -357,36 +362,68 @@ def extract_holder_exponent_wtmm(
     
     # Define scales: logarithmically spaced from smallest to largest
     # Use config.wtmm_buffer_size as upper scale limit
-    scales = jnp.logspace(0.0, jnp.log10(config.wtmm_buffer_size), 16)
-    scales = jnp.clip(scales, 1.0, n // 2)  # Ensure valid scale range
+    scales = jnp.logspace(
+        jnp.log10(config.wtmm_scale_min),
+        jnp.log10(config.wtmm_buffer_size),
+        config.wtmm_num_scales,
+    )
+    scales = jnp.clip(scales, config.wtmm_scale_min, n // 2)  # Ensure valid scale range
     
     # Step 1: Continuous Wavelet Transform
-    cwt = continuous_wavelet_transform(signal, scales)
+    def wavelet_fn(t):
+        return morlet_wavelet(t, sigma=config.wtmm_sigma, f_c=config.wtmm_fc)
+
+    cwt = continuous_wavelet_transform(
+        signal,
+        scales,
+        mother_wavelet_fn=wavelet_fn,
+        epsilon=config.numerical_epsilon,
+    )
     
     # Step 2: Find modulus maxima with reduced threshold for better detection
     # Use very small threshold to retain more maxima (they carry multifractal information)
-    modulus_maxima = find_modulus_maxima(cwt, threshold=0.01)  # Reduced from 0.1
+    modulus_maxima = find_modulus_maxima(
+        cwt,
+        threshold=config.wtmm_modulus_threshold,
+    )
     
     # Step 3: Link maxima across scales (retaining both presence and magnitudes)
     chain_presence, chain_magnitudes = link_wavelet_maxima(
-        modulus_maxima, cwt, scales, max_link_distance=2.0
+        modulus_maxima,
+        cwt,
+        scales,
+        max_link_distance=config.wtmm_max_link_distance,
     )
     
     # Step 4-5: Compute partition function and extract τ(q)
-    q_range = jnp.linspace(-2.0, 2.0, 9)
-    Z_q_scales, tau_q = compute_partition_function(chain_magnitudes, scales, q_range)
+    q_range = jnp.linspace(config.wtmm_q_min, config.wtmm_q_max, config.wtmm_q_steps)
+    Z_q_scales, tau_q = compute_partition_function(
+        chain_magnitudes,
+        scales,
+        q_range,
+        epsilon=config.numerical_epsilon,
+    )
     
     # Step 6-7: Compute singularity spectrum and extract Hölder exponent
     # Ensure tau_q is well-formed (replace NaN/Inf with sensible defaults)
     finite_mask = jnp.isfinite(tau_q).astype(jnp.float64)
-    default_vals = jnp.sign(q_range) * 0.5
+    default_vals = jnp.sign(q_range) * config.wtmm_tau_default_scale
     tau_q_safe = tau_q * finite_mask + default_vals * (1.0 - finite_mask)
     
-    holder_exponent_raw, spectrum_max = compute_singularity_spectrum(tau_q_safe, q_range)
+    holder_exponent_raw, spectrum_max = compute_singularity_spectrum(
+        tau_q_safe,
+        q_range,
+        h_min=config.wtmm_h_min,
+        h_max=config.wtmm_h_max,
+        h_steps=config.wtmm_h_steps,
+    )
     
     # Ensure result is valid
     is_finite = jnp.isfinite(holder_exponent_raw).astype(jnp.float64)
-    holder_exponent_val = holder_exponent_raw * is_finite + 0.5 * (1.0 - is_finite)
+    holder_exponent_val = (
+        holder_exponent_raw * is_finite
+        + config.wtmm_tau_default_scale * (1.0 - is_finite)
+    )
     
     # Clip to valid range
     holder_exponent = jnp.clip(
@@ -742,8 +779,12 @@ def kernel_a_predict(
         >>> prediction = result.prediction
         >>> confidence = result.confidence
     """
-    # Step 1: Normalize signal (z-score)
-    signal_normalized = normalize_signal(signal, method="zscore", epsilon=config.numerical_epsilon)
+    # Step 1: Normalize signal (config-driven)
+    signal_normalized = normalize_signal(
+        signal,
+        method=config.signal_normalization_method,
+        epsilon=config.numerical_epsilon,
+    )
     
     # Step 2: Compute signal statistics (for diagnostics)
     stats = compute_signal_statistics(signal)
@@ -763,7 +804,7 @@ def kernel_a_predict(
         X_train, y_train, X_test, config
     )
     
-    # Step 6: Denormalize prediction (inverse z-score)
+    # Step 6: Denormalize prediction (inverse normalization)
     prediction = y_pred_norm[0] * stats["std"] + stats["mean"]
     confidence = jnp.sqrt(variances[0]) * stats["std"]  # Scale variance by std
     
@@ -783,7 +824,7 @@ def kernel_a_predict(
     )
     paley_wiener_ok = paley_wiener_integral <= config.paley_wiener_integral_max
 
-    wiener_hopf_order = max(2, int(config.kernel_a_embedding_dim))
+    wiener_hopf_order = max(config.kernel_a_min_wiener_hopf_order, int(config.kernel_a_embedding_dim))
     wiener_hopf_filter = compute_wiener_hopf_filter(
         signal_normalized,
         order=wiener_hopf_order,
@@ -791,7 +832,11 @@ def kernel_a_predict(
     )
 
     def prediction_fn(sig: Float[Array, "n"]) -> Float[Array, ""]:
-        sig_norm = normalize_signal(sig, method="zscore", epsilon=config.numerical_epsilon)
+        sig_norm = normalize_signal(
+            sig,
+            method=config.signal_normalization_method,
+            epsilon=config.numerical_epsilon,
+        )
         sig_stats = compute_signal_statistics(sig)
         sig_embed = create_embedding(sig_norm, config)
         sig_train = sig_embed[:-1]

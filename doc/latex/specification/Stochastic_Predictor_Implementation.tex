@@ -639,8 +639,13 @@ The hyperparameter space is stratified into two optimization regimes with fundam
     \item \textbf{Kernel A (WTMM Configuration):}
     \begin{itemize}
         \item \texttt{wtmm\_num\_scales}: Number of wavelet scales $\in [8, 32]$ (integer)
+        \item \texttt{wtmm\_scale\_min}: Minimum wavelet scale $> 0$
         \item \texttt{wtmm\_sigma}: Morlet wavelet parameter $\in [0.5, 2.0]$
+        \item \texttt{wtmm\_fc}: Morlet central frequency $> 0$
         \item \texttt{wtmm\_modulus\_threshold}: Maxima detection threshold $\in [0.01, 0.5]$
+        \item \texttt{wtmm\_max\_link\_distance}: Maxima chain link distance $> 0$
+        \item \texttt{wtmm\_q\_min}, \texttt{wtmm\_q\_max}, \texttt{wtmm\_q\_steps}: Partition function grid
+        \item \texttt{wtmm\_h\_min}, \texttt{wtmm\_h\_max}, \texttt{wtmm\_h\_steps}: Singularity spectrum grid
     \end{itemize}
     
     \item \textbf{Orchestrator Meta-Strategy:}
@@ -654,6 +659,7 @@ The hyperparameter space is stratified into two optimization regimes with fundam
     \begin{itemize}
         \item \texttt{signature\_depth}: Truncation level $M \in [3, 5]$ (integer)
         \item \texttt{max\_sinkhorn\_iterations}: Convergence budget $\in [50, 500]$ (integer)
+        \item \texttt{sinkhorn\_inner\_iterations}: Inner log-domain iterations $\in [5, 50]$ (integer)
         \item \texttt{numerical\_epsilon}: Machine epsilon guard $\in [10^{-12}, 10^{-8}]$ (log-uniform)
     \end{itemize}
 \end{enumerate}
