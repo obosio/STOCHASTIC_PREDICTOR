@@ -328,12 +328,16 @@ def main():
     
     print(f"\n💾 JSON report saved to: {report_file}")
     
-    # Exit with error if gaps exist
+    # Exit with error if gaps or orphans exist
     if json_report["summary"]["gaps_count"] > 0:
         print(f"\n⚠️  EXIT CODE: 1 (gaps detected)")
         return 1
     
-    print(f"\n✅ EXIT CODE: 0 (100% coverage)")
+    if json_report["summary"]["orphans_count"] > 0:
+        print(f"\n⚠️  EXIT CODE: 1 (orphan tests detected - unmatched to public API)")
+        return 1
+    
+    print(f"\n✅ EXIT CODE: 0 (100% coverage, 0 orphans)")
     return 0
 
 

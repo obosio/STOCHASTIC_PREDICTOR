@@ -175,8 +175,9 @@ Orphans: 0 test(s)
 
 **Exit Code**:
 
-- `0` = 100% cobertura (gaps_count == 0)
-- `1` = Gaps detectados (gaps_count > 0)
+- `0` = 100% cobertura (gaps_count == 0 AND orphans_count == 0)
+- `1` = Gaps detectados (gaps_count > 0) OR Orphans detectados (orphans_count > 0)
+  - Orphans son problemas: tests sin funciones públicas asociadas
 
 **Dependencias**:
 
@@ -187,13 +188,14 @@ Orphans: 0 test(s)
 
 ### 3.3 Stage 3: `code_structure.py` (Structural Execution Tests)
 
-**Ubicación**: `tests/scripts/code_structure.py` (678+ líneas)
+**Ubicación**: `tests/scripts/code_structure.py` (769 líneas)
 
 **Responsabilidades**:
 
 - Valida 100% de cobertura ejecutable con inputs reales
 - Usa pytest fixtures para configuración y PRNG
 - Tests ejecutan código real contra valores válidos
+- **TESTING_POLICIES Compliance**: Implementa validaciones de POLICY #11, #20, #33
 - Verifica que no haya excepciones en paths críticos
 
 **Frameworks**:
@@ -217,12 +219,15 @@ def prng_key() -> jax.random.PRNGKeyArray
 **Test Classes** (examples):
 
 - `TestAPIConfig` - Validación de API config
-- `TestPRNG` - PRNG initialization y operations
-- `TestValidation` - Batch validation functions
-- `TestStateBuffer` - State history management
-- `TestFusion` - Core fusion algorithms
+- `TestAPIPRNG` - PRNG initialization y operations (POLICY #1 compliance)
+- `TestAPIValidation` - Batch validation functions
+  - `test_validate_simplex` (POLICY #11: atol=1e-10 enforcement)
+- `TestAPIStateBuffer` - State history management
+  - `test_update_signal_history` (POLICY #20: bit-exact parity)
+- `TestCoreFusion` - Core fusion algorithms
+- `TestCoreMetaOptimizer`
+  - `test_walk_forward_split` (POLICY #33: causality validation)
 - `TestKernels` - Kernel execution A/B/C/D
-- `TestMetaOptimizer` - Meta-optimizer behavior
 - `etc...`
 
 **Salida Requerida**:
@@ -251,21 +256,24 @@ tests/scripts/code_structure.py::TestValidation::test_validate_shape PASSED
 
 ## 4. Orden de Ejecución
 
-El entrypoint `TESTS_START.py` ejecuta en este orden (secuencial, no paralelo):
+El entrypoint `tests_start.sh` ejecuta en este orden (secuencial, no paralelo):
 
 ```text
-1️⃣  code_alignement.py      (Policy compliance)
+1️⃣  code_alignement.py      (Policy compliance - CODE_AUDIT_POLICIES)
       └─ Tiempo típico: 2-5 segundos
       └─ Output: reports/policies/*.json
+      └─ Exit: 0 si 36/36 policies PASS
 
-2️⃣  tests_coverage.py       (Coverage validation)
+2️⃣  tests_coverage.py       (Coverage validation - TESTING_POLICIES orphan check)
       └─ Tiempo típico: 5-10 segundos
       └─ Output: tests/results/coverage_validation.json
+      └─ Exit: 0 si 0 gaps AND 0 orphans
 
-3️⃣  code_structure.py       (Full test execution)
-      └─ Tiempo típico: 30-60 segundos
+3️⃣  code_structure.py       (Full test execution - pytest)
+      └─ Tiempo típico: 30-60 segundos (si JAX instalado)
       └─ Output: pytest summary + exit code
-      └─ Requiere: JAX, completo X64 setup
+      └─ Requiere: JAX, numpy, pytest + x64 setup
+      └─ Incluye: POLICY #11, #20, #33 validations
 ```
 
 **Estrategia Sequential**:
@@ -276,41 +284,42 @@ El entrypoint `TESTS_START.py` ejecuta en este orden (secuencial, no paralelo):
 
 ---
 
-## 5. Uso de `TESTS_START.py`
+## 5. Uso de `tests_start.sh`
 
 ### 5.1 Ejecución Completa
 
 ```bash
-# Ejecutar todos los stages en orden
-python tests/scripts/TESTS_START.py
+# Ejecutar todos los stages en orden (bash entrypoint)
+bash tests/scripts/tests_start.sh --all
 
 # Output esperado:
-# Stage 1: Policy checks + report generation
-# Stage 2: Coverage analysis + JSON report
-# Stage 3: pytest session with 127+ tests
-# Final summary with exit code
+# ✅ Policy Compliance Check - PASSED (36/36)
+# ✅ Structural Coverage Validation - PASSED (100% coverage, 0 orphans)
+# ✅ Code Structure Execution Tests - PASSED (pytest session)
+# Final summary with exit code 0
 ```
 
 ### 5.2 Ejecución Selectiva
 
 ```bash
 # Solo validación de cobertura
-python tests/scripts/TESTS_START.py tests_coverage
+bash tests/scripts/tests_start.sh --coverage
 
-# Solo pytest structural tests
-python tests/scripts/TESTS_START.py code_structure
+# Solo pytest structural tests  
+bash tests/scripts/tests_start.sh --execute
 
 # Solo audit de políticas
-python tests/scripts/TESTS_START.py code_alignement
+bash tests/scripts/tests_start.sh --compliance
 ```
 
 ### 5.3 Exit Codes
 
 | Exit Code | Significado | Acción |
 | --- | --- | --- |
-| `0` | ✅ TODO PASS | Merge ready |
-| `1` | ❌ Algún stage FAIL | Revisar logs |
-| `2` | ⚠️ Error crítico | Problema configuración |
+| `0` | ✅ Todos los stages PASS | Merge ready |
+| `1` | ❌ Algún stage FAIL(policy/coverage/test) | Revisar logs (primero que falló) |
+| `2` | ⚠️ Argumento inválido | Ver `--help` |
+| `127` | ⚠️ Script no encontrado | Verificar paths |
 
 ---
 
@@ -490,8 +499,10 @@ STOCHASTIC_PREDICTOR/
 
 ```text
 # Python: 3.11+
-# JAX: Latest (with x64 flags required)
-# pytest: Latest
+# JAX: Latest (with x64 flags required for code_structure.py)
+# pytest: Latest (required for code_structure.py only)
+# numpy: Latest
+# Optional: scipy (for statistical tests)
 # No additional dependencies beyond requirements.txt
 ```
 
@@ -521,12 +532,15 @@ jobs:
 
 ```bash
 # Before committing:
-python tests/scripts/TESTS_START.py
+bash tests/scripts/tests_start.sh --all
 
-# If all stages pass → Ready to commit
-# If any stage fails:
-#   1. Review stage output
-#   2. Run individual stage for debugging
+# If all stages pass (exit code 0) → Ready to commit
+# If any stage fails (exit code 1):
+#   1. Review stage output (identifies which FAILED first)
+#   2. Run individual stage for debugging:
+#      bash tests/scripts/tests_start.sh --compliance  # Debug policies
+#      bash tests/scripts/tests_start.sh --coverage    # Debug coverage/orphans
+#      bash tests/scripts/tests_start.sh --execute     # Debug pytest
 #   3. Fix code
 #   4. Re-run full suite
 ```

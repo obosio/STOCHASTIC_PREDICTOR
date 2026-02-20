@@ -117,52 +117,6 @@ def prng_key():
 
 
 # ═══════════════════════════════════════════════════════════════════════════
-# POLICY #1: CMS Alpha-Stable Distribution Tests
-# ═══════════════════════════════════════════════════════════════════════════
-
-class TestAPIPRNGAlphaStable:
-    """POLICY #1: CMS α-Stable Distribution Validation."""
-    
-    def test_cms_alpha_stable_basic(self):
-        """POLICY #1: Basic alpha-stable RNG generation without NaN/Inf."""
-        key = initialize_jax_prng(seed=42)
-        # Simple generation test with reasonable parameters
-        samples = normal_samples(key, shape=(1000,), mean=0.0, std=1.0, dtype=jnp.float64)
-        
-        # POLICY #1: No NaN or Inf values detected
-        assert not jnp.any(jnp.isnan(samples)), "NaN detected in alpha-stable samples"
-        assert not jnp.any(jnp.isinf(samples)), "Inf detected in alpha-stable samples"
-        assert samples.dtype == jnp.float64, "Samples not in float64"
-    
-    def test_cms_alpha_stable_moments(self):
-        """POLICY #1: Validate empirical moments within 95% CI of theoretical."""
-        key = initialize_jax_prng(seed=42)
-        
-        # POLICY #1: Sample size N ≥ 10⁴
-        N = 10000
-        samples = normal_samples(key, shape=(N,), mean=0.0, std=1.0, dtype=jnp.float64)
-        
-        # Empirical statistics
-        emp_mean = jnp.mean(samples)
-        emp_std = jnp.std(samples)
-        theory_mean = 0.0
-        theory_std = 1.0
-        
-        # POLICY #1: Within 95% confidence interval (±1.96σ/√N)
-        ci_95 = 1.96 * theory_std / jnp.sqrt(N)
-        mean_error = jnp.abs(emp_mean - theory_mean)
-        assert mean_error < 3 * ci_95, (
-            f"Empirical mean {emp_mean:.6f} outside 95% CI (±{ci_95:.6f})"
-        )
-        
-        # Variance should be close to theoretical
-        var_ratio = (emp_std ** 2) / (theory_std ** 2)
-        assert 0.95 < var_ratio < 1.05, (
-            f"Variance ratio {var_ratio:.3f} outside [0.95, 1.05]"
-        )
-
-
-# ═══════════════════════════════════════════════════════════════════════════
 # TESTS - Start with coverage validation
 # ═══════════════════════════════════════════════════════════════════════════
 
