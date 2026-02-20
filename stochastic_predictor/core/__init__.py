@@ -33,6 +33,7 @@ from .orchestrator import (
     initialize_batched_states,
     compute_entropy_ratio,
     scale_dgm_architecture,
+    apply_host_architecture_scaling,
     compute_adaptive_stiffness_thresholds,
     compute_adaptive_jko_params,
 )
@@ -57,6 +58,7 @@ __all__ = [
     "SinkhornResult",
     "compute_adaptive_jko_params",
     "compute_adaptive_stiffness_thresholds",
+    "apply_host_architecture_scaling",
     "compute_entropy_ratio",
     "compute_sinkhorn_epsilon",
     "fuse_kernel_outputs",

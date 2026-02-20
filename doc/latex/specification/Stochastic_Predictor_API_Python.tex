@@ -94,16 +94,17 @@ class PredictorConfig:
     inference_recovery_hysteresis: float = 0.8  # Degraded mode recovery factor
 \end{lstlisting}
 
-\subsection{Operational Input ($y_t, y_{reference}, \tau$)}
+\subsection{Operational Input ($y_t, \tau_{utc}$)}
 \begin{lstlisting}[language=Python]
 @dataclass(frozen=True)
 class ProcessState:
     magnitude: Float[Array, "1"]  # y_t (normalized or absolute)
-    reference: Float[Array, "1"]  # y_reference
-    timestamp_ns: int             # Unix epoch (nanoseconds)
+    timestamp_utc: datetime       # UTC timestamp
+    state_tag: Optional[str] = None
+    dispersion_proxy: Optional[Float[Array, "1"]] = None
 
-    def validate_domain(self, sigma_bound: float = 20.0, sigma_val: float = 1.0) -> bool:
-        """Catastrophic outlier detection (> 20 sigma)."""
+    def validate_domain(self, sigma_bound: float, sigma_val: float) -> bool:
+        """Catastrophic outlier detection (> N sigma)."""
         return abs(self.magnitude) <= (sigma_bound * sigma_val)
 \end{lstlisting}
 
@@ -111,30 +112,12 @@ class ProcessState:
 \begin{lstlisting}[language=Python]
 @dataclass(frozen=True)
 class PredictionResult:
-    predicted_next: Float[Array, "1"]   # y_{t+1} (Z-score)
-
-    # Telemetry
-    holder_exponent: Float[Array, "1"]
-    cusum_drift: Float[Array, "1"]
-    distance_to_collapse: Float[Array, "1"]
-    free_energy: Float[Array, "1"]
-
-    # Advanced telemetry
-    kurtosis: Float[Array, "1"]
-    dgm_entropy: Float[Array, "1"]
-    adaptive_threshold: Float[Array, "1"]
-
-    # Orchestrator state
-    weights: Float[Array, "4"]
-
-    # Health flags
-    sinkhorn_converged: Bool[Array, "1"]
-    degraded_inference_mode: bool
-    emergency_mode: bool
-    regime_change_detected: bool
-    mode_collapse_warning: bool
-
-    mode: str  # "Standard" | "Robust" | "Emergency"
+    reference_prediction: Float[Array, ""]
+    confidence_lower: Float[Array, ""]
+    confidence_upper: Float[Array, ""]
+    operating_mode: str  # "inference" | "calibration" | "diagnostic"
+    telemetry: Optional[object] = None
+    request_id: Optional[str] = None
 \end{lstlisting}
 
 \section{Multi-Tenant Architecture (Stateless Functional Pattern)}
@@ -168,12 +151,13 @@ class FunctionalPredictor:
         new_state, raw_result = self._jit_update(
             state,
             obs.magnitude,
-            obs.reference,
             freeze_weights=should_freeze
         )
         result = PredictionResult(
-            predicted_next=raw_result.y_next,
-            # map the remaining fields
+            reference_prediction=raw_result.y_next,
+            confidence_lower=raw_result.lower,
+            confidence_upper=raw_result.upper,
+            operating_mode=raw_result.mode,
         )
         return new_state, result
 
@@ -181,7 +165,7 @@ class FunctionalPredictor:
         """Vectorized batch processing for N assets."""
         freeze_flags = self._should_freeze_batch(obs_batch)
         new_states, results = self._vmap_update(
-            states, obs_batch.magnitude, obs_batch.reference, freeze_flags
+            states, obs_batch.magnitude, freeze_flags
         )
         return new_states, results
 \end{lstlisting}
@@ -250,16 +234,15 @@ class UniversalPredictor:
         new_state, result_data = self._jit_update(
             self._state,
             obs.magnitude,
-            obs.reference,
             freeze_weights=should_freeze,
         )
         self._state = new_state
 
         return PredictionResult(
-            predicted_next=result_data.y_next,
-            holder_exponent=result_data.H_t,
-            sinkhorn_converged=result_data.converged,
-            # map remaining fields
+            reference_prediction=result_data.y_next,
+            confidence_lower=result_data.lower,
+            confidence_upper=result_data.upper,
+            operating_mode=result_data.mode,
         )
 \end{lstlisting}
 

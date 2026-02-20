@@ -218,9 +218,21 @@ snapshot_format: str = "msgpack"     # Serialization format
 snapshot_hash_algorithm: str = "sha256"
 telemetry_hash_interval_steps: int = 1
 telemetry_buffer_capacity: int = 1024
+telemetry_hash_algorithm: str = "sha256"
+telemetry_adaptive_log_path: str = "io/adaptive_telemetry.jsonl"
+telemetry_adaptive_window_size: int = 100
+telemetry_placeholder_max_stiffness_metric: float = 0.0
+telemetry_placeholder_num_internal_iterations_mean: float = 0.0
+telemetry_placeholder_implicit_residual_norm_max: float = 0.0
+telemetry_dashboard_title: str = "USP Telemetry Dashboard"
+telemetry_dashboard_width: int = 720
+telemetry_dashboard_height: int = 180
+telemetry_dashboard_spread_epsilon: float = 1e-9
+telemetry_dashboard_recent_rows: int = 25
 frozen_signal_min_steps: int = 5
 frozen_signal_recovery_ratio: float = 0.1
 frozen_signal_recovery_steps: int = 2
+frozen_signal_variance_floor: float = 1e-12
 staleness_ttl_ns: int = 500_000_000 # TTL degraded mode
 besov_nyquist_interval_ns: int = 100_000_000  # Nyquist sample rate
 inference_recovery_hysteresis: float = 0.8    # Recovery factor
@@ -364,6 +376,8 @@ schema_version = "1.0"
 jax_platforms = "cpu"
 jax_default_dtype = "float64"
 float_precision = 64
+prng_seed = 42
+prng_split_count = 4
 staleness_ttl_ns = 500_000_000
 
 [orchestration]
@@ -395,6 +409,7 @@ inference_recovery_hysteresis = 0.8
 [kernels]
 log_sig_depth = 3
 kernel_d_depth = 3
+kernel_d_load_shedding_depths = [2, 3, 5]
 kernel_d_alpha = 0.1
 kernel_d_confidence_scale = 0.1
 kernel_d_confidence_base = 1.0
@@ -402,6 +417,15 @@ base_min_signal_length = 32
 signal_normalization_method = "zscore"
 numerical_epsilon = 1e-10
 warmup_signal_length = 100
+pdf_grid_min_z = -4.0
+pdf_grid_max_z = 4.0
+pdf_grid_num_points = 256
+pdf_min_sigma = 1e-6
+confidence_interval_z = 1.96
+kernel_output_time_us = 1.0
+kurtosis_min = 1.0
+kurtosis_max = 100.0
+kurtosis_reference = 3.0
 wtmm_buffer_size = 128
 besov_cone_c = 1.5
 besov_nyquist_interval_ns = 100_000_000
@@ -832,7 +856,7 @@ def check_prng_state(key: PRNGKeyArray) -> dict[str, Any]:
 \section{Reproducibility Verification}
 
 \begin{lstlisting}[language=Python]
-def verify_determinism(seed: int = 42, n_trials: int = 3) -> bool:
+def verify_determinism(seed: int, n_trials: int = 3) -> bool:
     """Verify identical output across multiple runs."""
 \end{lstlisting}
 
@@ -872,8 +896,9 @@ class KernelOutputSchema(BaseModel):
     """Kernel output contract."""
     probability_density: Float[ArrayLike, "n_targets"]
     kernel_id: str = Field(description="Kernel identifier (A|B|C|D)")
-    computation_time_us: float = Field(gt=0, description="Execution time in microseconds")
+    computation_time_us: float = Field(ge=0, description="Execution time in microseconds")
     numerics_flags: Dict[str, bool] = Field(default_factory=dict)
+    entropy: Optional[float] = Field(default=None)
 \end{lstlisting}
 
 \subsection{PredictionResultSchema}
@@ -1010,7 +1035,7 @@ timings = warmup_all_kernels(config, verbose=True)
 
 \begin{itemize}
     \item \textbf{Dummy Signal}: Uses \texttt{config.warmup\_signal\_length}
-    \item \textbf{Determinism}: Uses fixed PRNG seed (42) for reproducible compilation
+    \item \textbf{Determinism}: Uses config-driven PRNG seed for reproducible compilation
     \item \texttt{jax.block\_until\_ready()}: Ensures asynchronous dispatch completes
     \item \textbf{Timing}: Returns per-kernel compilation times; load-shedding timings are nested under \texttt{kernel\_d\_load\_shedding}
 \end{itemize}

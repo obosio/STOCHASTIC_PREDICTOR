@@ -23,11 +23,7 @@ import os
 # GLOBAL PRNG CONFIGURATION
 # ═══════════════════════════════════════════════════════════════════════════
 
-# Number of subkeys to split from root PRNG key for kernel ensemble
-# (Kernels A, B, C, D = 4 kernels; subsequent orchestrator state update = 1 more)
-RNG_SPLIT_COUNT = 2  # For kernel execution subkeys
-
-def initialize_jax_prng(seed: int = 42) -> PRNGKeyArray:
+def initialize_jax_prng(seed: int) -> PRNGKeyArray:
     """
     Initialize JAX PRNG generator with deterministic configuration.
     
@@ -37,7 +33,7 @@ def initialize_jax_prng(seed: int = 42) -> PRNGKeyArray:
           * JAX_DETERMINISTIC_REDUCTIONS='1'
     
     Args:
-        seed: Seed for reproducibility (default: 42)
+        seed: Seed for reproducibility
         
     Returns:
         PRNGKeyArray: Root key for deriving subkeys
@@ -75,7 +71,7 @@ def initialize_jax_prng(seed: int = 42) -> PRNGKeyArray:
 # SUBKEY MANAGEMENT (Splitting)
 # ═══════════════════════════════════════════════════════════════════════════
 
-def split_key(key: PRNGKeyArray, num: int = 2) -> tuple[PRNGKeyArray, ...]:
+def split_key(key: PRNGKeyArray, num: int) -> tuple[PRNGKeyArray, ...]:
     """
     Split a PRNG key into multiple independent subkeys.
     
@@ -84,7 +80,7 @@ def split_key(key: PRNGKeyArray, num: int = 2) -> tuple[PRNGKeyArray, ...]:
     
     Args:
         key: PRNG key to split
-        num: Number of subkeys to generate (default: 2)
+        num: Number of subkeys to generate
         
     Returns:
         Tuple of PRNGKeyArray subkeys
@@ -141,9 +137,9 @@ def split_key_like(
 def uniform_samples(
     key: PRNGKeyArray,
     shape: Sequence[int],
-    minval: float = 0.0,
-    maxval: float = 1.0,
-    dtype: jnp.dtype = jnp.float32
+    minval: float,
+    maxval: float,
+    dtype: jnp.dtype
 ) -> jnp.ndarray:
     """
     Generate uniform samples in [minval, maxval).
@@ -173,9 +169,9 @@ def uniform_samples(
 def normal_samples(
     key: PRNGKeyArray,
     shape: Sequence[int],
-    mean: float = 0.0,
-    std: float = 1.0,
-    dtype: jnp.dtype = jnp.float32
+    mean: float,
+    std: float,
+    dtype: jnp.dtype
 ) -> jnp.ndarray:
     """
     Generate normal (Gaussian) distribution samples.
@@ -201,8 +197,8 @@ def normal_samples(
 def exponential_samples(
     key: PRNGKeyArray,
     shape: Sequence[int],
-    rate: float = 1.0,
-    dtype: jnp.dtype = jnp.float32
+    rate: float,
+    dtype: jnp.dtype
 ) -> jnp.ndarray:
     """
     Generate exponential distribution samples.
@@ -249,7 +245,7 @@ def check_prng_state(key: PRNGKeyArray) -> dict[str, Any]:
 
 
 def verify_determinism(
-    seed: int = 42,
+    seed: int,
     n_trials: int = 3
 ) -> bool:
     """

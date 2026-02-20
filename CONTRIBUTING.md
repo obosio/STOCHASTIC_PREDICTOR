@@ -1,128 +1,124 @@
-# Guía de Contribución
+# Contribution Guide
 
-¡Gracias por tu interés en contribuir al proyecto Universal Stochastic Predictor (USP)!
+Thank you for your interest in contributing to the Universal Stochastic Predictor (USP) project.
 
-## ⚠️ Alcance de Contribuciones
+## Scope of Contributions
 
-Este repositorio contiene **únicamente la especificación técnica** (documentos LaTeX). Las contribuciones deben enfocarse en **mejorar, clarificar y extender la especificación**, no en implementar código.
+This repository contains the technical specification documents (LaTeX). Contributions must focus on improving, clarifying, and extending the specification, not implementing code.
 
-## 🚀 Cómo Contribuir
+## How to Contribute
 
-### Reportar Problemas en la Especificación
+### Report Specification Issues
 
-- **Issues**: Usa el sistema de issues de GitHub para:
-  - ❌ Errores matemáticos
-  - ❌ Inconsistencias entre secciones (ej: referencia a variables no definidas)
-  - ❌ Ambigüedades o claridades faltantes
-  - ❌ Algoritmos que requieren aclaración
-  
-- **Formato**: Incluye siempre el archivo y sección específica (ej: `Python.tex §3.2`)
+- Use GitHub issues to report:
+  - Mathematical errors
+  - Inconsistencies between sections (for example, undefined variables)
+  - Ambiguities or missing clarity
+  - Algorithms that require clarification
 
-### Sugerir Mejoras a la Especificación
+- Always include the exact file and section (for example, `Python.tex` section 3.2).
 
-- Extensiones algorítmicas justificadas matemáticamente
-- Alternativas descartadas con análisis comparativo
-- Casos de uso adicionales
-- Análisis de complejidad computacional mejorado
+### Suggest Specification Improvements
 
-### Proceso de Pull Request
+- Algorithmic extensions with mathematical justification
+- Rejected alternatives with comparative analysis
+- Additional use cases
+- Improved computational complexity analysis
 
-1. **Fork** el repositorio
-2. **Crea una rama** con nombre descriptivo (`fix/typo-sde` o `enhance/sinkhorn-analysis`)
-3. **Edita archivos `.tex`** en el directorio `doc/`
-4. **Compila locally** con `./doc/compile.sh` para verificar LaTeX válido
-5. **Commit** con mensaje descriptivo:
+### Pull Request Process
+
+1. Fork the repository.
+2. Create a branch with a descriptive name (for example, `fix/typo-sde` or `enhance/sinkhorn-analysis`).
+3. Edit `.tex` files in the `doc/` directory.
+4. Compile locally with `./doc/compile.sh` to verify LaTeX validity.
+5. Commit with a descriptive message:
 
    ```bash
-   docs: Corrige notación de matriz en Python.tex §2.1
-   docs: Amplía análisis WTMM en Teoria.tex §3.3
-   docs: Aclara período de gracia CUSUM en API_Python.tex
+   docs: correct matrix notation in Python.tex section 2.1
+   docs: expand WTMM analysis in Teoria.tex section 3.3
+   docs: clarify CUSUM grace period in API_Python.tex
    ```
 
-6. **Push** y abre un Pull Request con descripción clara de cambios
+6. Push and open a Pull Request with a clear change summary.
 
-### Estándares de Especificación
+## Specification Standards
 
-#### LaTeX/Documentación
+### LaTeX and Documentation
 
-- ✅ Usar comandos LaTeX consistentes con documentos existentes
-- ✅ Mantener estructura de secciones coherente
-- ✅ Incluir referencias cruzadas (`\ref{}`, `\cite{}`)
-- ✅ Definir notación matemática antes de usarla
-- ✅ Incluir ejemplos o pseudocódigo cuando sea posible
-- ✅ Traducir a español si estás en doc español; a inglés si en doc inglés
-- ✅ Line length ≤ 100 caracteres para mantener legibilidad en git diffs
+- Use LaTeX commands consistent with existing documents.
+- Maintain coherent section structure.
+- Include cross-references (`\ref{}`, `\cite{}`).
+- Define mathematical notation before use.
+- Include examples or pseudocode when appropriate.
+- Use English in English documents and Spanish only in Spanish documents.
+- Keep line length at or below 100 characters for readable diffs.
 
-#### Notación Matemática
+### Mathematical Notation
 
-- ✅ Use \textbf{} para énfasis
-- ✅ Definir espacios ($\mathbb{R}$, $L^2(\Omega)$, $\mathcal{H}$) al introducirlos
-- ✅ Usar subíndices consistentes (ej: siempre $X_t$, nunca $X(t)$)
-- ✅ Incluir dimensiones cuando sea crítico
+- Use `\textbf{}` for emphasis.
+- Define spaces (for example, $\mathbb{R}$, $L^2(\Omega)$, $\mathcal{H}$) when introduced.
+- Use consistent subscripts (for example, always $X_t$, never $X(t)$).
+- Include dimensions when critical.
 
-## 📋 Áreas de Contribución
+## Areas of Contribution
 
-### Especificación Base (Prioridad Alta)
+### Base Specification (High Priority)
 
-- Errores en derivaciones matemáticas
-- Inconsistencias de notación
-- Referencias cruzadas rotas
-- Pseudocódigo que necesita aclaración
+- Errors in mathematical derivations
+- Notation inconsistencies
+- Broken cross-references
+- Pseudocode needing clarification
 
-### Extensiones Propuestas (Prioridad Media)
+### Proposed Extensions (Medium Priority)
 
-- Nuevos kernels de predicción (justificación matemática)
-- Alternativas de orquestación adaptativa
-- Análisis comparativo con métodos existentes
-- Casos de uso especializados
+- New prediction kernels (with justification)
+- Adaptive orchestration alternatives
+- Comparative analysis with existing methods
+- Specialized use cases
 
-### Mejoras Documentales (Prioridad Baja)
+### Documentation Improvements (Low Priority)
 
-- Diagramas o visualizaciones conceptuales
-- Índice mejorado
-- Ejemplo adicional de pseudocódigo
-- Apéndices con derivaciones detalladas
+- Conceptual diagrams or visualizations
+- Improved index
+- Additional pseudocode examples
+- Appendices with detailed derivations
 
-## 🤝 Código de Conducta
+## Code of Conduct
 
-### Nuestro Compromiso
+### Our Commitment
 
-- Ambiente acogedor e inclusivo basado en rigor intelectual
-- Respetar diferentes perspectivas matemáticas y de ingeniería
-- Aceptar críticas técnicas constructivas
-- Enfocarse en calidad e integridad de la especificación
+- Maintain a welcoming and inclusive environment grounded in intellectual rigor.
+- Respect different mathematical and engineering perspectives.
+- Accept constructive technical critique.
+- Focus on quality and integrity of the specification.
 
-### Comportamiento Esperado
+### Expected Behavior
 
-- Usar lenguaje técnico preciso
-- Respetar puntos de vista alternativos con justificación
-- Aceptar críticas de especificación sin ego
-- Mostrar empatía hacia otros revisores
+- Use precise technical language.
+- Respect alternative viewpoints with justification.
+- Accept specification critique without ego.
+- Show empathy toward other reviewers.
 
-### Comportamiento Inaceptable
+### Unacceptable Behavior
 
-- Ataques ad hominem a autores o contribuidores
-- Rechazo de cambios válidos sin justificación técnica
-- Lenguaje discriminatorio o acoso
-- Publicar información privada sin permiso
+- Ad hominem attacks against authors or contributors
+- Rejecting valid changes without technical justification
+- Discriminatory or harassing language
+- Publishing private information without permission
 
-## 📝 Proceso de Revisión
+## Review Process
 
-1. **Sintaxis LaTeX**: El CI automáticamente verifica que la especificación compile
-2. **Revisión técnica**: Mantenedores verifican consistencia matemática
-3. **Completitud**: ¿Están claros los cambios? ¿Se actualizan referencias cruzadas?
-4. **Merge**: Una vez aprobado, se fusiona a `main`
+1. LaTeX syntax: CI verifies the specification compiles.
+2. Technical review: maintainers verify mathematical consistency.
+3. Completeness: check clarity and cross-reference updates.
+4. Merge: once approved, changes are merged into `main`.
 
-## 📱 Contacto
+## Contact
 
-- **Issues**: Para reportes de especificación específicos
-- **Discussions**: Para debates generales sobre arquitectura o algoritmos
-- **Email**: Contacta a mantainers si tienes preguntas previas
+- Issues: for specification-specific reports
+- Discussions: for broader architecture or algorithm topics
+- Email: contact maintainers for questions
 
-## 🙏 Reconocimientos
+## Acknowledgements
 
-Todos los contribuidores a la especificación serán reconocidos en el archivo [CHANGELOG.md](CHANGELOG.md) y en los commits relevantes.
-
----
-
-Gracias por ayudar a refinar y mejorar la especificación del Predictor Estocástico Universal. 🚀
+All specification contributors will be recognized in CHANGELOG.md and in relevant commits.

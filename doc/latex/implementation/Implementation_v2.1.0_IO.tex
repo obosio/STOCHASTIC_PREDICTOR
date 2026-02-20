@@ -327,9 +327,12 @@ def orchestrate_step(
     step_counter: int = 0,
     mutation_rate_limiter: Optional[MutationRateLimiter] = None,
     degradation_monitor: Optional[DegradationMonitor] = None,
+    allow_host_scaling: bool = True,
 ) -> OrchestrationResult:
     """Run a single orchestration step with IO ingestion validation."""
 \end{lstlisting}
+
+\textbf{Note}: \texttt{OrchestrationResult} now carries an optional \texttt{config} field to propagate host-side DGM scaling decisions across steps.
 
 \subsection{Execution Flow}
 
@@ -341,6 +344,7 @@ The ingestion gate operates as follows:
     \item \textbf{Rejection Logic}: If \texttt{accept\_observation == False}, reject the entire observation without state update (emergency mode).
     \item \textbf{Degradation Flags}: Apply \texttt{suspend\_jko\_update} and \texttt{freeze\_kernel\_d} flags to control fusion behavior.
     \item \textbf{Kernel Execution}: Run kernels A-D; if \texttt{freeze\_kernel\_d == True}, mark kernel D output as frozen.
+    \item \textbf{Host Scaling (optional)}: If \texttt{allow\_host\_scaling == True}, the host may re-run Kernel B with a scaled DGM architecture and return the updated config for the next step.
     \item \textbf{Fusion Selection}: Skip JKO/Sinkhorn if degraded mode or \texttt{suspend\_jko\_update} is set.
     \item \textbf{State Update}: Only update InternalState if observation is accepted.
 \end{enumerate}
@@ -370,16 +374,17 @@ else:
     updated_state = atomic_state_update(...)
 \end{lstlisting}
 
-\section{PRNG Constant}
+\section{PRNG Configuration}
 
-To eliminate magic numbers in PRNG splitting, we introduce a module-level constant in \texttt{api/prng.py}:
+To eliminate magic numbers in PRNG splitting, the split count is configuration-driven via \texttt{core.prng\_split\_count}:
 
 \begin{lstlisting}[language=Python]
-# api/prng.py: GLOBAL PRNG CONFIGURATION
-RNG_SPLIT_COUNT = 2  # For kernel execution subkeys
+[core]
+prng_seed = 42
+prng_split_count = 4
 \end{lstlisting}
 
-This constant is now imported by \texttt{core/orchestrator.py} to maintain layer isolation and clarity. All PRNG-related constants reside in the API layer.
+The orchestrator uses \texttt{config.prng\_split\_count} when advancing the RNG key. All PRNG parameters reside in configuration.
 
 \section{64-bit Precision Enforcement}
 

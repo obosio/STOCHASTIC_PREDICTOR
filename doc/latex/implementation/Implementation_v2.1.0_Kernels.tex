@@ -286,7 +286,7 @@ updated_state = replace(
     ),  
     # kurtosis is updated in atomic_state_update() via update_cusum_statistics()
     last_update_ns=timestamp_ns if not reject_observation else state.last_update_ns,
-    rng_key=jax.random.split(state.rng_key, RNG_SPLIT_COUNT)[1],
+    rng_key=jax.random.split(state.rng_key, config.prng_split_count)[1],
 )
 \end{lstlisting}
 

@@ -28,7 +28,7 @@ import jax
 import jax.numpy as jnp
 from jaxtyping import PRNGKeyArray
 
-from stochastic_predictor.api.types import PredictorConfig
+from stochastic_predictor.api.types import KernelType, PredictorConfig
 from stochastic_predictor.api.prng import initialize_jax_prng, split_key
 
 
@@ -91,7 +91,7 @@ def warmup_kernel_b(config: PredictorConfig, key: PRNGKeyArray) -> float:
     dummy_signal = jnp.linspace(0.0, 1.0, signal_length)
     
     start = time.perf_counter()
-    _ = kernel_b_predict(dummy_signal, key, config)
+    _ = kernel_b_predict(dummy_signal, key, config, ema_variance=jnp.array(config.numerical_epsilon))
     jax.block_until_ready(_)
     elapsed = (time.perf_counter() - start) * 1000
     
@@ -173,8 +173,7 @@ def warmup_kernel_d_load_shedding(
     Pre-compile Kernel D for multiple signature depths (Load Shedding).
     
     COMPLIANCE: API_Python.tex §14 - Load Shedding (Adaptive Topological Pruning)
-    "Precompile multiple JIT graphs for M ∈ {2,3,5} and switch by thresholds
-    to prevent backlog."
+    Precompile multiple JIT graphs from config.kernel_d_load_shedding_depths.
     
     During high-latency regimes, the system must dynamically reduce signature
     depth M to maintain sub-10ms inference. Without pre-compilation, switching
@@ -213,7 +212,7 @@ def warmup_kernel_d_load_shedding(
         >>> from stochastic_predictor.api.config import PredictorConfigInjector
         >>> from stochastic_predictor.api.prng import initialize_jax_prng
         >>> config = PredictorConfigInjector().create_config()
-        >>> key = initialize_jax_prng(seed=42)
+        >>> key = initialize_jax_prng(seed=config.prng_seed)
         >>> timings = warmup_kernel_d_load_shedding(config, key, verbose=True)
         🔥 Load Shedding Warmup: Pre-compiling Kernel D topologies...
           • M=2 (emergency): 234.5 ms ✓
@@ -227,8 +226,8 @@ def warmup_kernel_d_load_shedding(
     signal_length = config.warmup_signal_length
     dummy_signal = jnp.linspace(0.0, 1.0, signal_length)
     
-    # Emergency topologies as mandated by specification
-    emergency_depths = [2, 3, 5]
+    # Emergency topologies as mandated by configuration
+    emergency_depths = list(config.kernel_d_load_shedding_depths)
     compilation_times = {}
     
     if verbose:
@@ -274,7 +273,7 @@ def warmup_all_kernels(
     
     Args:
         config: Configuration object with all kernel parameters
-        key: Optional PRNG key (creates default if None)
+        key: Optional PRNG key (uses config.prng_seed if None)
         verbose: Print warm-up progress
     
     Returns:
@@ -294,12 +293,16 @@ def warmup_all_kernels(
         - Stochastic_Predictor_Implementation.tex §6.2: Production Deployment Checklist
     """
     if key is None:
-        key = initialize_jax_prng(seed=42)
+        key = initialize_jax_prng(seed=config.prng_seed)
     
     timings = {}
     
     # Split key for each kernel (deterministic warm-up)
-    keys = split_key(key, num=4)
+    keys = split_key(key, num=config.prng_split_count)
+    if len(keys) < KernelType.N_KERNELS:
+        raise ValueError(
+            f"prng_split_count must be >= {KernelType.N_KERNELS}, got {len(keys)}"
+        )
     
     if verbose:
         print("🔥 JIT Warm-up: Pre-compiling kernels...")
@@ -333,7 +336,7 @@ def warmup_all_kernels(
         print(f"✓ {timings['kernel_d']:.1f} ms")
     
     # Kernel D: Load Shedding (emergency topologies)
-    # COMPLIANCE: API_Python.tex §14 mandates pre-compilation of M ∈ {2,3,5}
+    # COMPLIANCE: API_Python.tex §14 mandates config-driven pre-compilation
     if verbose:
         print("  ⏳ Kernel D (Load Shedding topologies)...")
     load_shedding_timings = warmup_kernel_d_load_shedding(config, keys[3], verbose=verbose)

@@ -10,6 +10,7 @@ References:
 """
 
 from dataclasses import dataclass
+from datetime import datetime, timezone
 from typing import Optional, Union
 import jax.numpy as jnp
 from jaxtyping import Float, Array, Bool, PRNGKeyArray
@@ -37,6 +38,10 @@ class PredictorConfig:
     """
     # Snapshot Versioning (backward compatibility)
     schema_version: str = "1.0"
+
+    # PRNG Defaults
+    prng_seed: int = 42
+    prng_split_count: int = 4
     
     # JKO Orchestrator (Optimal Transport)
     epsilon: float = 1e-3           # Entropic Regularization (Sinkhorn)
@@ -69,6 +74,7 @@ class PredictorConfig:
     
     # Kernel D (Log-Signatures)
     log_sig_depth: int = 3          # Truncation Depth (L)
+    kernel_d_load_shedding_depths: tuple[int, ...] = (2, 3, 5)
     
     # Kernel A (WTMM + Fokker-Planck)
     wtmm_buffer_size: int = 128     # N_buf: Sliding memory
@@ -129,6 +135,18 @@ class PredictorConfig:
     snapshot_hash_algorithm: str = "sha256" # Hash: "sha256" or "crc32c"
     telemetry_hash_interval_steps: int = 1  # Emit parity hashes every N steps
     telemetry_buffer_capacity: int = 1024   # Max capacity of telemetry buffer (zero-heuristics injection)
+    telemetry_hash_algorithm: str = "sha256"  # Telemetry parity hash algorithm
+    telemetry_adaptive_log_path: str = "io/adaptive_telemetry.jsonl"  # Adaptive telemetry log path
+    telemetry_adaptive_window_size: int = 100  # Adaptive telemetry window size
+    telemetry_placeholder_max_stiffness_metric: float = 0.0  # Placeholder max stiffness metric
+    telemetry_placeholder_num_internal_iterations_mean: float = 0.0  # Placeholder mean iterations
+    telemetry_placeholder_implicit_residual_norm_max: float = 0.0  # Placeholder residual norm
+    telemetry_dashboard_title: str = "USP Telemetry Dashboard"  # Dashboard title
+    telemetry_dashboard_width: int = 720  # Dashboard chart width
+    telemetry_dashboard_height: int = 180  # Dashboard chart height
+    telemetry_dashboard_spread_epsilon: float = 1e-9  # Chart spread epsilon
+    telemetry_dashboard_recent_rows: int = 25  # Dashboard recent rows
+    frozen_signal_variance_floor: float = 1e-12  # Minimum variance floor for recovery checks
     frozen_signal_min_steps: int = 5        # N_freeze: consecutive equal values
     frozen_signal_recovery_ratio: float = 0.1  # Ratio vs historical variance
     frozen_signal_recovery_steps: int = 2   # Consecutive recovery confirmations
@@ -180,6 +198,15 @@ class PredictorConfig:
     signal_normalization_method: str = "zscore"  # Method: 'zscore' or 'minmax'
     numerical_epsilon: float = 1e-10            # Stability epsilon (divisions, logs, stiffness)
     warmup_signal_length: int = 100             # Representative signal length for JIT warm-up
+    pdf_grid_min_z: float = -4.0                 # PDF grid lower bound (z-score)
+    pdf_grid_max_z: float = 4.0                  # PDF grid upper bound (z-score)
+    pdf_grid_num_points: int = 256               # PDF grid resolution
+    pdf_min_sigma: float = 1e-6                  # Minimum sigma for PDF construction
+    confidence_interval_z: float = 1.96          # Z-score for confidence bounds
+    kernel_output_time_us: float = 1.0           # Placeholder runtime in microseconds
+    kurtosis_min: float = 1.0                    # Minimum kurtosis clamp
+    kurtosis_max: float = 100.0                  # Maximum kurtosis clamp
+    kurtosis_reference: float = 3.0              # Reference kurtosis for adaptive CUSUM
     
     # Validation Constraints (Phase 5: Zero-Heuristics)
     validation_finite_allow_nan: bool = False         # Allow NaN in finite validation
@@ -213,6 +240,12 @@ class PredictorConfig:
     
     def __post_init__(self):
         """Validate mathematical invariants and configuration coherence."""
+        if isinstance(self.kernel_d_load_shedding_depths, list):
+            object.__setattr__(
+                self,
+                "kernel_d_load_shedding_depths",
+                tuple(self.kernel_d_load_shedding_depths),
+            )
         # Simplex constraint implicit: learning_rate <= 1.0
         assert 0.0 < self.learning_rate <= 1.0, \
             f"learning_rate must be in (0, 1], got {self.learning_rate}"
@@ -318,6 +351,25 @@ class PredictorConfig:
             "stiffness_min_high must be > stiffness_min_low"
         assert 0.0 < self.holder_exponent_guard < 1.0, \
             "holder_exponent_guard must be in (0, 1)"
+
+        assert self.telemetry_buffer_capacity > 0, \
+            "telemetry_buffer_capacity must be > 0"
+        assert self.telemetry_hash_algorithm in ("sha256", "crc32c"), \
+            "telemetry_hash_algorithm must be 'sha256' or 'crc32c'"
+        assert self.telemetry_adaptive_log_path, \
+            "telemetry_adaptive_log_path must be non-empty"
+        assert self.telemetry_adaptive_window_size > 0, \
+            "telemetry_adaptive_window_size must be > 0"
+        assert self.telemetry_dashboard_width > 0, \
+            "telemetry_dashboard_width must be > 0"
+        assert self.telemetry_dashboard_height > 0, \
+            "telemetry_dashboard_height must be > 0"
+        assert self.telemetry_dashboard_spread_epsilon > 0.0, \
+            "telemetry_dashboard_spread_epsilon must be > 0"
+        assert self.telemetry_dashboard_recent_rows > 0, \
+            "telemetry_dashboard_recent_rows must be > 0"
+        assert self.frozen_signal_variance_floor > 0.0, \
+            "frozen_signal_variance_floor must be > 0"
         
         # CUSUM thresholds
         assert self.cusum_h > 0 and self.cusum_k >= 0, \
@@ -369,6 +421,30 @@ class PredictorConfig:
         assert self.staleness_ttl_ns > 0 and self.besov_nyquist_interval_ns > 0, \
             "Latency timeouts must be positive"
 
+        # PRNG defaults
+        assert self.prng_seed >= 0, "prng_seed must be >= 0"
+        assert self.prng_split_count >= 4, (
+            "prng_split_count must be >= number of kernels"
+        )
+
+        # PDF grid and confidence bounds
+        assert self.pdf_grid_num_points > 1, "pdf_grid_num_points must be > 1"
+        assert self.pdf_grid_min_z < self.pdf_grid_max_z, "pdf_grid_min_z must be < pdf_grid_max_z"
+        assert self.pdf_min_sigma > 0.0, "pdf_min_sigma must be > 0"
+        assert self.confidence_interval_z > 0.0, "confidence_interval_z must be > 0"
+        assert self.kernel_output_time_us > 0.0, "kernel_output_time_us must be > 0"
+
+        # Kurtosis bounds
+        assert self.kurtosis_min > 0.0, "kurtosis_min must be > 0"
+        assert self.kurtosis_max > self.kurtosis_min, "kurtosis_max must be > kurtosis_min"
+        assert self.kurtosis_reference > 0.0, "kurtosis_reference must be > 0"
+
+        # Load shedding depths
+        if not self.kernel_d_load_shedding_depths:
+            raise AssertionError("kernel_d_load_shedding_depths must be non-empty")
+        if not all(depth > 0 for depth in self.kernel_d_load_shedding_depths):
+            raise AssertionError("kernel_d_load_shedding_depths must be positive")
+
 
 # ═══════════════════════════════════════════════════════════════════════════
 # INPUT/OUTPUT STRUCTURES
@@ -377,7 +453,7 @@ class PredictorConfig:
 @dataclass(frozen=True)
 class ProcessState:
     """
-    Predictor operational input (y_t, y_reference, tau).
+    Predictor operational input (y_t, tau_utc).
     
     Design: Scalar fields (shape [1]) for compatibility with vmap
     in multi-asset architecture (vectorized batching).
@@ -388,9 +464,18 @@ class ProcessState:
         - API_Python.tex §1.2: Operational Input
         - IO.tex §2: Observation Protocol
     """
-    magnitude: Float[Array, "1"]    # y_t: Normalized or absolute magnitude
-    reference: Float[Array, "1"]    # y_reference: Reference magnitude for comparison
-    timestamp_ns: int               # Unix Epoch (nanoseconds)
+    magnitude: Float[Array, "1"]
+    timestamp_utc: datetime
+    state_tag: Optional[str] = None
+    dispersion_proxy: Optional[Float[Array, "1"]] = None
+
+    @property
+    def timestamp_ns(self) -> int:
+        """Nanosecond epoch derived from UTC timestamp."""
+        timestamp = self.timestamp_utc
+        if timestamp.tzinfo is None:
+            timestamp = timestamp.replace(tzinfo=timezone.utc)
+        return int(timestamp.timestamp() * 1e9)
     
     def validate_domain(
         self, 
@@ -427,83 +512,26 @@ class ProcessState:
 @dataclass(frozen=True)
 class PredictionResult:
     """
-    System output (prediction + telemetry + control flags).
-    
-    Design: Scalar and vector fields following S_risk (risk vector)
-    specification defined in IO.tex.
+    System output for external API contracts.
     
     References:
         - API_Python.tex §1.3: System Output
         - IO.tex §3: Risk State Vector (S_risk)
     """
-    # Main Prediction
-    predicted_next: Float[Array, "1"]       # y_{t+1} (Z-Score space)
-    
-    # State Telemetry (Basic S_risk)
-    holder_exponent: Float[Array, "1"]      # H_t: Holder exponent
-    cusum_drift: Float[Array, "1"]          # G^+: CUSUM statistic
-    distance_to_collapse: Float[Array, "1"] # h - G^+: Safety margin
-    free_energy: Float[Array, "1"]          # F: JKO energy
-    
-    # Advanced Telemetry (Extensions)
-    kurtosis: Float[Array, "1"]             # κ_t: Empirical kurtosis
-    dgm_entropy: Float[Array, "1"]          # H_DGM: Kernel B entropy
-    adaptive_threshold: Float[Array, "1"]   # h_t: Adaptive CUSUM threshold
-    
-    # Orchestrator State (Weight Simplex)
-    weights: Float[Array, "4"]              # [ρ_A, ρ_B, ρ_C, ρ_D]
-    
-    # Health and Control Flags (boolean - as Arrays for JAX vmap purity)
-    sinkhorn_converged: Bool[Array, "1"]    # JKO convergence
-    degraded_inference_mode: Bool[Array, "1"] # TTL violation (freezing)
-    emergency_mode: Bool[Array, "1"]        # H_t < H_min (singularity)
-    regime_change_detected: Bool[Array, "1"] # CUSUM alarm (G+ > h_t)
-    mode_collapse_warning: Bool[Array, "1"]  # H_DGM < γ·H[g] (DGM collapse)
-    
-    # Consolidated Operating Mode
-    mode: str  # "Standard" | "Robust" | "Emergency"
-    
-    def __post_init__(self):
-        """
-        Validate output (simplex constraint and flag coherence).
-        
-        Zero-Heuristics Compliance:
-        Simplex validation uses config.validation_simplex_atol.
-        Call validate_simplex() externally with config tolerance if needed.
-        Basic validations (non-negativity, range checks) remain here.
-        """
-        # Weights non-negative
-        assert jnp.all(self.weights >= 0.0), \
-            "weights must be non-negative"
-        
-        # Holder exponent in valid range
-        holder_val = float(self.holder_exponent)
-        assert 0.0 <= holder_val <= 1.0, \
-            f"holder_exponent must be in [0, 1], got {holder_val}"
+    reference_prediction: Float[Array, ""]
+    confidence_lower: Float[Array, ""]
+    confidence_upper: Float[Array, ""]
+    operating_mode: str
+    telemetry: Optional[object] = None
+    request_id: Optional[str] = None
 
-        # Valid mode string
-        valid_modes = {"Standard", "Robust", "Emergency"}
-        assert self.mode in valid_modes, \
-            f"mode must be one of {valid_modes}, got '{self.mode}'"
-    
-    @staticmethod
-    def validate_simplex(weights: Float[Array, "4"], atol: float) -> None:
-        """
-        Validate simplex constraint with configurable tolerance.
-        
-        Args:
-            weights: Weight array [ρ_A, ρ_B, ρ_C, ρ_D]
-            atol: Absolute tolerance (use config.validation_simplex_atol)
-        
-        Raises:
-            AssertionError: If weights don't sum to 1.0 within tolerance
-        
-        Example:
-            >>> PredictionResult.validate_simplex(weights, config.validation_simplex_atol)
-        """
-        weights_sum = float(jnp.sum(weights))
-        assert jnp.allclose(weights_sum, 1.0, atol=atol), \
-            f"weights must form a simplex (sum=1.0 ± {atol}), got sum={weights_sum:.6f}"
+    def __post_init__(self):
+        lower = float(self.confidence_lower)
+        upper = float(self.confidence_upper)
+        ref = float(self.reference_prediction)
+        assert lower <= ref <= upper, (
+            "confidence_lower must be <= reference_prediction <= confidence_upper"
+        )
         
 
 
@@ -514,19 +542,13 @@ class PredictionResult:
 @dataclass(frozen=True)
 class KernelOutput:
     """
-    Standardized output from a prediction kernel.
-    
-    Design: Common interface for all 4 kernels (A, B, C, D), allowing
-    the JKO orchestrator to fuse them uniformly.
-    
-    References:
-        - Python.tex §2: Module 2: Prediction Kernels
-        - Implementacion.tex §2.1: Kernel Interface
+    API-facing kernel output contract.
     """
-    prediction: Float[Array, "1"]       # Prediction y_{t+1}
-    confidence: Float[Array, "1"]       # Confidence score [0, 1]
-    entropy: Float[Array, "1"]          # Predictor entropy
-    metadata: Optional[dict] = None     # Additional kernel-specific data
+    probability_density: Float[Array, "n_targets"]
+    kernel_id: str
+    computation_time_us: float
+    numerics_flags: dict
+    entropy: Optional[Float[Array, ""]] = None
 
 
 @dataclass
@@ -596,9 +618,9 @@ class OperatingMode:
     References:
         - API_Python.tex §3: Operating Modes
     """
-    STANDARD = "Standard"       # Normal operation (all kernels active)
-    ROBUST = "Robust"           # Degraded mode (weight freezing)
-    EMERGENCY = "Emergency"     # Circuit breaker (H < H_min)
+    INFERENCE = "inference"     # Real-time prediction without adaptation
+    CALIBRATION = "calibration" # Gather statistics for tuning
+    DIAGNOSTIC = "diagnostic"   # Enable full telemetry
 
 
 class KernelType:

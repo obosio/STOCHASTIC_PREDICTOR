@@ -85,8 +85,6 @@ from stochastic_predictor.io.config_mutation import (
   validate_config_mutation,
   append_audit_log,
   create_config_backup,
-  LOCKED_SUBSECTIONS,
-  VALIDATION_SCHEMA,
 )
 
 __all__ = [
@@ -120,6 +118,4 @@ __all__ = [
   "validate_config_mutation",
   "append_audit_log",
   "create_config_backup",
-  "LOCKED_SUBSECTIONS",
-  "VALIDATION_SCHEMA",
 ]

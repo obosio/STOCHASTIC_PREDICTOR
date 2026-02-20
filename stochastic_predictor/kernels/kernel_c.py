@@ -21,7 +21,13 @@ from jaxtyping import Array, Float
 import diffrax
 from typing import Callable, Optional
 
-from .base import KernelOutput, apply_stop_gradient_to_diagnostics
+from .base import (
+    KernelOutput,
+    apply_stop_gradient_to_diagnostics,
+    build_pdf_grid,
+    compute_density_entropy,
+    compute_normal_pdf,
+)
 
 
 def estimate_stiffness(
@@ -31,7 +37,7 @@ def estimate_stiffness(
     t: float,
     args: tuple,
     config
-) -> float:
+) -> Float[Array, ""]:
     """
     Estimate stiffness ratio for dynamic solver selection.
     
@@ -69,8 +75,8 @@ def estimate_stiffness(
     # Stiffness ratio: drift strength / diffusion strength
     # Add small epsilon to prevent division by zero
     stiffness = drift_jacobian_norm / (jnp.sqrt(diffusion_variance) + config.numerical_epsilon)
-    
-    return float(stiffness)
+
+    return jnp.asarray(stiffness)
 
 
 def select_stiffness_solver(current_stiffness: float, config):
@@ -472,12 +478,6 @@ def kernel_c_predict(
     
     confidence = jnp.sqrt(variance)
     
-    # Map solver_idx (jnp.int32 from XLA) to string for diagnostics
-    # Done here (post-JIT) to avoid XLA string type incompatibility
-    solver_idx_int = int(solver_idx)
-    solver_type_map = {0: "euler", 1: "heun", 2: "implicit_euler"}
-    solver_type = solver_type_map.get(solver_idx_int, "unknown")
-    
     # Diagnostics
     drift_estimate, martingale_component, finite_variation = decompose_semimartingale(
         signal=signal,
@@ -494,19 +494,32 @@ def kernel_c_predict(
         "alpha": alpha,
         "beta": beta,
         "horizon": horizon,
-        "solver_type": solver_type,
-        "solver_idx": solver_idx_int,
-        "stiffness_metric": float(stiffness_metric),
-        "final_state": float(y_final[0]),
-        "jump_count": int(jump_count),
-        "jump_sum": float(jump_sum),
-        "jump_variance": float(jump_variance),
-        "semimartingale_drift": float(drift_estimate),
-        "semimartingale_martingale": float(martingale_component[-1]),
-        "semimartingale_finite_variation": float(finite_variation[-1]),
-        "information_drift": float(information_drift),
+        "solver_idx": jnp.asarray(solver_idx),
+        "stiffness_metric": jnp.asarray(stiffness_metric),
+        "final_state": jnp.asarray(y_final[0]),
+        "jump_count": jnp.asarray(jump_count),
+        "jump_sum": jnp.asarray(jump_sum),
+        "jump_variance": jnp.asarray(jump_variance),
+        "semimartingale_drift": jnp.asarray(drift_estimate),
+        "semimartingale_martingale": jnp.asarray(martingale_component[-1]),
+        "semimartingale_finite_variation": jnp.asarray(finite_variation[-1]),
+        "information_drift": jnp.asarray(information_drift),
     }
     
+    grid, dx = build_pdf_grid(prediction, confidence, config)
+    probability_density = compute_normal_pdf(grid, prediction, confidence, config)
+    entropy = compute_density_entropy(probability_density, dx, config)
+    entropy = jax.lax.stop_gradient(entropy)
+
+    numerics_flags = {
+        "has_nan": jnp.any(jnp.isnan(probability_density))
+        | jnp.any(jnp.isnan(prediction))
+        | jnp.any(jnp.isnan(confidence)),
+        "has_inf": jnp.any(jnp.isinf(probability_density))
+        | jnp.any(jnp.isinf(prediction))
+        | jnp.any(jnp.isinf(confidence)),
+    }
+
     # Apply stop_gradient to diagnostics
     prediction, diagnostics = apply_stop_gradient_to_diagnostics(
         prediction, diagnostics
@@ -515,7 +528,12 @@ def kernel_c_predict(
     return KernelOutput(
         prediction=prediction,
         confidence=confidence,
-        metadata=diagnostics
+        entropy=entropy,
+        probability_density=probability_density,
+        kernel_id="C",
+        computation_time_us=jnp.array(config.kernel_output_time_us),
+        numerics_flags=numerics_flags,
+        metadata=diagnostics,
     )
 
 

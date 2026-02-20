@@ -697,11 +697,15 @@ kernel_c_config = replace(config, stiffness_low=theta_low, stiffness_high=theta_
 
 output_b = kernel_b_predict(signal, key_b, config, ema_variance=state.ema_variance)
 entropy_current = float(output_b.metadata["entropy_dgm"])
-entropy_ratio = compute_entropy_ratio(entropy_current, float(state.baseline_entropy))
-if entropy_ratio > 2.0:
-    new_width, new_depth = scale_dgm_architecture(config, entropy_ratio)
-    kernel_b_config = replace(config, dgm_width_size=new_width, dgm_depth=new_depth)
-    output_b = kernel_b_predict(signal, key_b, kernel_b_config, ema_variance=state.ema_variance)
+entropy_ratio = compute_entropy_ratio(entropy_current, state.baseline_entropy)
+output_b, config_after, scaled = apply_host_architecture_scaling(
+    signal=signal,
+    key=key_b,
+    config=config,
+    output_b=output_b,
+    ema_variance=state.ema_variance,
+    baseline_entropy=state.baseline_entropy,
+)
 
 provisional_fusion = fuse_kernel_outputs(...)
 ema_variance_current = update_ema_variance(state, residual, config.volatility_alpha).ema_variance
@@ -738,6 +742,7 @@ __all__ = [
     "SinkhornResult",
     "compute_adaptive_jko_params",
     "compute_adaptive_stiffness_thresholds",
+    "apply_host_architecture_scaling",
     "compute_entropy_ratio",
     "compute_sinkhorn_epsilon",
     "fuse_kernel_outputs",

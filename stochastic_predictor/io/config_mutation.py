@@ -41,50 +41,29 @@ class ConfigMutationError(Exception):
     pass
 
 
-# Locked subsections (immutable to prevent self-corruption)
-# COMPLIANCE: IO.tex §3.3.4 - Invariant Protection
-LOCKED_SUBSECTIONS = {
-    "meta": ["schema_version"],
-    "core": ["jax_platforms", "jax_default_dtype", "float_precision", "staleness_ttl_ns"],
-    "io": [
-        "snapshot_format",
-        "snapshot_hash_algorithm",
-        "snapshot_compression",
-        "telemetry_hash_interval_steps",
-    ],
-    "meta_optimization": ["n_trials", "n_startup_trials", "multivariate", "train_ratio", "n_folds"],
-}
+def _resolve_type(type_label: str) -> type:
+    if type_label == "float":
+        return float
+    if type_label == "int":
+        return int
+    if type_label == "str":
+        return str
+    if type_label == "bool":
+        return bool
+    raise ConfigMutationError(f"Unsupported type in mutation schema: {type_label}")
 
-# Validation schema for mutable parameters
-# COMPLIANCE: IO.tex §3.3.5 - Validation Schema
-VALIDATION_SCHEMA = {
-    # Orchestration Parameters
-    "orchestration.cusum_k": {"type": float, "range": (0.1, 1.0)},
-    "orchestration.cusum_h": {"type": float, "range": (2.0, 10.0)},
-    "orchestration.grace_period_steps": {"type": int, "range": (5, 100)},
-    "orchestration.volatility_alpha": {"type": float, "range": (0.05, 0.3)},
-    "orchestration.learning_rate": {"type": float, "range": (1e-5, 1e-1)},
-    "orchestration.entropy_window": {"type": int, "range": (10, 500)},
-    "orchestration.entropy_threshold": {"type": float, "range": (0.5, 0.95)},
-    "orchestration.holder_threshold": {"type": float, "range": (0.2, 0.65)},
-    "orchestration.sinkhorn_alpha": {"type": float, "range": (0.1, 1.0)},
-    "orchestration.sinkhorn_epsilon_min": {"type": float, "range": (0.001, 0.1)},
-    "orchestration.sinkhorn_epsilon_0": {"type": float, "range": (0.05, 0.5)},
-    "orchestration.sinkhorn_max_iter": {"type": int, "range": (50, 500)},
-    # Kernel Parameters
-    "kernels.log_sig_depth": {"type": int, "range": (2, 5)},
-    "kernels.wtmm_buffer_size": {"type": int, "range": (64, 512), "constraint": "power_of_2"},
-    "kernels.besov_cone_c": {"type": float, "range": (1.0, 3.0)},
-    "kernels.dgm_width_size": {"type": int, "range": (32, 256), "constraint": "power_of_2"},
-    "kernels.dgm_depth": {"type": int, "range": (2, 6)},
-    "kernels.dgm_entropy_num_bins": {"type": int, "range": (20, 100)},
-    "kernels.stiffness_low": {"type": float, "range": (50.0, 500.0)},
-    "kernels.stiffness_high": {"type": float, "range": (500.0, 5000.0)},
-    "kernels.sde_dt": {"type": float, "range": (0.001, 0.1)},
-    "kernels.sde_numel_integrations": {"type": int, "range": (50, 200)},
-    "kernels.sde_diffusion_sigma": {"type": float, "range": (0.05, 0.5)},
-    "kernels.kernel_ridge_lambda": {"type": float, "range": (1e-8, 1e-3)},
-}
+
+def _load_mutation_policy(current_config: Dict[str, Any]) -> Tuple[Dict[str, List[str]], Dict[str, Dict[str, Any]]]:
+    policy = current_config.get("mutation_policy")
+    if not policy:
+        raise ConfigMutationError("Missing [mutation_policy] section in config.toml")
+
+    locked = policy.get("locked_subsections")
+    schema = policy.get("validation_schema")
+    if not locked or not schema:
+        raise ConfigMutationError("Missing mutation_policy.locked_subsections or mutation_policy.validation_schema")
+
+    return locked, schema
 
 
 def _is_power_of_2(n: int) -> bool:
@@ -134,6 +113,8 @@ def validate_config_mutation(
         >>> new_params = {"sensitivity.cusum_k": 0.72}
         >>> merged = validate_config_mutation(current, new_params)
     """
+    locked_subsections, validation_schema = _load_mutation_policy(current_config)
+
     # Check for locked subsection violations
     for param_key in new_params.keys():
         parts = param_key.split(".")
@@ -143,11 +124,11 @@ def validate_config_mutation(
         subsection = parts[0]
         param_name = ".".join(parts[1:])
         
-        if subsection in LOCKED_SUBSECTIONS:
-            if param_name in LOCKED_SUBSECTIONS[subsection]:
+        if subsection in locked_subsections:
+            if param_name in locked_subsections[subsection]:
                 raise ConfigMutationError(
                     f"Parameter '{param_key}' is LOCKED (immutable subsection). "
-                    f"Locked params in [{subsection}]: {LOCKED_SUBSECTIONS[subsection]}"
+                    f"Locked params in [{subsection}]: {locked_subsections[subsection]}"
                 )
     
     # Merge current config with new params
@@ -157,22 +138,24 @@ def validate_config_mutation(
     
     # Validate against schema
     for param_key, new_value in new_params.items():
-        if param_key not in VALIDATION_SCHEMA:
+        if param_key not in validation_schema:
             raise ConfigMutationError(
                 f"Parameter '{param_key}' not in validation schema. "
                 f"Only mutable subsections allowed: orchestration, kernels"
             )
         
-        rules = VALIDATION_SCHEMA[param_key]
+        rules = validation_schema[param_key]
+        expected_type = _resolve_type(rules["type"])
         
         # Type check
-        if not isinstance(new_value, rules["type"]):
+        if not isinstance(new_value, expected_type):
             raise ConfigMutationError(
-                f"Parameter '{param_key}' type mismatch: expected {rules['type']}, got {type(new_value)}"
+                f"Parameter '{param_key}' type mismatch: expected {expected_type}, got {type(new_value)}"
             )
         
         # Range check
-        min_val, max_val = rules["range"]
+        min_val = rules["min"]
+        max_val = rules["max"]
         if not (min_val <= new_value <= max_val):
             raise ConfigMutationError(
                 f"Parameter '{param_key}' out of safe range: {new_value} not in [{min_val}, {max_val}]"
@@ -524,7 +507,7 @@ class DegradationMonitor:
         >>> # After mutation (within prediction loop)
         >>> for i in range(100):
         ...     prediction = orchestrate_step(...)
-        ...     error = abs(prediction.predicted_next - actual_value)
+        ...     error = abs(prediction.reference_prediction - actual_value)
         ...     monitor.record_prediction_error(error)
         ...     
         ...     degraded, increase = monitor.check_degradation()
@@ -571,7 +554,7 @@ class DegradationMonitor:
         Example:
             >>> prediction = orchestrate_step(...)
             >>> actual_next = load_actual_observation()
-            >>> error = abs(prediction.predicted_next - actual_next)
+            >>> error = abs(prediction.reference_prediction - actual_next)
             >>> monitor.record_prediction_error(error)
         """
         if not self._monitoring_active:

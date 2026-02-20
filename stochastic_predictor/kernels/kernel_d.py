@@ -22,7 +22,13 @@ from jaxtyping import Array, Float
 import signax
 from typing import Optional
 
-from .base import KernelOutput, apply_stop_gradient_to_diagnostics
+from .base import (
+    KernelOutput,
+    apply_stop_gradient_to_diagnostics,
+    build_pdf_grid,
+    compute_density_entropy,
+    compute_normal_pdf,
+)
 
 
 @jax.jit
@@ -240,6 +246,20 @@ def kernel_d_predict(
         "reparam_invariance_error": reparam_invariance_error,
     }
     
+    grid, dx = build_pdf_grid(prediction, confidence, config)
+    probability_density = compute_normal_pdf(grid, prediction, confidence, config)
+    entropy = compute_density_entropy(probability_density, dx, config)
+    entropy = jax.lax.stop_gradient(entropy)
+
+    numerics_flags = {
+        "has_nan": jnp.any(jnp.isnan(probability_density))
+        | jnp.any(jnp.isnan(prediction))
+        | jnp.any(jnp.isnan(confidence)),
+        "has_inf": jnp.any(jnp.isinf(probability_density))
+        | jnp.any(jnp.isinf(prediction))
+        | jnp.any(jnp.isinf(confidence)),
+    }
+
     # Apply stop_gradient to diagnostics
     prediction, diagnostics = apply_stop_gradient_to_diagnostics(
         prediction, diagnostics
@@ -248,7 +268,12 @@ def kernel_d_predict(
     return KernelOutput(
         prediction=prediction,
         confidence=confidence,
-        metadata=diagnostics
+        entropy=entropy,
+        probability_density=probability_density,
+        kernel_id="D",
+        computation_time_us=jnp.array(config.kernel_output_time_us),
+        numerics_flags=numerics_flags,
+        metadata=diagnostics,
     )
 
 

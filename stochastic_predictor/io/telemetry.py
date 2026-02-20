@@ -52,8 +52,16 @@ class TelemetryBuffer:
             return len(self._buffer)
 
 
-def _hash_bytes(data: bytes) -> str:
-    return hashlib.sha256(data).hexdigest()
+def _hash_bytes(data: bytes, algorithm: str) -> str:
+    if algorithm == "sha256":
+        return hashlib.sha256(data).hexdigest()
+    if algorithm == "crc32c":
+        try:
+            import google_crc32c  # type: ignore
+        except ImportError as exc:
+            raise RuntimeError("google-crc32c is required for crc32c hashing") from exc
+        return google_crc32c.value(data).to_bytes(4, byteorder="big", signed=False).hex()
+    raise ValueError(f"Unsupported hash algorithm: {algorithm}")
 
 
 def _to_float64_bytes(values: Iterable[float]) -> bytes:
@@ -61,12 +69,12 @@ def _to_float64_bytes(values: Iterable[float]) -> bytes:
     return array.tobytes(order="C")
 
 
-def parity_hashes(rho: Iterable[float], ot_cost: float) -> dict:
+def parity_hashes(rho: Iterable[float], ot_cost: float, algorithm: str) -> dict:
     rho_bytes = _to_float64_bytes(rho)
     cost_bytes = _to_float64_bytes([ot_cost])
     return {
-        "rho_sha256": _hash_bytes(rho_bytes),
-        "ot_cost_sha256": _hash_bytes(cost_bytes),
+        f"rho_{algorithm}": _hash_bytes(rho_bytes, algorithm),
+        f"ot_cost_{algorithm}": _hash_bytes(cost_bytes, algorithm),
     }
 
 
@@ -74,7 +82,7 @@ def should_emit_hash(step: int, interval_steps: int) -> bool:
     return interval_steps > 0 and (step % interval_steps == 0)
 
 
-def materialize_telemetry_batch(records: list[TelemetryRecord]) -> list[dict]:
+def materialize_telemetry_batch(records: list[TelemetryRecord], config: Any) -> list[dict]:
     """Convert DeviceArray references to Python scalars (batch transfer).
     
     COMPLIANCE: API_Python.tex §9 - Asynchronous I/O
@@ -83,6 +91,7 @@ def materialize_telemetry_batch(records: list[TelemetryRecord]) -> list[dict]:
     
     Args:
         records: List of telemetry records with DeviceArray references
+            config: PredictorConfig with telemetry_hash_algorithm
     
     Returns:
         List of materialized payloads with Python scalars
@@ -141,7 +150,8 @@ def materialize_telemetry_batch(records: list[TelemetryRecord]) -> list[dict]:
         if 'weights' in payload and 'free_energy' in payload:
             parity_record = parity_hashes(
                 rho=payload['weights'],
-                ot_cost=payload.get('free_energy', 0.0)
+                ot_cost=payload.get('free_energy', 0.0),
+                algorithm=config.telemetry_hash_algorithm,
             )
             payload['parity_hashes'] = parity_record
         
@@ -237,7 +247,6 @@ class AdaptiveTelemetry:
 def collect_adaptive_telemetry(
     state: Any,  # InternalState
     config: Any,  # PredictorConfig
-    window_size: int = 100
 ) -> Optional[AdaptiveTelemetry]:
     """
     Collect telemetry for adaptive architecture/solver diagnostics.
@@ -252,7 +261,6 @@ def collect_adaptive_telemetry(
     Args:
         state: Current InternalState (contains counters, entropy, etc.)
         config: Current PredictorConfig (may have been mutated)
-        window_size: Monitoring window for frequency calculations (default 100)
     
     Returns:
         AdaptiveTelemetry instance or None if insufficient data
@@ -276,7 +284,7 @@ def collect_adaptive_telemetry(
     
     # Compute solver frequencies (clipped to [0,1])
     total_solver_steps = state.solver_explicit_count + state.solver_implicit_count
-    if total_solver_steps == 0:
+    if total_solver_steps < config.telemetry_adaptive_window_size:
         # Insufficient data - return None
         return None
     
@@ -284,12 +292,8 @@ def collect_adaptive_telemetry(
     freq_implicit = float(state.solver_implicit_count) / total_solver_steps
     
     # Compute entropy ratio κ = H_current / H_baseline
-    baseline_entropy_val = float(state.baseline_entropy)
-    if baseline_entropy_val <= 0.0:
-        # Avoid division by zero - use 1.0 (no scaling)
-        entropy_ratio = 1.0
-    else:
-        entropy_ratio = float(state.dgm_entropy) / baseline_entropy_val
+    baseline_entropy_val = max(float(state.baseline_entropy), config.entropy_baseline_floor)
+    entropy_ratio = float(state.dgm_entropy) / baseline_entropy_val
     
     # Extract DGM architecture from config
     dgm_width = config.dgm_width_size
@@ -312,9 +316,9 @@ def collect_adaptive_telemetry(
         # SDE Solver Frequency
         scheme_frequency_explicit=freq_explicit,
         scheme_frequency_implicit=freq_implicit,
-        max_stiffness_metric=0.0,  # Placeholder - requires Kernel C integration
-        num_internal_iterations_mean=0.0,  # Placeholder
-        implicit_residual_norm_max=0.0,  # Placeholder
+        max_stiffness_metric=config.telemetry_placeholder_max_stiffness_metric,
+        num_internal_iterations_mean=config.telemetry_placeholder_num_internal_iterations_mean,
+        implicit_residual_norm_max=config.telemetry_placeholder_implicit_residual_norm_max,
         
         # DGM Architecture
         entropy_ratio_current=entropy_ratio,
@@ -336,18 +340,18 @@ def collect_adaptive_telemetry(
 
 def emit_adaptive_telemetry(
     telemetry: AdaptiveTelemetry,
-    log_path: str = "io/adaptive_telemetry.jsonl"
+    config: Any,  # PredictorConfig
 ) -> None:
     """
     Emit adaptive telemetry to JSON Lines log file.
     
     Args:
         telemetry: AdaptiveTelemetry instance
-        log_path: Path to append telemetry (default: io/adaptive_telemetry.jsonl)
+        config: PredictorConfig with telemetry_adaptive_log_path
     
     Example:
         >>> telemetry = AdaptiveTelemetry(...)
-        >>> emit_adaptive_telemetry(telemetry)
+        >>> emit_adaptive_telemetry(telemetry, config)
         >>> # Appends JSON record to io/adaptive_telemetry.jsonl
     """
     import json
@@ -375,7 +379,7 @@ def emit_adaptive_telemetry(
     }
     
     # Ensure directory exists
-    log_file = Path(log_path)
+    log_file = Path(config.telemetry_adaptive_log_path)
     log_file.parent.mkdir(parents=True, exist_ok=True)
     
     # Append to JSON Lines file

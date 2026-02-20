@@ -113,7 +113,6 @@ def fuse_kernel_outputs(
 
     updated_weights = _jko_update_weights(current_weights, target_weights, config)
 
-    PredictionResult.validate_simplex(updated_weights, config.validation_simplex_atol)
     is_valid, msg = validate_simplex(updated_weights, config.validation_simplex_atol, "weights")
     if not is_valid:
         raise ValueError(msg)

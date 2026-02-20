@@ -538,10 +538,15 @@ class BayesianMetaOptimizer:
         n_trials = n_trials or self.meta_config.n_trials
         
         # Create Optuna study with TPE sampler (multivariate Gaussian Process)
+        seed = (
+            self.base_config.prng_seed
+            if self.base_config is not None
+            else get_config().get("core", "prng_seed", 42)
+        )
         sampler = TPESampler(
             multivariate=self.meta_config.multivariate,
             n_startup_trials=self.meta_config.n_startup_trials,
-            seed=42,  # For reproducibility
+            seed=seed,
         )
         
         self.study = optuna.create_study(

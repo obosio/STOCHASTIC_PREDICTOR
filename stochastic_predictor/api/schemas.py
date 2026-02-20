@@ -91,11 +91,12 @@ class KernelOutputSchema(BaseModel):
     """
     probability_density: Float[ArrayLike, "n_targets"]
     kernel_id: str = Field(description="Kernel identifier (A|B|C|D)")
-    computation_time_us: float = Field(gt=0, description="Execution time in microseconds")
+    computation_time_us: float = Field(ge=0, description="Execution time in microseconds")
     numerics_flags: Dict[str, bool] = Field(
         default_factory=dict,
         description="Diagnostic flags: has_nan, has_inf, stiffness_warning, etc."
     )
+    entropy: Optional[float] = Field(default=None, description="Kernel entropy estimate")
     
     class Config:
         arbitrary_types_allowed = True

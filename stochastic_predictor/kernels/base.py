@@ -29,7 +29,12 @@ class KernelOutput(NamedTuple):
     
     Fields:
         prediction: Predicted next value or trajectory
-        confidence: Uncertainty estimate (standard deviation or entropy)
+        confidence: Uncertainty estimate (standard deviation)
+        entropy: Diagnostic entropy estimate
+        probability_density: Discrete PDF over a standardized grid
+        kernel_id: Kernel identifier (A|B|C|D)
+        computation_time_us: Execution time in microseconds
+        numerics_flags: Diagnostic numerical flags
         metadata: Kernel-specific diagnostic information
     
     References:
@@ -37,7 +42,52 @@ class KernelOutput(NamedTuple):
     """
     prediction: Float[Array, "..."]
     confidence: Float[Array, "..."]
+    entropy: Float[Array, "..."]
+    probability_density: Float[Array, "n_targets"]
+    kernel_id: str
+    computation_time_us: Float[Array, ""]
+    numerics_flags: dict
     metadata: dict
+
+
+def build_pdf_grid(
+    mean: Float[Array, ""],
+    sigma: Float[Array, ""],
+    config,
+) -> tuple[Float[Array, "n_targets"], Float[Array, ""]]:
+    """Construct a standardized grid for probability density outputs."""
+    sigma_safe = jnp.maximum(sigma, config.pdf_min_sigma)
+    z_grid = jnp.linspace(
+        config.pdf_grid_min_z,
+        config.pdf_grid_max_z,
+        config.pdf_grid_num_points,
+    )
+    grid = mean + sigma_safe * z_grid
+    dx = grid[1] - grid[0]
+    return grid, dx
+
+
+def compute_normal_pdf(
+    grid: Float[Array, "n_targets"],
+    mean: Float[Array, ""],
+    sigma: Float[Array, ""],
+    config,
+) -> Float[Array, "n_targets"]:
+    """Compute a normal PDF over a provided grid."""
+    sigma_safe = jnp.maximum(sigma, config.pdf_min_sigma)
+    norm = 1.0 / (sigma_safe * jnp.sqrt(2.0 * jnp.pi))
+    exponent = -0.5 * ((grid - mean) / sigma_safe) ** 2
+    return norm * jnp.exp(exponent)
+
+
+def compute_density_entropy(
+    density: Float[Array, "n_targets"],
+    dx: Float[Array, ""],
+    config,
+) -> Float[Array, ""]:
+    """Compute discrete entropy from a density and grid spacing."""
+    density_safe = jnp.maximum(density, config.numerical_epsilon)
+    return -jnp.sum(density * jnp.log(density_safe)) * dx
 
 
 class PredictionKernel(Protocol):

@@ -37,13 +37,13 @@ def _extract_series(records: Iterable[dict], key: str) -> list[float]:
     return values
 
 
-def _svg_line_chart(series: DashboardSeries, width: int = 720, height: int = 180) -> str:
+def _svg_line_chart(series: DashboardSeries, width: int, height: int, spread_epsilon: float) -> str:
     if not series.values:
         return "<div class=\"chart-empty\">No data</div>"
 
     min_val = min(series.values)
     max_val = max(series.values)
-    spread = max(max_val - min_val, 1e-9)
+    spread = max(max_val - min_val, spread_epsilon)
 
     points = []
     count = len(series.values)
@@ -64,11 +64,17 @@ def _svg_line_chart(series: DashboardSeries, width: int = 720, height: int = 180
 def build_dashboard_html(
     records: list[dict],
     output_path: str | Path,
-    title: str = "USP Telemetry Dashboard",
+    config: Any,
 ) -> None:
     timestamp = datetime.now(timezone.utc).strftime("%Y-%m-%d %H:%M:%S UTC")
     output_path = Path(output_path)
     output_path.parent.mkdir(parents=True, exist_ok=True)
+
+    title = config.telemetry_dashboard_title
+    chart_width = config.telemetry_dashboard_width
+    chart_height = config.telemetry_dashboard_height
+    spread_epsilon = config.telemetry_dashboard_spread_epsilon
+    recent_rows = config.telemetry_dashboard_recent_rows
 
     series = [
         DashboardSeries("Free Energy", _extract_series(records, "free_energy")),
@@ -78,7 +84,7 @@ def build_dashboard_html(
     ]
 
     rows = []
-    for record in records[-25:]:
+    for record in records[-recent_rows:]:
         step = record.get("step", "-")
         prediction = record.get("prediction", "-")
         mode = record.get("mode", "-")
@@ -95,7 +101,7 @@ def build_dashboard_html(
     charts_html = "\n".join(
         "<div class='card'>"
         f"<h3>{item.label}</h3>"
-        f"{_svg_line_chart(item)}"
+        f"{_svg_line_chart(item, chart_width, chart_height, spread_epsilon)}"
         "</div>"
         for item in series
     )
@@ -215,14 +221,15 @@ def build_dashboard_html(
 def export_dashboard_snapshot(
     telemetry_buffer: TelemetryBuffer,
     output_path: str | Path,
+  config: Any,
 ) -> int:
     """Drain telemetry buffer and write an HTML dashboard.
 
     Returns the number of records exported.
     """
     records = telemetry_buffer.drain()
-    payloads = materialize_telemetry_batch(records)
-    build_dashboard_html(payloads, output_path)
+    payloads = materialize_telemetry_batch(records, config)
+    build_dashboard_html(payloads, output_path, config)
     return len(payloads)
 
 

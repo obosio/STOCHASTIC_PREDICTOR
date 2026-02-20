@@ -72,9 +72,17 @@ def evaluate_ingestion(
     in_recovery = False
     if frozen:
         residual_window = np.asarray(state.residual_window, dtype=np.float64)
-        historical_variance = float(np.var(residual_window)) if residual_window.size > 1 else 0.0
+        historical_variance = (
+            float(np.var(residual_window))
+            if residual_window.size > 1
+            else config.frozen_signal_variance_floor
+        )
         recent_window = residual_window[-config.frozen_signal_recovery_steps:]
-        recent_variance = float(np.var(recent_window)) if recent_window.size > 1 else 0.0
+        recent_variance = (
+            float(np.var(recent_window))
+            if recent_window.size > 1
+            else config.frozen_signal_variance_floor
+        )
         variance_history = [recent_variance] * config.frozen_signal_recovery_steps
 
         # Check if variance has recovered: recent_var > ratio_threshold * baseline_var

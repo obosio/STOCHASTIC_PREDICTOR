@@ -154,7 +154,8 @@ def batch_update_signal_history(
 
 @jax.jit
 def compute_rolling_kurtosis(
-    residual_window: Float[Array, "W"]
+    residual_window: Float[Array, "W"],
+    config: PredictorConfig,
 ) -> Float[Array, ""]:
     """
     Compute empirical kurtosis of rolling residuals.
@@ -173,16 +174,16 @@ def compute_rolling_kurtosis(
     n = residual_window.shape[0]
     mean_res = jnp.mean(residual_window)
     var_res = jnp.var(residual_window)
-    std_res = jnp.sqrt(jnp.maximum(var_res, 1e-10))
+    std_res = jnp.sqrt(jnp.maximum(var_res, config.numerical_epsilon))
     
     # Fourth central moment
     fourth_moment = jnp.mean((residual_window - mean_res)**4)
     
     # Kurtosis: μ4 / σ^4
-    kurtosis = fourth_moment / (std_res**4 + 1e-10)
+    kurtosis = fourth_moment / (std_res**4 + config.numerical_epsilon)
     
     # Bound to avoid numerical explosion
-    return jnp.clip(kurtosis, 1.0, 100.0)
+    return jnp.clip(kurtosis, config.kurtosis_min, config.kurtosis_max)
 
 
 @jax.jit
@@ -259,13 +260,13 @@ def update_cusum_statistics(
     cusum_g_plus = lax.stop_gradient(state.cusum_g_plus)
     cusum_g_minus = lax.stop_gradient(state.cusum_g_minus)
     grace_counter = lax.stop_gradient(jnp.array(state.grace_counter, dtype=jnp.int32))
-    sigma_t = jnp.sqrt(jnp.maximum(state.ema_variance, 1e-10))
+    sigma_t = jnp.sqrt(jnp.maximum(state.ema_variance, config.numerical_epsilon))
     
     # 1. Update rolling residual window
     new_state = update_residual_window(state, residual)
     
     # 2. Compute kurtosis from updated window (stop_gradient applied)
-    kurtosis = compute_rolling_kurtosis(new_state.residual_window)
+    kurtosis = compute_rolling_kurtosis(new_state.residual_window, config)
     
     # 3. Compute adaptive threshold with kurtosis adjustment
     # h_t = k · σ_t · (1 + ln(κ_t / 3))
@@ -273,7 +274,7 @@ def update_cusum_statistics(
     # ensuring CUSUM statistics remain diagnostic-only (no gradient contamination)
     h_t = jax.lax.stop_gradient(
         config.cusum_k * sigma_t * 
-        (1.0 + jnp.log(jnp.maximum(kurtosis, 3.0) / 3.0))
+        (1.0 + jnp.log(jnp.maximum(kurtosis, config.kurtosis_reference) / config.kurtosis_reference))
     )
     
     # 4. CUSUM update equations (standard CUSUM recursion)

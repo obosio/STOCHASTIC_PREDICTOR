@@ -10,6 +10,7 @@ References:
     - Stochastic_Predictor_Implementation.tex §3: Quality Control
 """
 
+from datetime import datetime
 from typing import Union, Tuple, TYPE_CHECKING
 import jax.numpy as jnp
 from jaxtyping import Float, Array
@@ -537,9 +538,10 @@ def ensure_float64(
 
 def sanitize_external_observation(
     magnitude: Union[float, Float[Array, "1"]],
-    timestamp_ns: int,
-    metadata: dict | None = None
-) -> tuple[Float[Array, "1"], int, dict]:
+    timestamp_utc: datetime,
+    state_tag: str | None = None,
+    dispersion_proxy: Float[Array, "1"] | None = None,
+) -> tuple[Float[Array, "1"], datetime, str | None, Float[Array, "1"] | None]:
     """
     Sanitize external observation to enforce float64 precision.
     
@@ -551,24 +553,23 @@ def sanitize_external_observation(
     
     Args:
         magnitude: Raw magnitude from external source (may be float32)
-        timestamp_ns: Unix timestamp in nanoseconds
-        metadata: Optional metadata dictionary
+        timestamp_utc: UTC timestamp (datetime)
+        state_tag: Optional process state label
+        dispersion_proxy: Optional dispersion proxy (may be float32)
     
     Returns:
-        Tuple of (magnitude_f64, timestamp_ns, metadata_sanitized)
+        Tuple of (magnitude_f64, timestamp_utc, state_tag, dispersion_proxy_f64)
     
     Example:
+        >>> from datetime import datetime, timezone
         >>> from stochastic_predictor.api.validation import sanitize_external_observation
-        >>> # External CSV data (float32 by default)
-        >>> raw_magnitude = 123.45  # Python float (float64)
-        >>> raw_timestamp = 1708531200000000000
-        >>> 
-        >>> # Sanitize before ProcessState creation
-        >>> mag_f64, ts, meta = sanitize_external_observation(raw_magnitude, raw_timestamp)
-        >>> 
-        >>> # Now safe to create ProcessState
+        >>> raw_magnitude = 123.45
+        >>> raw_timestamp = datetime.now(timezone.utc)
+        >>> mag_f64, ts_utc, tag, disp = sanitize_external_observation(
+        ...     raw_magnitude, raw_timestamp
+        ... )
         >>> from stochastic_predictor.api.types import ProcessState
-        >>> obs = ProcessState(magnitude=mag_f64, timestamp_ns=ts, metadata=meta)
+        >>> obs = ProcessState(magnitude=mag_f64, timestamp_utc=ts_utc)
     
     References:
         - Stochastic_Predictor_Implementation.tex §6.4: External Data Feed Integration
@@ -581,18 +582,13 @@ def sanitize_external_observation(
     if magnitude_f64.ndim == 0:
         magnitude_f64 = jnp.expand_dims(magnitude_f64, axis=0)
     
-    # Sanitize metadata (ensure no float32 values in dict)
-    if metadata is not None:
-        metadata_sanitized = {}
-        for key, val in metadata.items():
-            if isinstance(val, (float, int, jnp.ndarray)):
-                metadata_sanitized[key] = float(ensure_float64(val))
-            else:
-                metadata_sanitized[key] = val
-    else:
-        metadata_sanitized = {}
-    
-    return magnitude_f64, timestamp_ns, metadata_sanitized
+    dispersion_proxy_f64 = None
+    if dispersion_proxy is not None:
+        dispersion_proxy_f64 = ensure_float64(dispersion_proxy)
+        if dispersion_proxy_f64.ndim == 0:
+            dispersion_proxy_f64 = jnp.expand_dims(dispersion_proxy_f64, axis=0)
+
+    return magnitude_f64, timestamp_utc, state_tag, dispersion_proxy_f64
 
 
 def cast_array_to_float64(
