@@ -169,13 +169,17 @@ def apply_stop_gradient_to_diagnostics(
     return prediction, diagnostics_stopped
 
 
-@partial(jax.jit, static_argnames=("min_length",))
 def validate_kernel_input(
     signal: Float[Array, "n"],
     min_length: int
 ) -> tuple[bool, str]:
     """
     Validate input signal for kernel processing.
+    
+    NOTE: This function is NOT JIT-compiled because:
+    - Returns strings (not JAX-compatible types)
+    - Uses Python conditionals with traced arrays
+    - Early validation step (performance not critical)
     
     Args:
         signal: Input time series
