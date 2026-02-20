@@ -18,6 +18,7 @@ Mathematical Foundation:
 
 import jax
 import jax.numpy as jnp
+from functools import partial
 from jaxtyping import Array, Float
 import signax
 from typing import Optional
@@ -31,7 +32,7 @@ from .base import (
 )
 
 
-@jax.jit
+@partial(jax.jit, static_argnames=('config',))
 def compute_log_signature(
     path: Float[Array, "n d"],
     config
@@ -123,7 +124,7 @@ def reparameterize_path(
     return path[indices]
 
 
-@jax.jit
+@partial(jax.jit, static_argnames=('config',))
 def predict_from_signature(
     logsig: Float[Array, "signature_dim"],
     last_value: float,
@@ -173,7 +174,7 @@ def predict_from_signature(
     return prediction, confidence
 
 
-@jax.jit
+@partial(jax.jit, static_argnames=('config',))
 def kernel_d_predict(
     signal: Float[Array, "n"],
     key: Array,

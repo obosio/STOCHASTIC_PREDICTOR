@@ -20,6 +20,7 @@ Mathematical Foundation:
 
 import jax
 import jax.numpy as jnp
+from functools import partial
 from jaxtyping import Array, Float
 import equinox as eqx
 from typing import Optional
@@ -138,7 +139,7 @@ class DGM_HJB_Solver(eqx.Module):
         return output[0]
 
 
-@jax.jit
+@partial(jax.jit, static_argnames=('config',))
 def compute_entropy_dgm(
     model: DGM_HJB_Solver,
     t: float,
@@ -193,7 +194,7 @@ def compute_entropy_dgm(
     return entropy
 
 
-@jax.jit
+@partial(jax.jit, static_argnames=('config',))
 def loss_hjb(
     model: DGM_HJB_Solver,
     t_batch: Float[Array, "n_t"],
@@ -269,7 +270,7 @@ def loss_hjb(
     return loss
 
 
-@jax.jit
+@partial(jax.jit, static_argnames=('config',))
 def compute_adaptive_entropy_threshold(
     ema_variance: Float[Array, ""],
     config

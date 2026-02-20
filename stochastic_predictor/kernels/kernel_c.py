@@ -11,6 +11,7 @@ References:
 
 import jax
 import jax.numpy as jnp
+from functools import partial
 from jaxtyping import Array, Float
 from typing import Callable, Optional
 
@@ -267,7 +268,7 @@ def compute_information_drift(
     return jnp.mean(increments) / dt
 
 
-@jax.jit
+@partial(jax.jit, static_argnames=('config',))
 def kernel_c_predict(
     signal: Float[Array, "n"],
     key: Array,

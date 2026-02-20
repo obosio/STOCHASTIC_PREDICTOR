@@ -173,11 +173,11 @@ echo ""
 echo "═══════════════════════════════════════════════════════════════"
 echo "POLICY #13: Kernel Purity & Statelessness"
 echo "═══════════════════════════════════════════════════════════════"
-jit_count=$(grep -r "@jax.jit" "$ROOT/stochastic_predictor/kernels/" 2>/dev/null | wc -l || echo "0")
+jit_count=$(grep -r "@" "$ROOT/stochastic_predictor/kernels/" 2>/dev/null | grep -E "@jax\.jit|@partial\(jax\.jit" | wc -l || echo "0")
 if [[ "$jit_count" -ge 20 ]]; then
-	check_pass "Policy #13: Kernel purity ($jit_count @jax.jit)"
+	check_pass "Policy #13: Kernel purity ($jit_count @jax.jit decorations)"
 else
-	check_fail "Policy #13: Insufficient kernel decoration"
+	check_fail "Policy #13: Insufficient kernel decoration (found $jit_count, need >= 20)"
 fi
 echo ""
 

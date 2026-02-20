@@ -15,6 +15,7 @@ Mathematical Foundation:
 
 import jax
 import jax.numpy as jnp
+from functools import partial
 from jaxtyping import Array, Float
 from typing import Optional
 
@@ -338,7 +339,7 @@ def compute_singularity_spectrum(
     return holder_exponent, spectrum_max
 
 
-@jax.jit
+@partial(jax.jit, static_argnames=('config',))
 def extract_holder_exponent_wtmm(
     signal: Float[Array, "n"],
     config
@@ -648,7 +649,7 @@ def compute_gram_matrix(
     return K
 
 
-@jax.jit
+@partial(jax.jit, static_argnames=('config',))
 def kernel_ridge_regression(
     X_train: Float[Array, "n d"],
     y_train: Float[Array, "n"],
@@ -710,7 +711,7 @@ def kernel_ridge_regression(
     return y_pred, variances
 
 
-@jax.jit
+@partial(jax.jit, static_argnames=('config',))
 def create_embedding(
     signal: Float[Array, "n"],
     config
@@ -752,7 +753,7 @@ def create_embedding(
     return embedded
 
 
-@jax.jit
+@partial(jax.jit, static_argnames=('config',))
 def kernel_a_predict(
     signal: Float[Array, "n"],
     key: Array,
