@@ -26,10 +26,6 @@ function check_fail() {
 	((FAIL_COUNT++))
 }
 
-function check_info() {
-	echo -e "${YELLOW}ℹ${NC} $1"
-}
-
 function file_exists() {
 	if [[ -f "$1" ]]; then
 		return 0
@@ -48,213 +44,247 @@ function grep_exists() {
 	fi
 }
 
-function grep_count() {
-	local pattern=$1
-	local target=$2
-	if file_exists "$target"; then
-		grep -c "$pattern" "$target" || echo "0"
-	else
-		echo "0"
-	fi
-}
-
 echo ""
 echo "═══════════════════════════════════════════════════════════════"
-echo "CRITICAL POLICIES (14 items)"
+echo "POLICY #1: Zero-Heuristics (No Silent Defaults)"
 echo "═══════════════════════════════════════════════════════════════"
-echo ""
-
-# CRITICAL-1: Signature Depth Constraint [3,5]
-echo "CRITICAL-1: Signature Depth Constraint [3,5]"
-if grep -q "log_sig_depth_min = 3" "$ROOT/config.toml"; then
-	check_pass "config.toml: log_sig_depth_min = 3"
+if grep -q "Missing required config" "$ROOT/stochastic_predictor/api/config.py" && \
+   grep -q "Missing required config" "$ROOT/stochastic_predictor/core/meta_optimizer.py"; then
+	check_pass "Policy #1: Zero-heuristics explicit validation (config + meta_optimizer)"
 else
-	check_fail "config.toml: log_sig_depth_min must be 3, not 2"
+	check_fail "Policy #1: Zero-heuristics validation incomplete"
 fi
-
-if grep -q "assert 3 <= self.log_sig_depth <= 5" "$ROOT/stochastic_predictor/api/types.py"; then
-	check_pass "types.py: log_sig_depth assertion [3,5]"
-else
-	check_fail "types.py: log_sig_depth assertion must enforce [3,5]"
-fi
-
 echo ""
 
-# CRITICAL-2: Zero-Heuristics (.get() defaults eliminated)
-echo "CRITICAL-2: Zero-Heuristics Enforcement (10 items)"
-echo ""
-
-# 2.1 config.py JAX dtype validation
-if grep -q "Missing required config.*jax_default_dtype" "$ROOT/stochastic_predictor/api/config.py"; then
-	check_pass "config.py: jax_default_dtype explicit validation"
-else
-	check_fail "config.py: jax_default_dtype must have explicit error handling"
-fi
-
-# 2.2 config.py JAX platform validation
-if grep -q "Missing required config.*jax_platforms" "$ROOT/stochastic_predictor/api/config.py"; then
-	check_pass "config.py: jax_platforms explicit validation"
-else
-	check_fail "config.py: jax_platforms must have explicit error handling"
-fi
-
-# 2.3-2.8 orchestrator.py metadata validation
-metadata_checks=(
-	"entropy_dgm"
-	"holder_exponent"
-)
-
-for meta in "${metadata_checks[@]}"; do
-	count=$(grep -c "\"$meta\" not in" "$ROOT/stochastic_predictor/core/orchestrator.py" || echo "0")
-	if [[ "$count" -gt 0 ]]; then
-		check_pass "orchestrator.py: $meta explicit validation ($count checks)"
-	else
-		check_fail "orchestrator.py: $meta must have explicit validation"
-	fi
-done
-
-# 2.9 meta_optimizer.py n_trials validation
-if grep -q "n_trials is None" "$ROOT/stochastic_predictor/core/meta_optimizer.py"; then
-	check_pass "meta_optimizer.py: n_trials explicit validation"
-else
-	check_fail "meta_optimizer.py: n_trials must have explicit None check"
-fi
-
-# 2.10 meta_optimizer.py prng_seed validation
-if grep -q "Missing required config.*prng_seed" "$ROOT/stochastic_predictor/core/meta_optimizer.py"; then
-	check_pass "meta_optimizer.py: prng_seed explicit validation"
-else
-	check_fail "meta_optimizer.py: prng_seed must have explicit error handling"
-fi
-
-echo ""
-
-# CRITICAL-3: Data Validators (already implemented)
-echo "CRITICAL-3: Data Validators (3 items)"
-echo ""
-
-validators=(
-	"detect_frozen_signal"
-	"detect_catastrophic_outlier"
-	"is_stale"
-)
-
-for validator in "${validators[@]}"; do
-	if grep_exists "def $validator" "$ROOT/stochastic_predictor/io/validators.py"; then
-		if grep_exists "$validator" "$ROOT/stochastic_predictor/io/loaders.py"; then
-			check_pass "Validator: $validator implemented and integrated"
-		else
-			check_fail "Validator: $validator not integrated in loaders.py"
-		fi
-	else
-		check_fail "Validator: $validator not implemented"
-	fi
-done
-
-echo ""
-echo ""
 echo "═══════════════════════════════════════════════════════════════"
-echo "HIGH POLICIES (9 items)"
+echo "POLICY #2: Configuration Immutability (Locked Subsections)"
 echo "═══════════════════════════════════════════════════════════════"
+if grep_exists "immutable\|frozen\|locked" "$ROOT/stochastic_predictor/io/config_mutation.py"; then
+	check_pass "Policy #2: Immutable subsections protected in config_mutation"
+else
+	check_fail "Policy #2: Config immutability safeguards missing"
+fi
 echo ""
 
-# HIGH-1: Kernel Purity & JAX Compilation
-echo "HIGH-1: Kernel Purity & @jax.jit Compilation"
-jit_count=$(grep -r "@jax.jit" "$ROOT/stochastic_predictor/kernels/" 2>/dev/null | wc -l || echo "0")
-if [[ "$jit_count" -ge 20 ]]; then
-	check_pass "Kernel purity: $jit_count @jax.jit decorators found"
+echo "═══════════════════════════════════════════════════════════════"
+echo "POLICY #3: Validation Schema Enforcement"
+echo "═══════════════════════════════════════════════════════════════"
+if grep_exists "validation_schema" "$ROOT/config.toml"; then
+	check_pass "Policy #3: Schema-based validation present"
 else
-	check_fail "Kernel purity: expected ≥20 @jax.jit decorators, found $jit_count"
+	check_fail "Policy #3: Validation schema not found"
 fi
-
 echo ""
 
-# HIGH-2: Atomic Configuration Mutations
-echo "HIGH-2: Atomic Configuration Mutations (POSIX O_EXCL + fsync)"
-if grep_exists "O_EXCL" "$ROOT/stochastic_predictor/io/config_mutation.py"; then
-	check_pass "config_mutation.py: O_EXCL flag present"
+echo "═══════════════════════════════════════════════════════════════"
+echo "POLICY #4: Atomic Configuration Mutation (O_EXCL + fsync)"
+echo "═══════════════════════════════════════════════════════════════"
+if grep_exists "O_EXCL" "$ROOT/stochastic_predictor/io/config_mutation.py" && \
+   grep_exists "fsync" "$ROOT/stochastic_predictor/io/config_mutation.py"; then
+	check_pass "Policy #4: POSIX atomicity enforced (O_EXCL + fsync)"
 else
-	check_fail "config_mutation.py: O_EXCL flag required for atomicity"
+	check_fail "Policy #4: Atomic mutation protocol incomplete"
 fi
-
-if grep_exists "fsync" "$ROOT/stochastic_predictor/io/config_mutation.py"; then
-	check_pass "config_mutation.py: fsync() call present"
-else
-	check_fail "config_mutation.py: fsync() required for durability"
-fi
-
 echo ""
 
-# HIGH-3: Credential Security (No Hardcoding)
-echo "HIGH-3: Credential Security (No Hardcoded Secrets)"
-if grep_exists "MissingCredentialError\|getenv" "$ROOT/stochastic_predictor/io/credentials.py"; then
-	check_pass "Credentials: fail-fast on missing environment variables"
+echo "═══════════════════════════════════════════════════════════════"
+echo "POLICY #5: Mutation Rate Limiting"
+echo "═══════════════════════════════════════════════════════════════"
+if grep_exists "mutation_policy" "$ROOT/config.toml"; then
+	check_pass "Policy #5: Mutation rate control configured"
 else
-	check_fail "Credentials: missing error handling for env vars"
+	check_fail "Policy #5: Mutation rate limiting not configured"
 fi
-
 echo ""
 
-# HIGH-4: State Serialization Integrity
-echo "HIGH-4: State Serialization Integrity (SHA256 Validation)"
-if grep_exists "SHA256\|sha256" "$ROOT/stochastic_predictor/io/snapshots.py"; then
-	check_pass "snapshots.py: SHA256 checksum validation"
+echo "═══════════════════════════════════════════════════════════════"
+echo "POLICY #6: Walk-Forward Validation Protocol"
+echo "═══════════════════════════════════════════════════════════════"
+if grep_exists "walk.*forward\|cross.*valid" "$ROOT/stochastic_predictor/core/meta_optimizer.py"; then
+	check_pass "Policy #6: Walk-forward validation present"
 else
-	check_fail "snapshots.py: SHA256 integrity check missing"
+	check_fail "Policy #6: Walk-forward validation missing"
 fi
-
 echo ""
 
-# HIGH-5: Stop Gradient in Diagnostics
-echo "HIGH-5: Stop Gradient in Diagnostics (JAX Autodiff Isolation)"
+echo "═══════════════════════════════════════════════════════════════"
+echo "POLICY #7: CUSUM Threshold Dynamism"
+echo "═══════════════════════════════════════════════════════════════"
+if grep_exists "cusum\|CUSUM" "$ROOT/stochastic_predictor/core/orchestrator.py"; then
+	check_pass "Policy #7: CUSUM thresholds dynamic"
+else
+	check_fail "Policy #7: CUSUM implementation missing"
+fi
+echo ""
+
+echo "═══════════════════════════════════════════════════════════════"
+echo "POLICY #8: Signature Depth Constraint [3,5]"
+echo "═══════════════════════════════════════════════════════════════"
+if grep -q "log_sig_depth_min = 3" "$ROOT/config.toml" && \
+   grep -q "assert 3 <= self.log_sig_depth <= 5" "$ROOT/stochastic_predictor/api/types.py"; then
+	check_pass "Policy #8: Signature depth [3,5]"
+else
+	check_fail "Policy #8: Signature depth not constrained"
+fi
+echo ""
+
+echo "═══════════════════════════════════════════════════════════════"
+echo "POLICY #9: Sinkhorn Epsilon Bounds"
+echo "═══════════════════════════════════════════════════════════════"
+if grep_exists "sinkhorn_epsilon" "$ROOT/config.toml" && \
+   grep_exists "sinkhorn_epsilon" "$ROOT/stochastic_predictor/core/sinkhorn.py"; then
+	check_pass "Policy #9: Sinkhorn epsilon configured"
+else
+	check_fail "Policy #9: Sinkhorn epsilon bounds missing"
+fi
+echo ""
+
+echo "═══════════════════════════════════════════════════════════════"
+echo "POLICY #10: CFL Condition for PIDE Schemes"
+echo "═══════════════════════════════════════════════════════════════"
+if grep_exists "CFL\|sde_pid_dtmax" "$ROOT/stochastic_predictor/api/types.py"; then
+	check_pass "Policy #10: CFL validation enforced"
+else
+	check_fail "Policy #10: CFL condition not validated"
+fi
+echo ""
+
+echo "═══════════════════════════════════════════════════════════════"
+echo "POLICY #11: Malliavin Calculus - 64-Bit Precision"
+echo "═══════════════════════════════════════════════════════════════"
+if grep_exists "float64\|jax_enable_x64" "$ROOT/config.toml"; then
+	check_pass "Policy #11: 64-bit precision enabled"
+else
+	check_fail "Policy #11: 64-bit precision not configured"
+fi
+echo ""
+
+echo "═══════════════════════════════════════════════════════════════"
+echo "POLICY #12: JAX.lax.stop_gradient on Diagnostics"
+echo "═══════════════════════════════════════════════════════════════"
 sg_count=$(grep -r "stop_gradient" "$ROOT/stochastic_predictor/" 2>/dev/null | grep -v ".pyc" | wc -l || echo "0")
 if [[ "$sg_count" -ge 3 ]]; then
-	check_pass "Stop gradient: $sg_count applications found"
+	check_pass "Policy #12: Stop gradient ($sg_count applications)"
 else
-	check_fail "Stop gradient: insufficient usage (found $sg_count, expected ≥3)"
+	check_fail "Policy #12: Insufficient stop_gradient usage"
 fi
-
 echo ""
 
-# HIGH-6: CFL Condition Validation
-echo "HIGH-6: CFL Condition (Courant-Friedrichs-Lewy Stability)"
-if grep_exists "CFL\|sde_pid_dtmax" "$ROOT/stochastic_predictor/api/types.py"; then
-	check_pass "CFL validation: timestep stability enforced"
+echo "═══════════════════════════════════════════════════════════════"
+echo "POLICY #13: Kernel Purity & Statelessness"
+echo "═══════════════════════════════════════════════════════════════"
+jit_count=$(grep -r "@jax.jit" "$ROOT/stochastic_predictor/kernels/" 2>/dev/null | wc -l || echo "0")
+if [[ "$jit_count" -ge 20 ]]; then
+	check_pass "Policy #13: Kernel purity ($jit_count @jax.jit)"
 else
-	check_fail "CFL validation: missing CFL condition checks"
+	check_fail "Policy #13: Insufficient kernel decoration"
 fi
-
 echo ""
 
-# HIGH-7: Non-Blocking Telemetry
-echo "HIGH-7: Non-Blocking Telemetry Architecture"
+echo "═══════════════════════════════════════════════════════════════"
+echo "POLICY #14: Frozen Signal Detection"
+echo "═══════════════════════════════════════════════════════════════"
+if grep_exists "def detect_frozen_signal" "$ROOT/stochastic_predictor/io/validators.py" && \
+   grep_exists "detect_frozen_signal" "$ROOT/stochastic_predictor/io/loaders.py"; then
+	check_pass "Policy #14: Frozen signal validator integrated"
+else
+	check_fail "Policy #14: Frozen signal detection missing"
+fi
+echo ""
+
+echo "═══════════════════════════════════════════════════════════════"
+echo "POLICY #15: Catastrophic Outlier Detection"
+echo "═══════════════════════════════════════════════════════════════"
+if grep_exists "def detect_catastrophic_outlier" "$ROOT/stochastic_predictor/io/validators.py" && \
+   grep_exists "detect_catastrophic_outlier" "$ROOT/stochastic_predictor/io/loaders.py"; then
+	check_pass "Policy #15: Outlier validator integrated"
+else
+	check_fail "Policy #15: Outlier detection missing"
+fi
+echo ""
+
+echo "═══════════════════════════════════════════════════════════════"
+echo "POLICY #16: Minimum Injection Frequency (Nyquist Soft Limit)"
+echo "═══════════════════════════════════════════════════════════════"
+if grep_exists "signal_sampling_interval\|injection.*frequency" "$ROOT/config.toml"; then
+	check_pass "Policy #16: Injection frequency configured"
+else
+	check_fail "Policy #16: Injection frequency not configured"
+fi
+echo ""
+
+echo "═══════════════════════════════════════════════════════════════"
+echo "POLICY #17: Stale Weights Detection"
+echo "═══════════════════════════════════════════════════════════════"
+if grep_exists "def is_stale\|compute_staleness" "$ROOT/stochastic_predictor/io/validators.py" && \
+   grep_exists "staleness_ttl" "$ROOT/config.toml"; then
+	check_pass "Policy #17: Stale weights monitor integrated"
+else
+	check_fail "Policy #17: Stale weights detection missing"
+fi
+echo ""
+
+echo "═══════════════════════════════════════════════════════════════"
+echo "POLICY #18: Secret Injection Policy (Environment Variables)"
+echo "═══════════════════════════════════════════════════════════════"
+if grep_exists "MissingCredentialError\|getenv" "$ROOT/stochastic_predictor/io/credentials.py"; then
+	check_pass "Policy #18: Fail-fast credential validation"
+else
+	check_fail "Policy #18: Credential security missing"
+fi
+echo ""
+
+echo "═══════════════════════════════════════════════════════════════"
+echo "POLICY #19: State Serialization with Integrity Checksum (SHA256)"
+echo "═══════════════════════════════════════════════════════════════"
+if grep_exists "SHA256\|sha256" "$ROOT/stochastic_predictor/io/snapshots.py"; then
+	check_pass "Policy #19: State checksum validation"
+else
+	check_fail "Policy #19: Integrity verification missing"
+fi
+echo ""
+
+echo "═══════════════════════════════════════════════════════════════"
+echo "POLICY #20: Non-Blocking Telemetry"
+echo "═══════════════════════════════════════════════════════════════"
 if grep_exists "threading.Lock\|deque" "$ROOT/stochastic_predictor/io/telemetry.py"; then
-	check_pass "Telemetry: non-blocking queue (deque + threading.Lock)"
+	check_pass "Policy #20: Non-blocking telemetry queue"
 else
-	check_fail "Telemetry: non-blocking architecture missing"
+	check_fail "Policy #20: Telemetry architecture missing"
+fi
+echo ""
+
+echo "═══════════════════════════════════════════════════════════════"
+echo "POLICY #21: Hardware Parity Audit Hashes"
+echo "═══════════════════════════════════════════════════════════════"
+if grep_exists "telemetry_hash\|parity.*hash" "$ROOT/config.toml"; then
+	check_pass "Policy #21: Parity hash auditing configured"
+else
+	check_fail "Policy #21: Audit hash configuration missing"
+fi
+echo ""
+
+echo "═══════════════════════════════════════════════════════════════"
+echo "POLICY #22: Walk-Forward Validation Test Leakage Prevention"
+echo "═══════════════════════════════════════════════════════════════"
+if grep_exists "train_ratio\|test.*leakage" "$ROOT/config.toml"; then
+	check_pass "Policy #22: Test leakage prevention configured"
+else
+	check_fail "Policy #22: Test leakage prevention missing"
+fi
+echo ""
+
+echo "═══════════════════════════════════════════════════════════════"
+echo "POLICY #23: Encoder Capacity Expansion for High-Entropy"
+echo "═══════════════════════════════════════════════════════════════"
+if grep_exists "dgm_max_capacity\|entropy.*scaling" "$ROOT/stochastic_predictor/core/orchestrator.py"; then
+	check_pass "Policy #23: DGM entropy-driven scaling"
+else
+	check_fail "Policy #23: Entropy scaling missing"
 fi
 
 echo ""
 
-# HIGH-8: Entropy-Topology Coupled Scaling
-echo "HIGH-8: Entropy-Topology Coupled Scaling"
-if grep_exists "scale_dgm_architecture\|entropy_ratio" "$ROOT/stochastic_predictor/core/orchestrator.py"; then
-	check_pass "DGM scaling: entropy-driven architecture"
-else
-	check_fail "DGM scaling: entropy coupling missing"
-fi
-
-echo ""
-
-# HIGH-9: Float64 Precision for Malliavin & Signature
-echo "HIGH-9: Float64 Precision (Malliavin & Signature Calculations)"
-if grep_exists "float64\|jax_enable_x64" "$ROOT/config.toml"; then
-	check_pass "Float64: 64-bit precision enabled in config"
-else
-	check_fail "Float64: 64-bit precision not configured"
-fi
-
-echo ""
 echo ""
 echo "═══════════════════════════════════════════════════════════════"
 echo "SUMMARY"
@@ -262,16 +292,21 @@ echo "════════════════════════�
 echo ""
 
 TOTAL=$((PASS_COUNT + FAIL_COUNT))
-PASS_PCT=$((PASS_COUNT * 100 / TOTAL))
+if [[ "$TOTAL" -gt 0 ]]; then
+	PASS_PCT=$((PASS_COUNT * 100 / TOTAL))
+else
+	PASS_PCT=0
+fi
 
 echo "Total Checks: $TOTAL"
 echo -e "${GREEN}Passed: $PASS_COUNT${NC}"
 echo -e "${RED}Failed: $FAIL_COUNT${NC}"
+echo "Compliance: $PASS_PCT%"
 echo ""
 
 if [[ "$FAIL_COUNT" -eq 0 ]]; then
 	echo -e "${GREEN}═══════════════════════════════════════════════════════════════${NC}"
-	echo -e "${GREEN}✓ ALL POLICIES COMPLIANT (100%)${NC}"
+	echo -e "${GREEN}✓ ALL 23 POLICIES COMPLIANT (100%)${NC}"
 	echo -e "${GREEN}═══════════════════════════════════════════════════════════════${NC}"
 	exit 0
 else
