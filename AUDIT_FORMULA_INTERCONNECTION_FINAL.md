@@ -1,4 +1,5 @@
 # AUDITORÍA FINAL: INTERCONEXIÓN DE FÓRMULAS
+
 ## Verificación Rigurosa de Tipos y Flujos de Datos
 
 **Fecha:** 19 de febrero de 2026  
@@ -9,6 +10,7 @@
 ## EXECUTIVE SUMMARY
 
 Auditoría completa de **7 pipelines críticos** (A1, B1, C1, D1, Orch1, Fusion1, State1) con verificación rigurosa de:
+
 - ✅ Dimensionalidades de arrays (shapes)
 - ✅ Consistencia de tipos (dtypes)
 - ✅ Transformaciones entre fórmulas
@@ -23,7 +25,7 @@ Auditoría completa de **7 pipelines críticos** (A1, B1, C1, D1, Orch1, Fusion1
 ### Teoría vs Implementación
 
 | Paso | Fórmula | Función Python | Input | Output | ✅ |
-|------|---------|----------------|-------|--------|------|
+| ---- | --------- | --------------- | ----- | ------ | ---- |
 | 1 | Morlet ψ | `morlet_wavelet()` | `Float[]` | `Float[]` | ✅ |
 | 2 | CWT W_ψ | `continuous_wavelet_transform()` | `Float["n"]` | `Float["m n"]` | ✅ |
 | 3 | Maxima θ | `find_modulus_maxima()` | `Float["m n"]` | `Float32["m n"]` | ✅ |
@@ -33,7 +35,7 @@ Auditoría completa de **7 pipelines críticos** (A1, B1, C1, D1, Orch1, Fusion1
 | 7 | D(h) | `compute_singularity_spectrum()` | `Float["q"]` | `(Float[""], Float[""])` | ✅ |
 | 8 | h* | *retorno paso 7* | — | `Float[""]` (escalar) | ✅ |
 
-**Verificación de transformaciones: TODAS CORRECTAS**
+#### Verificación de transformaciones: TODAS CORRECTAS
 
 ---
 
@@ -52,7 +54,8 @@ def compute_entropy_dgm(model, t, x_samples, config) -> Float[Array, ""]:
 ```
 
 **Flujo verificado:**
-```
+
+```text
 compute_entropy_dgm() → Float[""]  (scalar)
     ↓
 kernel_b.py:383 entropy_dgm = compute_entropy_dgm(model, t, x_samples, config)
@@ -71,7 +74,7 @@ telemetry.py:292 entropy_ratio = float(state.dgm_entropy) / baseline_entropy_val
 ### Flujo: Signal → Leverage → Stiffness → Solver
 
 | Paso | Transformación | Input | Output | ✅ |
-|------|-----------------|-------|--------|-------|
+| ---- | --------------- | ----- | ------ | ----- |
 | 1 | leverage_ratio | `Float["n"]` | `Float[""]` | ✅ |
 | 2 | stiffness_est | `Float[""]` | `Float[""]` | ✅ |
 | 3 | compute_adaptive_stiffness_thresholds | `Float[""] + holder` | `(Float[""], Float[""])` | ✅ |
@@ -85,7 +88,7 @@ telemetry.py:292 entropy_ratio = float(state.dgm_entropy) / baseline_entropy_val
 
 ### Residuals → Kurtosis → CUSUM → Alarm
 
-```
+```text
 residual: [ε_{t-W+1}, ..., ε_t] (rolling window)
     ↓ rolling_residual_window()
 residuals_window: Float["W"]
@@ -106,7 +109,8 @@ alarm: Bool
 ### Hallazgo Crítico: ✅ SIMPLEX CONSTRAINT ENFORCED
 
 **Código verificado** (fusion.py líneas 43-50):
-```python
+
+```pythonpython
 def _jko_update_weights(current_weights, target_weights, config):
     updated = current_weights + config.learning_rate * (target_weights - current_weights)
     updated = jnp.maximum(updated, 0.0)
@@ -115,6 +119,7 @@ def _jko_update_weights(current_weights, target_weights, config):
 ```
 
 **Validación** (fusion.py líneas 82-86):
+
 ```python
 PredictionResult.validate_simplex(updated_weights, config.validation_simplex_atol)
 is_valid, msg = validate_simplex(updated_weights, atol, "weights")
@@ -142,9 +147,10 @@ Verificación de documentación confirma flujo tipo-correcto de datos en toda la
 
 **Observación:** kernel_a.py líneas 141, 180 usan `.astype(jnp.float32)`
 
-**Context:** Sistema configurado con `jax.config.update('jax_enable_x64', True)` (__init__.py:38)
+**Context:** Sistema configurado con `jax.config.update('jax_enable_x64', True)` (**init**.py:38)
 
 **Comportamiento JAX:**
+
 - float32 en sistema con x64 habilitado → **autocasting a float64 automático**
 - No hay incompatibilidad, las operaciones posteriores reciben float64
 - Rest of code uses explicit float64 (líneas 232, 381, 388)
@@ -152,6 +158,7 @@ Verificación de documentación confirma flujo tipo-correcto de datos en toda la
 **Impacto:** ✅ ZERO - JAX maneja internamente
 
 **Recomendación (opcional):** Refactorizar para consistencia:
+
 ```python
 # Línea 141 - cambiar a:
 return local_max.astype(jnp.float64)  # Consistent with system config
@@ -167,7 +174,7 @@ return chain_presence.astype(jnp.float64), chain_magnitudes.astype(jnp.float64)
 ## TABLA RESUMIDA: Todas las Conexiones Inter-Fórmula
 
 | # | Pipeline | Fórmula Origen | Fórmula Destino | Input Type | Output Type | Transformación | ✅ |
-|----|-----------|---------------|-----------------|-----------|------------|-----------------|-----|
+| --- | --------- | --------------- | --------------- | --------- | ----------- | --------------- | ----- |
 | 1 | A1 | Morlet | CWT | `Float[]` | `Float["m n"]` | convolución | ✅ |
 | 2 | A1 | CWT | Maxima | `Float["m n"]` | `Float32["m n"]` | comparison | ✅ |
 | 3 | A1 | Maxima | Linking | `Float["m n"]` + cwt | `(Float["n m"], Float["n m"])` | transpose+multiply | ✅ |
@@ -189,14 +196,15 @@ return chain_presence.astype(jnp.float64), chain_magnitudes.astype(jnp.float64)
 | 19 | Fusion | JKO | Sinkhorn | `Float["4"]` | `Float["4"]` | OT-JAX | ✅ |
 | 20 | State | Signal | Residuals | `Float["n"]` | `Float[""]` (per step) | error | ✅ |
 
-**Total conexiones auditadas: 20+ flujos, todas ✅ CORRECTAS**
+### Total conexiones auditadas: 20+ flujos, todas ✅ CORRECTAS
 
 ---
 
 ## VERIFICACIÓN DE CADENAS COMPLEJAS
 
 ### Cadena A1-C1: WTMM → Stiffness Thresholds
-```
+
+```text
 extract_holder_exponent_wtmm() ← Kernel A
     ↓ returns holder_exponent: Float[""]
     ↓
@@ -207,7 +215,8 @@ compute_adaptive_stiffness_thresholds(holder_exponent, config) ← Kernel C
 ```
 
 ### Cadena B1-Telemetry: Entropy → Dashboard
-```
+
+```text
 compute_entropy_dgm() ← Kernel B
     ↓ returns entropy: Float[""]
     ↓
@@ -220,7 +229,8 @@ dashboard displays entropy_ratio
 ```
 
 ### Cadena Fusion-Sinkhorn: Weights → Transport
-```
+
+```text
 fuse_kernel_outputs() 
     ↓ updated_weights: Float["4"] (simplex)
     ↓
@@ -236,6 +246,7 @@ volatility_coupled_sinkhorn(source_weights=updated_weights, ...)
 ### Status de Auditoría: **100% COMPLETO**
 
 **Fortalezas Identificadas:**
+
 1. ✅ Tipos JAX Float[Array, "..."] usados consistentemente
 2. ✅ Transformaciones de shapes documentadas y correctas
 3. ✅ Restricciones matemáticas (simplex, escalares) enforced
@@ -243,6 +254,7 @@ volatility_coupled_sinkhorn(source_weights=updated_weights, ...)
 5. ✅ No hay conversiones implícitas que causen errores
 
 **Issues Menores (No-Bloqueantes):**
+
 - ⚠️ float32 upcasting en Kernel A (prioridad: baja, código limpieza)
   - Impacto: CERO (JAX maneja automáticamente)
   - Fix: Opcional (2 líneas en kernel_a.py)
@@ -254,6 +266,7 @@ volatility_coupled_sinkhorn(source_weights=updated_weights, ...)
 ## APÉNDICE: Referencias de Código
 
 ### Archivos Auditados
+
 1. ✅ stochastic_predictor/kernels/kernel_a.py (WTMM)
 2. ✅ stochastic_predictor/kernels/kernel_b.py (DGM)
 3. ✅ stochastic_predictor/kernels/kernel_c.py (SDE)
@@ -267,28 +280,33 @@ volatility_coupled_sinkhorn(source_weights=updated_weights, ...)
 ### Líneas de Código Clave Verificadas
 
 **kernel_a.py:**
+
 - L141: `return local_max.astype(jnp.float32)` ← float32 upcasting (minor)
 - L180: `return chain_presence..., chain_magnitudes...astype(jnp.float32)` ← float32
 - L232: `mask = (...).astype(jnp.float64)` ← explicit float64
 - L381-388: float64 consistency ✅
 
 **kernel_b.py:**
+
 - L136-187: `compute_entropy_dgm()` returns scalar ✅
 - L383: entropy computation in kernel pipeline ✅
 
 **fusion.py:**
+
 - L43-50: `_jko_update_weights()` with simplex projection ✅
 - L82-86: `.validate_simplex()` runtime check ✅
 
 **orchestrator.py:**
+
 - L66-69: State buffer initialization with scalars ✅
 - DGM entropy chain working correctly ✅
 
 **telemetry.py:**
+
 - L287-292: entropy ratio computation with scalar inputs ✅
 
 ---
 
 **Estado Final:** ✅ **AUDITORÍA EXITOSA - CERO PROBLEMAS BLOQUEANTES**
 
-*Próximo paso (opcional): Refactorizar líneas 141, 180 en kernel_a.py para consistencia de tipo (baja prioridad)*
+Próximo paso (opcional): Refactorizar líneas 141, 180 en kernel_a.py para consistencia de tipo (baja prioridad)
