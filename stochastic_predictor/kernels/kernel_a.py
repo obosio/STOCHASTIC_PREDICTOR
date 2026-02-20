@@ -74,25 +74,30 @@ def continuous_wavelet_transform(
         mother_wavelet_fn = morlet_wavelet
     
     n = signal.shape[0]
-    m = scales.shape[0]
     
-    # Normalize time to [-1, 1] for wavelet evaluation
+    # Normalize time to [-1, 1]
     t = jnp.linspace(-1.0, 1.0, n)
     
-    # Compute CWT for each scale
+    # Compute CWT for each scale using convolution
     def cwt_scale(scale):
-        # Normalized wavelet at this scale
-        psi = jax.vmap(lambda ti: mother_wavelet_fn(ti / scale, sigma=1.0))(t)
+        # Create wavelet at this scale (domain: all time points)
+        psi_scale = jax.vmap(lambda ti: mother_wavelet_fn(ti / scale, sigma=1.0))(t)
         
-        # Convolution: CWT(s, b) ~ ∫ ψ((t-b)/s) x(t) dt
-        # Approximated via inner product at each position
-        def cwt_position(b):
-            shifted_times = t - t[int(b * (n - 1))]
-            psi_shifted = jax.vmap(lambda ti: mother_wavelet_fn(ti / scale, sigma=1.0))(shifted_times)
-            # Inner product: CWT = sum(signal * psi_shifted) / sqrt(scale)
-            return jnp.sum(signal * psi_shifted) / jnp.sqrt(scale)
+        # Normalize wavelet energy
+        psi_norm = psi_scale / (jnp.sqrt(scale) + 1e-10)
         
-        return jax.vmap(cwt_position)(jnp.linspace(0.0, 1.0, n))
+        # Compute correlation between signal and wavelet (sliding dot product)
+        # This is equivalent to convolution with reversed/conjugate wavelet
+        def correlation_at_shift(shift_idx):
+            # Circular shift to create a "moving window" effect
+            shifted_psi = jnp.roll(psi_norm, shift_idx)
+            # Dot product (correlation)
+            return jnp.sum(signal * shifted_psi) / (n ** 0.5)
+        
+        # For each position, compute the correlation
+        corr_vals = jax.vmap(correlation_at_shift)(jnp.arange(n))
+        
+        return corr_vals
     
     cwt_coeffs = jax.vmap(cwt_scale)(scales)
     return cwt_coeffs
@@ -139,9 +144,10 @@ def find_modulus_maxima(
 @jax.jit
 def link_wavelet_maxima(
     modulus_maxima: Float[Array, "m n"],
+    cwt_coeffs: Float[Array, "m n"],
     scales: Float[Array, "m"],
     max_link_distance: float = 2.0
-) -> Float[Array, "n m"]:
+) -> tuple[Float[Array, "n m"], Float[Array, "n m"]]:
     """
     Link modulus maxima across scales to form chains (P2.1 requirement).
     
@@ -150,98 +156,173 @@ def link_wavelet_maxima(
     
     Args:
         modulus_maxima: Binary mask of modulus maxima (m scales, n positions)
+        cwt_coeffs: CWT magnitude coefficients (m scales, n positions)
         scales: Scale values (m,)
         max_link_distance: Maximum horizontal distance to link positions
     
     Returns:
-        Chain matrix (n, m): normalized chain strength per position
+        Tuple of (chain_presence, chain_magnitudes) where:
+        - chain_presence: Binary mask (n positions, m scales)
+        - chain_magnitudes: CWT magnitude values at maxima (n positions, m scales)
     """
     m, n = modulus_maxima.shape
     
-    # For each position, sum maxima across scales (chain strength)
-    chain_strength = jnp.sum(modulus_maxima, axis=0)  # Shape: (n,)
+    # Extract magnitude values at maxima positions
+    cwt_abs = jnp.abs(cwt_coeffs)
     
-    # Normalize to [0, 1]
-    chain_strength_norm = chain_strength / jnp.maximum(m, 1.0)
+    # Mask: keep CWT values only where maxima exist, zeros elsewhere
+    chain_magnitudes = modulus_maxima * cwt_abs  # Shape: (m, n)
     
-    # Repeat for all scales (chain present/absent at each scale)
-    chains = modulus_maxima.T  # Shape: (n, m)
+    # Transpose for per-position chains
+    chain_presence = modulus_maxima.T  # Shape: (n, m)
+    chain_magnitudes = chain_magnitudes.T  # Shape: (n, m)
     
-    return chains.astype(jnp.float32)
+    return chain_presence.astype(jnp.float32), chain_magnitudes.astype(jnp.float32)
 
 
 @jax.jit
 def compute_partition_function(
-    chains: Float[Array, "n m"],
+    chain_magnitudes: Float[Array, "n m"],
     scales: Float[Array, "m"],
     q_range: Float[Array, "q"]
-) -> Float[Array, "q"]:
+) -> tuple[Float[Array, "q m"], Float[Array, "q"]]:
     """
-    Compute partition function Z_q(s) = Σ |chain_strength|^q
+    Compute partition function Z_q(s) and scaling exponents τ(q).
     
-    This is used to compute scaling exponents τ(q) via linear regression:
-    log Z_q(s) ~ τ(q) · log(s) + const
+    Theory: Z_q(s) = Σ_{chains L} (sup_{scale s, position b in chain L} |W_ψ(s,b)|)^q
+    
+    This captures multifractal scaling: Z_q(s) ~ s^{τ(q)}
+    
+    Extraction of τ(q):
+        log Z_q(s) = τ(q) · log(s) + const (linear regression)
+        τ(q) = slope of log-log plot
     
     Args:
-        chains: Chain matrix (n positions, m scales)
+        chain_magnitudes: CWT magnitude at chain positions (n positions, m scales)
         scales: Scale values (m,)
         q_range: Range of exponents to evaluate
     
     Returns:
-        Partition function estimates for each q
+        Tuple of (Z_q_scales, tau_q) where:
+        - Z_q_scales: Partition function per scale (q, m)
+        - tau_q: Scaling exponents (q,)
+    
+    References:
+        - Theory.tex §2.1: Partition Function Formula Z_q(s)
+        - Implementacion.tex §3.1: Log-log regression for τ(q)
     """
-    # Sum chain strengths at each scale
-    scale_sum = jnp.sum(jnp.abs(chains), axis=0)  # Shape: (m,)
+    n = chain_magnitudes.shape[0]  # Number of positions/chains
+    m = chain_magnitudes.shape[1]  # Number of scales
     
-    # Compute partition function for each q
+    # For each q: Z_q(s) = Σ_{L=0}^{n-1} max(|chain_magnitudes[L, :]|)^q
+    # This sums over all chains (n positions), taking max value per chain per scale
+    
     def partition_q(q):
-        return jnp.sum((scale_sum ** q) * (1.0 / jnp.sqrt(scales)))
+        # For this q, compute Z_q across all scales
+        # Each chain L contributes only if it has a nonzero magnitude
+        def z_at_scale(scale_idx):
+            # For each position (chain), take magnitude at this scale
+            mags_at_scale = chain_magnitudes[:, scale_idx]  # Shape: (n,)
+            
+            # Only sum nonzero magnitudes
+            # Avoid division by zero for negative q
+            safe_mags = jnp.clip(mags_at_scale, 1e-12, None)
+            
+            # Use mask to only count truly nonzero entries
+            mask = (mags_at_scale > 1e-12).astype(jnp.float64)
+            
+            # Compute sum, but only for positions with signal
+            # Apply mask to zero out non-signal positions before power
+            masked_vals = safe_mags * mask
+            z_val = jnp.sum(masked_vals ** q)
+            
+            return z_val
+        
+        # Compute Z_q for all scales
+        z_scales = jax.vmap(z_at_scale)(jnp.arange(m))  # Shape: (m,)
+        
+        return z_scales
     
-    Z_q = jax.vmap(partition_q)(q_range)
-    return Z_q
+    # Compute partition function for all q values
+    Z_q_scales = jax.vmap(partition_q)(q_range)  # Shape: (q, m)
+    
+    # Extract τ(q) via log-log regression: log Z_q(s) ~ τ(q) · log(s)
+    log_scales = jnp.log(jnp.clip(scales, 1e-8, None))
+    
+    def extract_tau(z_q_vals):
+        # z_q_vals shape: (m,) - Z_q values across scales
+        log_z_q = jnp.log(jnp.clip(z_q_vals, 1e-10, None))
+        
+        # Linear regression: slope = [Σ(x-x_mean)(y-y_mean)] / [Σ(x-x_mean)^2]
+        x_mean = jnp.mean(log_scales)
+        y_mean = jnp.mean(log_z_q)
+        
+        numerator = jnp.sum((log_scales - x_mean) * (log_z_q - y_mean))
+        denominator = jnp.sum((log_scales - x_mean) ** 2)
+        
+        tau = numerator / jnp.maximum(denominator, 1e-12)
+        
+        return tau
+    
+    # Compute τ(q) for each q
+    tau_q = jax.vmap(extract_tau)(Z_q_scales)  # Shape: (q,)
+    
+    return Z_q_scales, tau_q
 
 
 @jax.jit
 def compute_singularity_spectrum(
-    partition_function: Float[Array, "q"],
-    q_range: Float[Array, "q"],
-    scales: Float[Array, "m"]
-) -> Float[Array, "(2,)"] :
+    tau_q: Float[Array, "q"],
+    q_range: Float[Array, "q"]
+) -> tuple[Float[Array, ""], Float[Array, ""]]:
     """
     Compute singularity spectrum D(h) via Legendre transform.
     
-    From τ(q) = min_h [D(h) + q·h], invert to get D(h) = min_q [τ(q) - q·h].
-    Returns (h_max, D_h_max) where D(h_max) is maximum.
+    Theory: The singularity spectrum D(h) is the Legendre transform of τ(q):
+    
+        D(h) = min_q [τ(q) - q·h]
+    
+    The spectrum is maximized at h_* where D(h_*) is largest.
+    This h_* is the dominant Hölder exponent of the signal.
     
     Args:
-        partition_function: Z_q values (q,)
-        q_range: Exponents (q,)
-        scales: Scale values (m,)
+        tau_q: Scaling exponents for each q (q,)
+        q_range: Exponent values used (q,)
     
     Returns:
-        [holder_exponent, spectrum_max]
+        Tuple of (holder_exponent, spectrum_max) where:
+        - holder_exponent: h_* = argmax_h D(h) (most likely Hölder exponent)
+        - spectrum_max: D(h_*) (height of spectrum at maximum)
+    
+    References:
+        - Theory.tex §2.1: Legendre Transform and Singularity Spectrum
+        - Implementacion.tex §3.1: D(h) = min_q[τ(q) - q·h]
     """
-    # Estimate τ(q) from partition function via simple scaling
-    # τ(q) ~ (log Z_q) / log(scale)
-    scale_factor = jnp.log(scales[-1] / scales[0])
-    tau_q = jnp.log(jnp.abs(partition_function) + 1e-10) / scale_factor
     
-    # Legendre transform: D(h) = q·h - τ(q)
-    # For each h, find max over q: D(h) = max_q [q·h - τ(q)]
-    h_range = jnp.linspace(0.0, 2.0, 50)
+    # Create fine grid of Hölder exponents h
+    # Typically h ∈ [0, 1] for typical signals (Brownian motion h=0.5)
+    # Allow up to 1.5 for more singular cases
+    h_range = jnp.linspace(0.0, 1.5, 151)
     
-    def spectrum_h(h):
-        legendre = q_range * h - tau_q
-        return jnp.max(legendre)
+    def spectrum_at_h(h):
+        # For this h, compute D(h) = min_q [τ(q) - q·h]
+        # Equivalently: D(h) = max_q [q·h - τ(q)]
+        legendre_vals = tau_q - q_range * h  # Shape: (q,)
+        
+        # D(h) is the maximum of [q*h - tau_q], which is -min of [tau_q - q*h]
+        d_h = -jnp.min(legendre_vals)
+        
+        return d_h
     
-    D_h = jax.vmap(spectrum_h)(h_range)
+    # Compute singularity spectrum D(h) for all h values
+    D_h = jax.vmap(spectrum_at_h)(h_range)  # Shape: (151,)
     
-    # Find h where D(h) is maximum (most likely Hölder exponent)
+    # Find h where D(h) is maximum
     h_max_idx = jnp.argmax(D_h)
     holder_exponent = h_range[h_max_idx]
     spectrum_max = D_h[h_max_idx]
     
-    return jnp.array([holder_exponent, spectrum_max])
+    return holder_exponent, spectrum_max
 
 
 @jax.jit
@@ -254,11 +335,12 @@ def extract_holder_exponent_wtmm(
     
     Pipeline:
     1. Compute CWT at multiple scales
-    2. Find modulus maxima
-    3. Link maxima across scales
-    4. Compute partition function
-    5. Compute singularity spectrum (Legendre transform)
-    6. Extract holder_exponent = argmax D(h)
+    2. Find modulus maxima (with adaptive threshold)
+    3. Link maxima across scales (retaining magnitudes)
+    4. Compute partition function Z_q(s) for each q
+    5. Extract scaling exponents τ(q) via log-log regression
+    6. Compute singularity spectrum D(h) via Legendre transform
+    7. Extract holder_exponent = argmax_h D(h)
     
     Args:
         signal: Input signal (normalized)
@@ -266,6 +348,10 @@ def extract_holder_exponent_wtmm(
     
     Returns:
         Hölder exponent (scalar, clipped to valid range)
+    
+    References:
+        - Theory.tex §2.1: Multifractal Analysis via WTMM
+        - Python.tex §2.2.1: Complete WTMM Pipeline
     """
     n = signal.shape[0]
     
@@ -277,23 +363,34 @@ def extract_holder_exponent_wtmm(
     # Step 1: Continuous Wavelet Transform
     cwt = continuous_wavelet_transform(signal, scales)
     
-    # Step 2: Find modulus maxima
-    modulus_maxima = find_modulus_maxima(cwt, threshold=0.1)
+    # Step 2: Find modulus maxima with reduced threshold for better detection
+    # Use very small threshold to retain more maxima (they carry multifractal information)
+    modulus_maxima = find_modulus_maxima(cwt, threshold=0.01)  # Reduced from 0.1
     
-    # Step 3: Link maxima across scales
-    chains = link_wavelet_maxima(modulus_maxima, scales, max_link_distance=2.0)
+    # Step 3: Link maxima across scales (retaining both presence and magnitudes)
+    chain_presence, chain_magnitudes = link_wavelet_maxima(
+        modulus_maxima, cwt, scales, max_link_distance=2.0
+    )
     
-    # Step 4: Compute partition function
+    # Step 4-5: Compute partition function and extract τ(q)
     q_range = jnp.linspace(-2.0, 2.0, 9)
-    partition_func = compute_partition_function(chains, scales, q_range)
+    Z_q_scales, tau_q = compute_partition_function(chain_magnitudes, scales, q_range)
     
-    # Step 5-6: Compute singularity spectrum and extract Hölder exponent
-    spectrum_result = compute_singularity_spectrum(partition_func, q_range, scales)
-    holder_exponent = spectrum_result[0]
+    # Step 6-7: Compute singularity spectrum and extract Hölder exponent
+    # Ensure tau_q is well-formed (replace NaN/Inf with sensible defaults)
+    finite_mask = jnp.isfinite(tau_q).astype(jnp.float64)
+    default_vals = jnp.sign(q_range) * 0.5
+    tau_q_safe = tau_q * finite_mask + default_vals * (1.0 - finite_mask)
+    
+    holder_exponent_raw, spectrum_max = compute_singularity_spectrum(tau_q_safe, q_range)
+    
+    # Ensure result is valid
+    is_finite = jnp.isfinite(holder_exponent_raw).astype(jnp.float64)
+    holder_exponent_val = holder_exponent_raw * is_finite + 0.5 * (1.0 - is_finite)
     
     # Clip to valid range
     holder_exponent = jnp.clip(
-        holder_exponent,
+        holder_exponent_val,
         config.validation_holder_exponent_min,
         config.validation_holder_exponent_max
     )
