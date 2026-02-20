@@ -1,12 +1,15 @@
 """
 Meta Test Validator - Structural Coverage Analyzer
 
+Validation Scope: Python/ (api, core, io, kernels modules only)
+Tests File: tests/scripts/code_structure.py
+
 Validates that code_structure.py covers 100% of public functions
 that should be tested according to the codebase structure.
 
 Reports:
-  1. Functions that MUST be tested (from __all__ exports)
-  2. Functions that ARE tested (by name matching)
+  1. Functions that MUST be tested (from __all__ exports in Python/)
+  2. Functions that ARE tested (by name matching in code_structure.py)
   3. Functions that NEED testing (gap analysis)
   4. Tests that reference non-existent functions (orphans)
 
@@ -88,9 +91,9 @@ class StructuralCoverageValidator:
         return self.public_functions
     
     def extract_test_functions(self) -> Dict[str, str]:
-        """Extract all test function names and their test classes."""
+        """Extract all test function names and their test classes from code_structure.py."""
         
-        test_file = self.root / "tests/scripts/test_structural_execution.py"
+        test_file = self.root / "tests/scripts/code_structure.py"
         if not test_file.exists():
             return {}
         
@@ -114,9 +117,9 @@ class StructuralCoverageValidator:
         return tests
     
     def extract_tested_symbols(self) -> Set[str]:
-        """Extract function names mentioned in test file."""
+        """Extract function names mentioned in code_structure.py test file."""
         
-        test_file = self.root / "tests/scripts/test_structural_execution.py"
+        test_file = self.root / "tests/scripts/code_structure.py"
         if not test_file.exists():
             return set()
         

@@ -1,6 +1,9 @@
 """
 Structural Execution Tests - 100% Code Coverage with Real Execution.
 
+Validation Scope: Python/ (api, core, io, kernels modules)
+Execution: pytest with real JAX computations
+
 Philosophy:
     - 100% cobertura = todas las líneas ejecutadas sin exceptions
     - Inputs válidos según firmas actuales del código

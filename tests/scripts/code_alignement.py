@@ -1,8 +1,8 @@
 #!/usr/bin/env python3
 """Policy compliance checker (spec-complete).
 
-This script validates repository state against the policies defined in:
-- tests/audit/AUDIT_POLICIES_SPECIFICATION.md
+Validation Scope: Entire repository (policies apply repo-wide)
+Policy Source: tests/doc/AUDIT_POLICIES_SPECIFICATION.md
 
 Outputs:
 - Console summary (PASS/FAIL per policy)
@@ -20,7 +20,7 @@ from datetime import datetime
 from typing import Callable, Dict, List, Tuple
 
 ROOT = os.path.abspath(os.path.join(os.path.dirname(__file__), ".."))
-POLICY_DOC = os.path.join(ROOT, "doc", "audit", "AUDIT_POLICIES_SPECIFICATION.md")
+POLICY_DOC = os.path.join(ROOT, "tests", "doc", "AUDIT_POLICIES_SPECIFICATION.md")
 REPORT_DIR = os.path.join(ROOT, "tests", "results")
 
 
@@ -47,7 +47,7 @@ def find_in_file(pattern: str, path: str) -> bool:
     return re.search(pattern, read_text(path), re.MULTILINE) is not None
 
 
-def find_in_dir(pattern: str, dir_path: str, extensions: Tuple[str, ...] = (".py",)) -> bool:
+def find_in_dir(pattern: str, dir_path: str, extensions: Tuple[str, ...] = (".py",)) -> Tuple[bool, str]:
     regex = re.compile(pattern, re.MULTILINE)
     for root, _, files in os.walk(dir_path):
         for name in files:
@@ -55,8 +55,15 @@ def find_in_dir(pattern: str, dir_path: str, extensions: Tuple[str, ...] = (".py
                 continue
             full_path = os.path.join(root, name)
             if regex.search(read_text(full_path)):
-                return True
-    return False
+                return True, "OK"
+    return False, f"Pattern '{pattern}' not found in {dir_path}"
+
+
+def check_dir_exists(dir_path: str) -> Tuple[bool, str]:
+    """Check if directory exists."""
+    if os.path.isdir(dir_path):
+        return True, "OK"
+    return False, f"Directory not found: {dir_path}"
 
 
 def require_all(patterns: List[str], path: str) -> Tuple[bool, str]:
@@ -178,8 +185,8 @@ def policy_checks() -> List[Tuple[int, str, Callable[[], Tuple[bool, str]]]]:
             13,
             "Kernel Purity and Statelessness",
             lambda: (
-                not find_in_dir(r"\bprint\(|\bopen\(", os.path.join(ROOT, "Python", "kernels")),
-                "No I/O in kernels" if not find_in_dir(r"\bprint\(|\bopen\(", os.path.join(ROOT, "Python", "kernels")) else "I/O found in kernels",
+                not find_in_dir(r"\bprint\(|\bopen\(", os.path.join(ROOT, "Python", "kernels"))[0],
+                "No I/O in kernels" if not find_in_dir(r"\bprint\(|\bopen\(", os.path.join(ROOT, "Python", "kernels"))[0] else "I/O found in kernels",
             ),
         ),
         (
@@ -359,9 +366,9 @@ def policy_checks() -> List[Tuple[int, str, Callable[[], Tuple[bool, str]]]]:
             "Hardware Parity and Quantization Drift Tests",
             lambda: (
                 os.path.isdir(os.path.join(ROOT, "tests", "test_hardware"))
-                or find_in_dir(r"cpu_gpu_parity|fixed_point", os.path.join(ROOT, "tests"), (".py",)),
+                or find_in_dir(r"cpu_gpu_parity|fixed_point", os.path.join(ROOT, "tests"), (".py",))[0],
                 "OK" if (os.path.isdir(os.path.join(ROOT, "tests", "test_hardware"))
-                or find_in_dir(r"cpu_gpu_parity|fixed_point", os.path.join(ROOT, "tests"), (".py",))) else "Hardware tests missing",
+                or find_in_dir(r"cpu_gpu_parity|fixed_point", os.path.join(ROOT, "tests"), (".py",))[0]) else "Hardware tests missing",
             ),
         ),
         (
@@ -390,17 +397,17 @@ def policy_checks() -> List[Tuple[int, str, Callable[[], Tuple[bool, str]]]]:
             "Atomic TOML Mutation Tests (POSIX)",
             lambda: (
                 os.path.isdir(os.path.join(ROOT, "tests", "test_io"))
-                or find_in_dir(r"atomic_toml_mutation", os.path.join(ROOT, "tests"), (".py",)),
+                or find_in_dir(r"atomic_toml_mutation", os.path.join(ROOT, "tests"), (".py",))[0],
                 "OK" if (os.path.isdir(os.path.join(ROOT, "tests", "test_io"))
-                or find_in_dir(r"atomic_toml_mutation", os.path.join(ROOT, "tests"), (".py",))) else "Atomic mutation tests missing",
+                or find_in_dir(r"atomic_toml_mutation", os.path.join(ROOT, "tests"), (".py",))[0]) else "Atomic mutation tests missing",
             ),
         ),
         (
             40,
             "Degraded Mode Tests (TTL and Hysteresis)",
             lambda: (
-                find_in_dir(r"degraded_mode|ttl", os.path.join(ROOT, "tests"), (".py",)),
-                "OK" if find_in_dir(r"degraded_mode|ttl", os.path.join(ROOT, "tests"), (".py",)) else "Degraded mode tests missing",
+                find_in_dir(r"degraded_mode|ttl", os.path.join(ROOT, "tests"), (".py",))[0],
+                "OK" if find_in_dir(r"degraded_mode|ttl", os.path.join(ROOT, "tests"), (".py",))[0] else "Degraded mode tests missing",
             ),
         ),
     ]

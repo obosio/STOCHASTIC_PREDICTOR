@@ -8,7 +8,7 @@
 
 ## 1. Executive Overview
 
-El sistema de testing ha sido reorganizado en una arquitectura modular de **3 capas de validación** orquestadas por un **entrypoint central** (`tests_start.py`). Cada capa valida un aspecto diferente del código:
+El sistema de testing ha sido reorganizado en una arquitectura modular de **3 capas de validación** orquestadas por un **entrypoint central** (`TESTS_START.py`). Cada capa valida un aspecto diferente del código:
 
 | Capa | Script | Propósito | Artefacto |
 | --- | --- | --- | --- |
@@ -22,7 +22,7 @@ El sistema de testing ha sido reorganizado en una arquitectura modular de **3 ca
 
 ```text
 ┌─────────────────────────────────────────────────────────────┐
-│                    tests_start.py                            │
+│                    TESTS_START.py                           │
 │              (Entrypoint Orchestrator)                       │
 └─────────────────────────────────────────────────────────────┘
                               │
@@ -51,7 +51,7 @@ El sistema de testing ha sido reorganizado en una arquitectura modular de **3 ca
 
 **Responsabilidades**:
 
-- Valida el repositorio contra especificaciones de audit en `tests/audit/AUDIT_POLICIES_SPECIFICATION.md`
+- Valida el repositorio contra especificaciones de audit en `tests/doc/AUDIT_POLICIES_SPECIFICATION.md`
 - Verifica estructuras obligatorias (archivos, paths, contenido)
 - Genera reportes JSON timestamped
 
@@ -89,7 +89,7 @@ Report: reports/policies/policy_audit_20260220_184532.json
 
 **Dependencias**:
 
-- `tests/audit/AUDIT_POLICIES_SPECIFICATION.md` (required)
+- `tests/doc/AUDIT_POLICIES_SPECIFICATION.md` (required)
 - No depende de otros scripts
 
 ---
@@ -251,7 +251,7 @@ tests/scripts/code_structure.py::TestValidation::test_validate_shape PASSED
 
 ## 4. Orden de Ejecución
 
-El entrypoint `tests_start.py` ejecuta en este orden (secuencial, no paralelo):
+El entrypoint `TESTS_START.py` ejecuta en este orden (secuencial, no paralelo):
 
 ```text
 1️⃣  code_alignement.py      (Policy compliance)
@@ -276,13 +276,13 @@ El entrypoint `tests_start.py` ejecuta en este orden (secuencial, no paralelo):
 
 ---
 
-## 5. Uso de `tests_start.py`
+## 5. Uso de `TESTS_START.py`
 
 ### 5.1 Ejecución Completa
 
 ```bash
 # Ejecutar todos los stages en orden
-python tests/scripts/tests_start.py
+python tests/scripts/TESTS_START.py
 
 # Output esperado:
 # Stage 1: Policy checks + report generation
@@ -295,13 +295,13 @@ python tests/scripts/tests_start.py
 
 ```bash
 # Solo validación de cobertura
-python tests/scripts/tests_start.py tests_coverage
+python tests/scripts/TESTS_START.py tests_coverage
 
 # Solo pytest structural tests
-python tests/scripts/tests_start.py code_structure
+python tests/scripts/TESTS_START.py code_structure
 
 # Solo audit de políticas
-python tests/scripts/tests_start.py code_alignement
+python tests/scripts/TESTS_START.py code_alignement
 ```
 
 ### 5.3 Exit Codes
@@ -357,7 +357,7 @@ tests_start.py (Entrypoint)
 └── imports: code_structure (via pytest)
 
 code_alignement.py
-├── reads: tests/audit/AUDIT_POLICIES_SPECIFICATION.md
+├── reads: tests/doc/AUDIT_POLICIES_SPECIFICATION.md
 ├── writes: reports/policies/policy_audit_*.json
 └── [INDEPENDENT - no Python imports]
 
@@ -471,7 +471,7 @@ STOCHASTIC_PREDICTOR/
 │   ├── audit/                        # ← Policy specifications (moved from doc/)
 │   │   └── AUDIT_POLICIES_SPECIFICATION.md
 │   ├── scripts/                      # ← Test orchestration
-│   │   ├── tests_start.py           # ◄ ENTRYPOINT
+│   │   ├── TESTS_START.py           # ◄ ENTRYPOINT
 │   │   ├── code_alignement.py       # Stage 1: Compliance
 │   │   ├── tests_coverage.py        # Stage 2: Coverage
 │   │   ├── code_structure.py        # Stage 3: Execution
@@ -513,7 +513,7 @@ jobs:
         with:
           python-version: '3.11'
       - run: pip install -r requirements.txt
-      - run: python tests/scripts/tests_start.py
+      - run: python tests/scripts/TESTS_START.py
         # Exit code determines pass/fail
 ```
 
@@ -521,7 +521,7 @@ jobs:
 
 ```bash
 # Before committing:
-python tests/scripts/tests_start.py
+python tests/scripts/TESTS_START.py
 
 # If all stages pass → Ready to commit
 # If any stage fails:
@@ -536,7 +536,7 @@ python tests/scripts/tests_start.py
 ```bash
 #!/bin/bash
 # .git/hooks/pre-commit
-python tests/scripts/tests_start.py || exit 1
+python tests/scripts/TESTS_START.py || exit 1
 ```
 
 ---
@@ -566,7 +566,7 @@ python tests/scripts/tests_start.py || exit 1
 
 1. **Sequential Execution**: No hay paralelización (todos corren lineales)
 2. **No Caching**: Cada ejecución rescandea AST completo
-3. **Policy Doc Required**: code_alignement MUST find `tests/audit/AUDIT_POLICIES_SPECIFICATION.md`
+3. **Policy Doc Required**: code_alignement MUST find `tests/doc/AUDIT_POLICIES_SPECIFICATION.md`
 4. **JAX X64 Global**: X64 precision es global en `code_structure.py`
 
 ### 12.2 Future Enhancements
@@ -586,10 +586,10 @@ python tests/scripts/tests_start.py || exit 1
 
 ```bash
 # Verificar especificación de políticas existe:
-ls tests/audit/AUDIT_POLICIES_SPECIFICATION.md
+ls tests/doc/AUDIT_POLICIES_SPECIFICATION.md
 
 # Si no existe: Restaurar desde git
-git checkout tests/audit/AUDIT_POLICIES_SPECIFICATION.md
+git checkout tests/doc/AUDIT_POLICIES_SPECIFICATION.md
 ```
 
 ### 13.2 Issue: tests_coverage Detects Gaps
@@ -632,7 +632,7 @@ python -m pytest tests/scripts/code_structure.py::TestAPIConfig::test_config_inj
 | **Test Architecture** | v2 (Reorganized) |
 | **Date** | 20 de febrero de 2026 |
 | **Status** | Complete - Ready for Use |
-| **Entrypoint** | `tests/scripts/tests_start.py` |
+| **Entrypoint** | `tests/scripts/TESTS_START.py` |
 | **Total Test Scripts** | 4 (1 orchestrator + 3 validators) |
 | **Total Test Cases** | 127+ (in code_structure.py) |
 | **Expected Pass Rate** | 100% when all policies enforced |
@@ -644,7 +644,7 @@ python -m pytest tests/scripts/code_structure.py::TestAPIConfig::test_config_inj
 ### 15.1 Key Achievements
 
 ✅ **Modular Design**: 3 independent validation layers  
-✅ **Single Entrypoint**: `tests_start.py` coordinates all  
+✅ **Single Entrypoint**: `TESTS_START.py` coordinates all  
 ✅ **Comprehensive Coverage**: Policy + Structural + Execution  
 ✅ **Clear Exit Codes**: Simple pass/fail semantics  
 ✅ **Artifact Separation**: Policies (reports/), Coverage (tests/results/)  
@@ -652,14 +652,14 @@ python -m pytest tests/scripts/code_structure.py::TestAPIConfig::test_config_inj
 
 ### 15.2 Next Steps
 
-1. **Execute Full Suite**: `python tests/scripts/tests_start.py`
+1. **Execute Full Suite**: `python tests/scripts/TESTS_START.py`
 2. **Verify All Artifacts**: Check reports/ and tests/results/
 3. **Integrate with CI/CD**: Add to GitHub Actions workflow
 4. **Monitor Metrics**: Track test pass rate, coverage gaps, execution time
 
 ### 15.3 Best Practices
 
-- Always run `tests_start.py` before `git commit`
+- Always run `TESTS_START.py` before `git commit`
 - Review policy audit reports on every merge
 - Keep `AUDIT_POLICIES_SPECIFICATION.md` up-to-date
 - Add new tests to `code_structure.py` when gaps detected
