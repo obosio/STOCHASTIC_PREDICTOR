@@ -138,7 +138,7 @@ def find_modulus_maxima(
     
     local_max = (abs_cwt >= left_neighbor) & (abs_cwt >= right_neighbor) & threshold_mask
     
-    return local_max.astype(jnp.float32)
+    return local_max.astype(jnp.float64)
 
 
 @jax.jit
@@ -177,7 +177,7 @@ def link_wavelet_maxima(
     chain_presence = modulus_maxima.T  # Shape: (n, m)
     chain_magnitudes = chain_magnitudes.T  # Shape: (n, m)
     
-    return chain_presence.astype(jnp.float32), chain_magnitudes.astype(jnp.float32)
+    return chain_presence.astype(jnp.float64), chain_magnitudes.astype(jnp.float64)
 
 
 @jax.jit
