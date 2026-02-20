@@ -26,8 +26,7 @@ import jax.lax as lax
 from jaxtyping import Array, Float
 from dataclasses import replace
 
-from stochastic_predictor.api.types import InternalState
-from stochastic_predictor.api.config import PredictorConfig
+from stochastic_predictor.api.types import InternalState, PredictorConfig
 
 
 @jax.jit

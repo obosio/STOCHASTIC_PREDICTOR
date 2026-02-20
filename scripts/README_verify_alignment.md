@@ -80,7 +80,7 @@ El script verifica 23 políticas críticas organizadas en dos categorías:
 ### Políticas de Estabilidad y Control (1-8)
 
 | # | Política | Descripción |
-|---|----------|-------------|
+| --- | ---------- | ------------- |
 | **1** | Zero-Heuristics | Sin valores por defecto silenciosos; validación explícita en `config.py` y `meta_optimizer.py` |
 | **2** | Configuration Immutability | Subsecciones protegidas contra mutación en `config_mutation.py` |
 | **3** | Validation Schema Enforcement | Schema definido en `[mutation_policy.validation_schema]` de `config.toml` |
@@ -93,7 +93,7 @@ El script verifica 23 políticas críticas organizadas en dos categorías:
 ### Políticas de Precisión Numérica y Características (9-23)
 
 | # | Política | Descripción |
-|---|----------|-------------|
+| --- | ---------- | ------------- |
 | **9** | Sinkhorn Epsilon Bounds | Epsilon configurado en `config.toml` y `core/sinkhorn.py` |
 | **10** | CFL Condition | Validación de estabilidad de timesteps PIDE |
 | **11** | Malliavin 64-Bit Precision | `float64` o `jax_enable_x64` activo en config |
@@ -116,7 +116,7 @@ El script verifica 23 políticas críticas organizadas en dos categorías:
 
 ### Salida Exitosa (100% Compliance)
 
-```
+```text
 ═══════════════════════════════════════════════════════════════
 SUMMARY
 ═══════════════════════════════════════════════════════════════
@@ -135,7 +135,7 @@ Compliance: 100%
 
 ### Salida con Fallos
 
-```
+```text
 ═══════════════════════════════════════════════════════════════
 SUMMARY
 ═══════════════════════════════════════════════════════════════
@@ -155,7 +155,7 @@ Compliance: 91%
 ### Códigos de Salida
 
 | Exit Code | Significado |
-|-----------|------------|
+| ----------- | ------------ |
 | `0` | ✅ Todas las 23 políticas pasan |
 | `1` | ❌ Una o más políticas fallan |
 
