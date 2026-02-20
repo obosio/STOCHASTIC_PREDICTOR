@@ -173,11 +173,26 @@ echo ""
 echo "═══════════════════════════════════════════════════════════════"
 echo "POLICY #13: Kernel Purity & Statelessness"
 echo "═══════════════════════════════════════════════════════════════"
-jit_count=$(grep -r "@" "$ROOT/stochastic_predictor/kernels/" 2>/dev/null | grep -E "@jax\.jit|@partial\(jax\.jit" | wc -l || echo "0")
-if [[ "$jit_count" -ge 20 ]]; then
-	check_pass "Policy #13: Kernel purity ($jit_count @jax.jit decorations)"
+# Verify all 4 main kernel functions have @jax.jit or @partial(jax.jit) decorator
+kernel_a_decorated=0
+grep -B 1 "def kernel_a_predict" "$ROOT/stochastic_predictor/kernels/kernel_a.py" 2>/dev/null | grep -q "jax.jit" && kernel_a_decorated=1
+
+kernel_b_decorated=0
+grep -B 1 "def kernel_b_predict" "$ROOT/stochastic_predictor/kernels/kernel_b.py" 2>/dev/null | grep -q "jax.jit" && kernel_b_decorated=1
+
+kernel_c_decorated=0
+grep -B 1 "def kernel_c_predict" "$ROOT/stochastic_predictor/kernels/kernel_c.py" 2>/dev/null | grep -q "jax.jit" && kernel_c_decorated=1
+
+kernel_d_decorated=0
+grep -B 1 "def kernel_d_predict" "$ROOT/stochastic_predictor/kernels/kernel_d.py" 2>/dev/null | grep -q "jax.jit" && kernel_d_decorated=1
+
+main_kernels_jit=$((kernel_a_decorated + kernel_b_decorated + kernel_c_decorated + kernel_d_decorated))
+total_jit_count=$(grep -r "jax\.jit" "$ROOT/stochastic_predictor/kernels/" 2>/dev/null | wc -l || echo "0")
+
+if [[ "$main_kernels_jit" -eq 4 && "$total_jit_count" -ge 21 ]]; then
+	check_pass "Policy #13: All 4 kernels JIT-pure (K_A✓ K_B✓ K_C✓ K_D✓, total: $total_jit_count decorations)"
 else
-	check_fail "Policy #13: Insufficient kernel decoration (found $jit_count, need >= 20)"
+	check_fail "Policy #13: Kernel purity - (K_A:$kernel_a_decorated K_B:$kernel_b_decorated K_C:$kernel_c_decorated K_D:$kernel_d_decorated need 4) (total $total_jit_count, need >= 21)"
 fi
 echo ""
 
