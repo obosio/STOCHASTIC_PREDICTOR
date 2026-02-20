@@ -51,7 +51,7 @@ El sistema de testing ha sido reorganizado en una arquitectura modular de **3 ca
 
 **Responsabilidades**:
 
-- Valida el repositorio contra especificaciones de audit en `tests/doc/AUDIT_POLICIES_SPECIFICATION.md`
+- Valida el repositorio contra especificaciones de audit en `tests/doc/CODE_AUDIT_POLICIES_SPECIFICATION.md`
 - Verifica estructuras obligatorias (archivos, paths, contenido)
 - Genera reportes JSON timestamped
 
@@ -89,7 +89,7 @@ Report: reports/policies/policy_audit_20260220_184532.json
 
 **Dependencias**:
 
-- `tests/doc/AUDIT_POLICIES_SPECIFICATION.md` (required)
+- `tests/doc/CODE_AUDIT_POLICIES_SPECIFICATION.md` (required)
 - No depende de otros scripts
 
 ---
@@ -357,7 +357,7 @@ tests_start.py (Entrypoint)
 └── imports: code_structure (via pytest)
 
 code_alignement.py
-├── reads: tests/doc/AUDIT_POLICIES_SPECIFICATION.md
+├── reads: tests/doc/CODE_AUDIT_POLICIES_SPECIFICATION.md
 ├── writes: reports/policies/policy_audit_*.json
 └── [INDEPENDENT - no Python imports]
 
@@ -469,7 +469,7 @@ STOCHASTIC_PREDICTOR/
 │
 ├── tests/
 │   ├── audit/                        # ← Policy specifications (moved from doc/)
-│   │   └── AUDIT_POLICIES_SPECIFICATION.md
+│   │   └── CODE_AUDIT_POLICIES_SPECIFICATION.md
 │   ├── scripts/                      # ← Test orchestration
 │   │   ├── TESTS_START.py           # ◄ ENTRYPOINT
 │   │   ├── code_alignement.py       # Stage 1: Compliance
@@ -566,7 +566,7 @@ python tests/scripts/TESTS_START.py || exit 1
 
 1. **Sequential Execution**: No hay paralelización (todos corren lineales)
 2. **No Caching**: Cada ejecución rescandea AST completo
-3. **Policy Doc Required**: code_alignement MUST find `tests/doc/AUDIT_POLICIES_SPECIFICATION.md`
+3. **Policy Doc Required**: code_alignement MUST find `tests/doc/CODE_AUDIT_POLICIES_SPECIFICATION.md`
 4. **JAX X64 Global**: X64 precision es global en `code_structure.py`
 
 ### 12.2 Future Enhancements
@@ -586,10 +586,10 @@ python tests/scripts/TESTS_START.py || exit 1
 
 ```bash
 # Verificar especificación de políticas existe:
-ls tests/doc/AUDIT_POLICIES_SPECIFICATION.md
+ls tests/doc/CODE_AUDIT_POLICIES_SPECIFICATION.md
 
 # Si no existe: Restaurar desde git
-git checkout tests/doc/AUDIT_POLICIES_SPECIFICATION.md
+git checkout tests/doc/CODE_AUDIT_POLICIES_SPECIFICATION.md
 ```
 
 ### 13.2 Issue: tests_coverage Detects Gaps
@@ -661,7 +661,7 @@ python -m pytest tests/scripts/code_structure.py::TestAPIConfig::test_config_inj
 
 - Always run `TESTS_START.py` before `git commit`
 - Review policy audit reports on every merge
-- Keep `AUDIT_POLICIES_SPECIFICATION.md` up-to-date
+- Keep `CODE_AUDIT_POLICIES_SPECIFICATION.md` up-to-date
 - Add new tests to `code_structure.py` when gaps detected
 - Don't manually edit JSON reports (generated programmatically)
 

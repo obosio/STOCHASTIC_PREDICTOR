@@ -568,7 +568,7 @@ def orchestrate_step(
 
     # Provisional fusion to update volatility for current step
     provisional_window, provisional_lr = compute_adaptive_jko_params(
-        float(state.ema_variance),
+        state.ema_variance,
         config=config,
     )
     # Cost type selection: static in vmap path, dynamic in host-only path
@@ -590,7 +590,7 @@ def orchestrate_step(
     ema_variance_current = update_ema_variance(state, provisional_residual, config.volatility_alpha).ema_variance
 
     adaptive_entropy_window, adaptive_learning_rate = compute_adaptive_jko_params(
-        float(ema_variance_current),
+        ema_variance_current,
         config=config,
     )
     fusion_config = replace(
@@ -700,7 +700,7 @@ def orchestrate_step(
     force_emergency = False
     # Degradation monitor (post-mutation rollback guardrail)
     if degradation_monitor is not None and not reject_observation:
-        degradation_monitor.record_prediction_error(float(residual))
+        degradation_monitor.record_prediction_error(residual)
         degraded, _ = degradation_monitor.check_degradation()
         if degraded:
             degradation_monitor.trigger_rollback()

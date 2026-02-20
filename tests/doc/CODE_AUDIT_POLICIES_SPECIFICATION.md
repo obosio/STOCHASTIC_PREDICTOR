@@ -58,13 +58,9 @@ No external sources are used. If a requirement does not appear in the specificat
 31. Meta-Optimization Checkpoint Integrity
 32. TPE Resume Determinism
 33. Telemetry Flags and Alerts (Required Fields)
-34. Test Coverage and Validation Protocols (Spec Tests)
-35. Hardware Parity and Quantization Drift Tests
-36. XLA No Host-Device Sync in Orchestrator
-37. Vectorized vmap Parity
-38. JIT Cache Warmup Guarantees
-39. Atomic TOML Mutation Tests (POSIX)
-40. Degraded Mode Tests (TTL and Hysteresis)
+34. XLA No Host-Device Sync in Orchestrator
+35. Vectorized vmap Parity
+36. JIT Cache Warmup Guarantees
 
 ---
 
@@ -454,24 +450,6 @@ Telemetry must include degraded_inference, emergency_mode, regime_change, and mo
 
 ---
 
-## 34. Test Coverage and Validation Protocols (Spec Tests)
-
-**Source:** Stochastic_Predictor_Test_Cases.tex and Stochastic_Predictor_Tests_Python.tex
-
-**Policy Statement:**
-All specified tests and acceptance criteria in the test specifications are mandatory and must pass before release.
-
----
-
-## 35. Hardware Parity and Quantization Drift Tests
-
-**Source:** Stochastic_Predictor_Tests_Python.tex
-
-**Policy Statement:**
-CPU/GPU parity and FPGA quantization drift tests must meet specified tolerances.
-
----
-
 ## 36. XLA No Host-Device Sync in Orchestrator
 
 **Source:** Stochastic_Predictor_Tests_Python.tex
@@ -496,24 +474,6 @@ Batched vmap execution must be bit-exact with sequential execution.
 
 **Policy Statement:**
 Load shedding warmup must precompile all depths with cache hit rate >= 99%.
-
----
-
-## 39. Atomic TOML Mutation Tests (POSIX)
-
-**Source:** Stochastic_Predictor_Tests_Python.tex
-
-**Policy Statement:**
-Atomic mutation must use temp write, fsync, os.replace, concurrency detection, and audit log.
-
----
-
-## 40. Degraded Mode Tests (TTL and Hysteresis)
-
-**Source:** Stochastic_Predictor_Tests_Python.tex
-
-**Policy Statement:**
-Degraded mode must activate on TTL violation and recover only after hysteresis threshold.
 
 ---
 

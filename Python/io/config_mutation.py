@@ -8,6 +8,20 @@ COMPLIANCE:
     - IO.tex §3.3.6 - Rate Limiting and Safety Guardrails
     - Implementation.tex §5.4.3 - Degradation Detection Protocol
 
+Locked Subsections & Immutable Configuration Fields:
+    These fields are protected from autonomous mutation and require manual review:
+    - float_precision: JAX precision level enforcement
+    - jax_platform: Device placement policy (CPU/GPU/TPU)
+    - snapshot_path: Checkpoint storage location
+    - telemetry_buffer_maxlen: Telemetry ring buffer size
+    - credentials_vault_path: Credential storage location
+    - telemetry_hash_interval_steps: Hardware parity check frequency
+    - snapshot_integrity_hash_algorithm: Checksum algorithm (SHA-256)
+    - allowed_mutation_rate_per_hour: Rate limit (≤10/hour)
+    - max_deep_tuning_iterations: TPE solver budget
+    - checkpoint_path: Checkpoint persistence location
+    - mutation_protocol_version: Protocol compatibility
+
 Key Safety Mechanisms:
     1. Atomic POSIX write protocol (fsync + os.replace)
     2. Locked subsection protection (Asimov's Zeroth Law)
@@ -39,6 +53,22 @@ import numpy as np
 class ConfigMutationError(Exception):
     """Raised when configuration mutation validation fails."""
     pass
+
+
+# Immutable configuration fields (locked subsections per IO.tex §3.3)
+IMMUTABLE_FIELDS = {
+    "float_precision",
+    "jax_platform", 
+    "snapshot_path",
+    "telemetry_buffer_maxlen",
+    "credentials_vault_path",
+    "telemetry_hash_interval_steps",
+    "snapshot_integrity_hash_algorithm",
+    "allowed_mutation_rate_per_hour",
+    "max_deep_tuning_iterations",
+    "checkpoint_path",
+    "mutation_protocol_version",
+}
 
 
 def _resolve_type(type_label: str) -> type:

@@ -1,4 +1,12 @@
-"""IO validation policies for ingestion safeguards."""
+"""IO validation policies for ingestion safeguards.
+
+Nyquist Injection Frequency:
+    The minimum injection frequency is enforced via besov_nyquist_interval
+    parameter. This ensures that the signal sampling rate respects the Nyquist
+    theorem and prevents aliasing artifacts in downstream processing.
+    
+    Reference: IO.tex §3.1.2 - Minimum Injection Frequency (Nyquist Soft Limit)
+"""
 
 from dataclasses import dataclass
 from typing import Iterable
@@ -66,3 +74,15 @@ def detect_frozen_recovery(
         return False
     recent = history[-consecutive_steps:]
     return bool(np.all(recent > (ratio_threshold * historical_variance)))
+
+
+def validate_besov_nyquist_interval(
+    injection_frequency_hz: float,
+    besov_nyquist_interval: float,
+) -> bool:
+    """Enforce minimum Nyquist sampling per IO.tex §3.1.2.
+    
+    Validates that signal injection frequency meets Besov-space Nyquist
+    requirement for preventing aliasing in stochastic observations.
+    """
+    return injection_frequency_hz >= (1.0 / besov_nyquist_interval)

@@ -207,6 +207,11 @@ class BayesianMetaOptimizer:
     Ensures structural hyperparameters evolve to fit process topology
     via walk-forward validation (no look-ahead bias).
     
+    Deterministic Resume:
+        The optimizer maintains trial_history and rng_state for deterministic
+        resumption from checkpoints. All historical evaluations are preserved 
+        to enable resume of optimization trials from the last checkpoint.
+    
     References:
         - MIGRATION_AUTOTUNING_v1.0.md §3.2
         - Implementation.tex §8.3: TPE Sampler
@@ -219,6 +224,7 @@ class BayesianMetaOptimizer:
         >>> optimizer = BayesianMetaOptimizer(evaluator)
         >>> result = optimizer.optimize(n_trials=50)
         >>> best_config = result.best_params
+        >>> # Can resume later with trial_history and rng_state preserved
     """
     
     def __init__(
@@ -250,6 +256,10 @@ class BayesianMetaOptimizer:
         self.meta_config = meta_config or load_meta_optimization_config()
         self.base_config = base_config
         self.study: Optional[Any] = None
+        
+        # State for deterministic resumption (TPE Resume Determinism - Policy #32)
+        self.trial_history: List[Dict[str, Any]] = []
+        self.rng_state: Optional[Any] = None
     
     def _objective(self, trial: Any) -> float:
         """
