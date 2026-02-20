@@ -123,10 +123,29 @@ class PredictionResult:
     reference_prediction: Float[Array, ""]
     confidence_lower: Float[Array, ""]
     confidence_upper: Float[Array, ""]
-    operating_mode: str  # "inference" | "calibration" | "diagnostic"
+    operating_mode: Array  # int32 scalar: 0=inference, 1=calibration, 2=diagnostic
     telemetry: Optional[object] = None
     request_id: Optional[str] = None
+
+# Core returns int32 Array (XLA-compatible); API layer converts to strings
+class OperatingMode:
+    INFERENCE = 0
+    CALIBRATION = 1
+    DIAGNOSTIC = 2
+    
+    @staticmethod
+    def to_string(mode: int) -> str:
+        """Convert integer mode to API string (host-side only)."""
+        if mode == 0:
+            return "inference"
+        elif mode == 1:
+            return "calibration"
+        elif mode == 2:
+            return "diagnostic"
+        return "inference"
 \end{lstlisting}
+
+\textbf{Design Rationale}: JAX/XLA cannot handle strings inside traced/vmapped functions. The core returns integer codes; the API layer performs host-side conversion to strings for external contracts.
 
 \section{Multi-Tenant Architecture (Stateless Functional Pattern)}
 
@@ -164,19 +183,24 @@ class FunctionalPredictor:
             reference_prediction=raw_result.y_next,
             confidence_lower=raw_result.lower,
             confidence_upper=raw_result.upper,
-            operating_mode=raw_result.mode,
+            operating_mode=raw_result.mode,  # int32 Array from core
         )
+        # API layer can convert: mode_str = OperatingMode.to_string(int(result.operating_mode))
         return new_state, result
 
     def step_batch(self, states, obs_batch: list[ProcessState]):
-        """Host-side batch processing for N assets."""
-        new_states = []
-        results = []
-        for state, obs in zip(states, obs_batch):
-            updated, result = self.step(state, obs)
-            new_states.append(updated)
-            results.append(result)
-        return new_states, results
+        """
+        Pure JAX batch processing with vmap (Zero-Copy GPU parallelization).
+        
+        Note: Simplified core skips IO ingestion for vmap compatibility.
+        Use single-path orchestrate_step for full observation validation.
+        """
+        # Batch signals/states via vmap (no Python loop)
+        signals_batch = jnp.stack([obs.magnitude for obs in obs_batch])
+        predictions_batch, states_batch = jax.vmap(
+            lambda sig, st: self._core_step(sig, st, self.config)
+        )(signals_batch, states)
+        return states_batch, predictions_batch
 \end{lstlisting}
 
 \section{Main Class: \texttt{UniversalPredictor} (Stateful Wrapper)}
