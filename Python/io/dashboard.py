@@ -39,7 +39,7 @@ def _extract_series(records: Iterable[dict], key: str) -> list[float]:
 
 def _svg_line_chart(series: DashboardSeries, width: int, height: int, spread_epsilon: float) -> str:
     if not series.values:
-        return "<div class=\"chart-empty\">No data</div>"
+        return '<div class="chart-empty">No data</div>'
 
     min_val = min(series.values)
     max_val = max(series.values)
@@ -90,12 +90,7 @@ def build_dashboard_html(
         mode = record.get("mode", "-")
         free_energy = record.get("free_energy", "-")
         rows.append(
-            "<tr>"
-            f"<td>{step}</td>"
-            f"<td>{prediction}</td>"
-            f"<td>{mode}</td>"
-            f"<td>{free_energy}</td>"
-            "</tr>"
+            "<tr>" f"<td>{step}</td>" f"<td>{prediction}</td>" f"<td>{mode}</td>" f"<td>{free_energy}</td>" "</tr>"
         )
 
     charts_html = "\n".join(
@@ -221,7 +216,7 @@ def build_dashboard_html(
 def export_dashboard_snapshot(
     telemetry_buffer: TelemetryBuffer,
     output_path: str | Path,
-  config: Any,
+    config: Any,
 ) -> int:
     """Drain telemetry buffer and write an HTML dashboard.
 

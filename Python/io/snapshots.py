@@ -2,15 +2,14 @@
 
 from __future__ import annotations
 
-from dataclasses import asdict
-from pathlib import Path
-from typing import Any, Dict
 import hashlib
 import os
 import uuid
-import numpy as np
+from pathlib import Path
+from typing import Any, Dict
 
 import jax
+import numpy as np
 
 from Python.api.types import InternalState, PredictorConfig
 
@@ -163,6 +162,7 @@ def save_snapshot(path: str, state: InternalState, config: PredictorConfig) -> N
     payload = serialize_snapshot(state, config)
     if config.snapshot_compression == "gzip":
         import gzip
+
         payload = gzip.compress(payload)
     elif config.snapshot_compression == "brotli":
         try:
@@ -177,6 +177,7 @@ def load_snapshot(path: str, config: PredictorConfig) -> Dict[str, Any]:
     data = Path(path).read_bytes()
     if config.snapshot_compression == "gzip":
         import gzip
+
         data = gzip.decompress(data)
     elif config.snapshot_compression == "brotli":
         try:

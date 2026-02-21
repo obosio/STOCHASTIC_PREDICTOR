@@ -824,7 +824,7 @@ def main() -> int:
     reports_dir.mkdir(parents=True, exist_ok=True)
     
     # Generate timestamp
-    timestamp = datetime.utcnow().strftime("%Y-%m-%d %H:%M:%S UTC")
+    timestamp = datetime.now(timezone.utc).strftime("%Y-%m-%d %H:%M:%S UTC")
     json_file = results_dir / "code_structure_last.json"
     md_file = reports_dir / "code_structure_last.md"
     

@@ -9,11 +9,12 @@ References:
     - Implementacion.tex §3.3: IMEX Splitting for Stiff SDEs
 """
 
+from functools import partial
+from typing import Callable
+
 import jax
 import jax.numpy as jnp
-from functools import partial
 from jaxtyping import Array, Float
-from typing import Callable, Optional
 
 from .base import (
     KernelOutput,
@@ -31,7 +32,7 @@ def estimate_stiffness(
     t: float,
     dt: float,
     args: tuple,
-    config
+    config,
 ) -> Float[Array, ""]:
     """
     Estimate stiffness metric per Theory.tex §2.3.3.
@@ -57,10 +58,10 @@ def estimate_stiffness(
     y_pred = y + drift * dt
     sigma_pred = diffusion_fn(t + dt, y_pred, args)
     sigma_pred_norm = jnp.linalg.norm(sigma_pred)
-    dlog_sigma_dt = jnp.abs(
-        jnp.log(sigma_pred_norm + config.numerical_epsilon)
-        - jnp.log(sigma_norm + config.numerical_epsilon)
-    ) / dt
+    dlog_sigma_dt = (
+        jnp.abs(jnp.log(sigma_pred_norm + config.numerical_epsilon) - jnp.log(sigma_norm + config.numerical_epsilon))
+        / dt
+    )
     volatility_term = dlog_sigma_dt * dt
 
     stiffness_metric = jnp.maximum(stiffness_ratio, volatility_term)
@@ -77,11 +78,7 @@ def select_stiffness_solver(current_stiffness: float, config):
     return "implicit"
 
 
-def drift_levy_stable(
-    t: Float[Array, ""],
-    y: Float[Array, "d"],
-    args: tuple
-) -> Float[Array, "d"]:
+def drift_levy_stable(t: Float[Array, ""], y: Float[Array, "d"], args: tuple) -> Float[Array, "d"]:
     """
     Drift term f(t, y) for Lévy stable process.
     """
@@ -89,11 +86,7 @@ def drift_levy_stable(
     return jnp.full_like(y, mu)
 
 
-def diffusion_levy(
-    t: Float[Array, ""],
-    y: Float[Array, "d"],
-    args: tuple
-) -> Float[Array, "d d"]:
+def diffusion_levy(t: Float[Array, ""], y: Float[Array, "d"], args: tuple) -> Float[Array, "d d"]:
     """Diffusion term g(t, y) for Lévy process with config-driven sigma."""
     mu, alpha, beta, sigma = args
     d = y.shape[0]
@@ -109,7 +102,7 @@ def solve_sde(
     t1: float,
     key: Array,
     config,
-    args: tuple = ()
+    args: tuple = (),
 ) -> tuple[Float[Array, "d"], Array, Float[Array, ""]]:
     """
     Solve SDE with explicit/implicit/hybrid transition per Theory.tex §2.3.3.
@@ -146,9 +139,7 @@ def solve_sde(
         drift_pred = drift_fn(t + dt, y_explicit, args)
         y_implicit = y + 0.5 * dt * (drift + drift_pred) + diffusion_step
 
-        lambda_mix = (stiffness_metric - config.stiffness_low) / (
-            config.stiffness_high - config.stiffness_low
-        )
+        lambda_mix = (stiffness_metric - config.stiffness_low) / (config.stiffness_high - config.stiffness_low)
         lambda_mix = jnp.clip(lambda_mix, 0.0, 1.0)
 
         use_explicit = stiffness_metric < config.stiffness_low
@@ -176,11 +167,7 @@ def solve_sde(
     return y_final, solver_idx, max_stiffness
 
 
-def sample_levy_jump_component(
-    key: Array,
-    horizon: float,
-    config
-) -> tuple[Float[Array, ""], Float[Array, ""]]:
+def sample_levy_jump_component(key: Array, horizon: float, config) -> tuple[Float[Array, ""], Float[Array, ""]]:
     """
     Sample compound Poisson jump component for Levy process.
 
@@ -205,10 +192,7 @@ def sample_levy_jump_component(
     jump_count = jax.random.poisson(key_count, expected_count)
     jump_count = jnp.minimum(jump_count, max_events)
 
-    jump_sizes = (
-        config.kernel_c_jump_mean
-        + config.kernel_c_jump_scale * jax.random.normal(key_sizes, (max_events,))
-    )
+    jump_sizes = config.kernel_c_jump_mean + config.kernel_c_jump_scale * jax.random.normal(key_sizes, (max_events,))
     mask = jnp.arange(max_events) < jump_count
     jump_sum = jnp.sum(jump_sizes * mask)
 
@@ -216,8 +200,7 @@ def sample_levy_jump_component(
 
 
 def decompose_semimartingale(
-    signal: Float[Array, "n"],
-    dt: float
+    signal: Float[Array, "n"], dt: float
 ) -> tuple[Float[Array, ""], Float[Array, "n"], Float[Array, "n"]]:
     """
     Decompose signal into martingale and finite-variation components.
@@ -245,10 +228,7 @@ def decompose_semimartingale(
     return drift_estimate, martingale, finite_variation
 
 
-def compute_information_drift(
-    martingale_component: Float[Array, "n"],
-    dt: float
-) -> Float[Array, ""]:
+def compute_information_drift(martingale_component: Float[Array, "n"], dt: float) -> Float[Array, ""]:
     """
     Estimate information drift for filtration enlargement.
 
@@ -269,35 +249,31 @@ def compute_information_drift(
 
 
 @partial(jax.jit, static_argnames=("config",))
-def kernel_c_predict(
-    signal: Float[Array, "n"],
-    key: Array,
-    config
-) -> KernelOutput:
+def kernel_c_predict(signal: Float[Array, "n"], key: Array, config) -> KernelOutput:
     """
     Kernel C: Itô/Lévy SDE prediction.
-    
+
     Algorithm:
         1. Extract current state from signal
         2. Define drift and diffusion functions
         3. Integrate SDE forward to horizon
         4. Return prediction with confidence
-    
+
     Zero-Heuristics: All parameters (sigma, mu, alpha, beta, horizon, tolerances,
     solver type) are injected from config, not hardcoded.
-    
+
     Args:
         signal: Input time series (historical trajectory)
         key: JAX PRNG key for Brownian motion
         config: Configuration object with Kernel C and SDE parameters
-    
+
     Returns:
         KernelOutput with prediction, confidence, and diagnostics
-    
+
     References:
         - Python.tex §2.2.3: Kernel C Complete Algorithm
         - Teoria.tex §2.3.3: Lévy Process Dynamics
-    
+
     Example:
         >>> from Python.api.config import PredictorConfigInjector
         >>> config = PredictorConfigInjector().create_config()
@@ -314,14 +290,14 @@ def kernel_c_predict(
     horizon = config.kernel_c_horizon
     # Current state (last value, convert to 1D array)
     y0 = jnp.array([signal[-1]])
-    
+
     # Time parameters
     t0 = 0.0
     t1 = horizon
-    
+
     # SDE parameters
     args = (mu, alpha, beta, sigma)
-    
+
     # Integrate SDE (config injection pattern)
     # solve_sde now returns (y_final, solver_idx, stiffness_metric) where solver_idx is jnp.int32
     key_sde, key_jump = jax.random.split(key)
@@ -333,7 +309,7 @@ def kernel_c_predict(
         t1=t1,
         key=key_sde,
         config=config,
-        args=args
+        args=args,
     )
 
     jump_sum, jump_count = sample_levy_jump_component(
@@ -341,27 +317,25 @@ def kernel_c_predict(
         horizon=horizon,
         config=config,
     )
-    
+
     # Prediction
     prediction = y_final[0] + jump_sum
-    
+
     # Confidence: Theoretical variance of Lévy stable process
     # For α-stable: Var ~ t^(2/α) (power law)
     # For Brownian (α=2): Var = σ^2 * t
     if alpha > config.kernel_c_alpha_gaussian_threshold:  # Near-Gaussian regime
-        variance = (sigma ** 2) * horizon
+        variance = (sigma**2) * horizon
     else:  # Heavy-tailed Lévy
-        variance = (sigma ** alpha) * (horizon ** (2.0 / alpha))
+        variance = (sigma**alpha) * (horizon ** (2.0 / alpha))
 
     jump_variance = (
-        config.kernel_c_jump_intensity
-        * horizon
-        * (config.kernel_c_jump_scale ** 2 + config.kernel_c_jump_mean ** 2)
+        config.kernel_c_jump_intensity * horizon * (config.kernel_c_jump_scale**2 + config.kernel_c_jump_mean**2)
     )
     variance = variance + jump_variance
-    
+
     confidence = jnp.sqrt(variance)
-    
+
     # Diagnostics
     drift_estimate, martingale_component, finite_variation = decompose_semimartingale(
         signal=signal,
@@ -389,7 +363,7 @@ def kernel_c_predict(
         "semimartingale_finite_variation": jnp.asarray(finite_variation[-1]),
         "information_drift": jnp.asarray(information_drift),
     }
-    
+
     grid, dx = build_pdf_grid(prediction, confidence, config)
     probability_density = compute_normal_pdf(grid, prediction, confidence, config)
     entropy = compute_density_entropy(probability_density, dx, config)
@@ -405,10 +379,8 @@ def kernel_c_predict(
     }
 
     # Apply stop_gradient to diagnostics
-    prediction, diagnostics = apply_stop_gradient_to_diagnostics(
-        prediction, diagnostics
-    )
-    
+    prediction, diagnostics = apply_stop_gradient_to_diagnostics(prediction, diagnostics)
+
     return KernelOutput(
         prediction=prediction,
         confidence=confidence,

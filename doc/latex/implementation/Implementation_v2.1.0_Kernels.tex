@@ -14,6 +14,11 @@
 
 \usepackage[english]{babel}
 
+% Custom hyperlink commands
+\usepackage{xurl}
+\newcommand{\filehref}[1]{\href{file:../../#1}{\texttt{#1}}}
+\newcommand{\dochref}[2]{\href{../../pdf/#1.pdf}{\texttt{#2}}}
+
 % Code highlighting
 \definecolor{codegreen}{rgb}{0,0.6,0}
 \definecolor{codegray}{rgb}{0.5,0.5,0.5}
@@ -1730,7 +1735,7 @@ float_precision = 64           # Must match jax_enable_x64 for Malliavin stabili
 
 \subsection{Finding}
 
-Kernel C (\texttt{kernel\_c.py}) uses static solver selection based solely on \texttt{config.sde\_solver\_type}. Per \texttt{Stochastic\_Predictor\_Theory.tex} §2.3.3, the specification mandates dynamic transition between explicit (Euler) and implicit/IMEX schemes based on process stiffness.
+Kernel C (\texttt{kernel\_c.py}) uses static solver selection based solely on \texttt{config.sde\_solver\_type}. Per \dochref{specification/Stochastic_Predictor_Theory}{Stochastic\_Predictor\_Theory.tex} §2.3.3, the specification mandates dynamic transition between explicit (Euler) and implicit/IMEX schemes based on process stiffness.
 
 Existing code (INCORRECT):
 

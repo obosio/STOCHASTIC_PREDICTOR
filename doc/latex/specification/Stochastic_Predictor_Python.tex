@@ -54,7 +54,7 @@ This guide translates the universal algorithmic specification into a high-perfor
 \section{Library Selection}
 
 \subsection{JAX: Numerical Compute Engine}
-\textbf{JAX 0.4.20} is the foundational layer. It provides:
+\textbf{JAX 0.4.38} is the foundational layer. It provides:
 \begin{itemize}
     \item \textbf{XLA}: JIT compilation to optimized CPU/GPU/TPU kernels
     \item \textbf{Automatic Differentiation}: \texttt{jax.grad}, \texttt{jax.jacfwd}, \texttt{jax.hessian}
@@ -64,7 +64,7 @@ This guide translates the universal algorithmic specification into a high-perfor
 
 \textbf{Design decision:} JAX is mandatory because JKO requires Wasserstein gradients and Branches B/C require backprop through differential equations.
 
-\subsection{Equinox 0.11.2: Neural Framework}
+\subsection{Equinox 0.13.4: Neural Framework}
 \textbf{Equinox} is used for Branch B (DGM) and Branch C (Neural ODEs). It is selected for:
 \begin{enumerate}
     \item Pure functional design compatible with JAX transforms
@@ -74,7 +74,7 @@ This guide translates the universal algorithmic specification into a high-perfor
     \item Parameter filtering via \texttt{eqx.filter}
 \end{enumerate}
 
-\subsection{Diffrax 0.4.1: ODE/SDE Solvers}
+\subsection{Diffrax 0.7.2: ODE/SDE Solvers}
 \textbf{Diffrax} integrates Branch C (Neural SDE/ODE).
 \begin{enumerate}
     \item JAX-native, fully JIT-able
@@ -83,7 +83,7 @@ This guide translates the universal algorithmic specification into a high-perfor
     \item Adaptive solvers (Heun, Tsit5, Dopri5)
 \end{enumerate}
 
-\subsection{Signax 0.1.4: Log-Signatures}
+\subsection{Signax 0.2.1: Log-Signatures}
 \textbf{Signax} provides signature and log-signature computation for Branch D.
 \begin{itemize}
     \item GPU-native kernels
@@ -92,7 +92,7 @@ This guide translates the universal algorithmic specification into a high-perfor
     \item Stable log-domain computation
 \end{itemize}
 
-\subsection{OTT-JAX 0.4.5: Differentiable Optimal Transport}
+\subsection{OTT-JAX 0.6.0: Differentiable Optimal Transport}
 \textbf{OTT-JAX} implements stabilized log-domain Sinkhorn for the JKO orchestrator.
 
 \subsection{Full Stack Summary}
@@ -102,12 +102,12 @@ This guide translates the universal algorithmic specification into a high-perfor
 \hline
 \textbf{Component} & \textbf{Library} & \textbf{Version} & \textbf{Role} \\
 \hline
-Compute core & JAX & 0.4.20 & XLA, AD, vmap, jit \\
-Neural models & Equinox & 0.11.2 & DGM (Branch B) \\
-ODE/SDE solvers & Diffrax & 0.4.1 & Branch C \\
-Signatures & Signax & 0.1.4 & Branch D \\
-Optimal Transport & OTT-JAX & 0.4.5 & JKO orchestrator \\
-Wavelets & PyWavelets & 1.4.1 & WTMM (SIA) \\
+Compute core & JAX & 0.4.38 & XLA, AD, vmap, jit \\
+Neural models & Equinox & 0.13.4 & DGM (Branch B) \\
+ODE/SDE solvers & Diffrax & 0.7.2 & Branch C \\
+Signatures & Signax & 0.2.1 & Branch D \\
+Optimal Transport & OTT-JAX & 0.6.0 & JKO orchestrator \\
+Wavelets & PyWavelets & 1.9.0 & WTMM (SIA) \\
 \hline
 \end{tabular}
 \end{table}
@@ -132,6 +132,8 @@ All implementations must respect the five-layer layout:
 
 \section{Dependency Pinning (Golden Master)}
 Dynamic version ranges are prohibited. Environments must be frozen to exact versions. Use strict pinning in CI/CD and production.
+
+\textbf{Cross-Platform Support:} JAX/JAXlib use PEP 508 environment markers in \texttt{requirements.txt} to enable platform-specific versions (macOS Intel/ARM, Linux, Windows) while maintaining single-file dependency specification. All other dependencies are platform-independent.
 
 \chapter{Module 1: Identification Engine (SIA)}
 
@@ -317,5 +319,31 @@ Expose $\mathbb{S}_{risk}$ as a structured telemetry object, including Holder ex
 \chapter{Strict Dependency Pinning}
 
 All environments must pin exact versions (JAX, OTT-JAX, Signax, Equinox, Diffrax, NumPy, SciPy). Open version ranges and dynamic upgrades are forbidden.
+
+\section{Platform-Specific Dependencies}
+
+JAX and JAXlib require platform-specific binaries due to XLA compilation targets. The \texttt{requirements.txt} uses PEP 508 environment markers to specify platform-conditional versions:
+
+\begin{lstlisting}[language=Python]
+# macOS Intel (x86_64)
+jax==0.4.38; sys_platform == 'darwin' and platform_machine == 'x86_64'
+jaxlib==0.4.38; sys_platform == 'darwin' and platform_machine == 'x86_64'
+
+# macOS ARM64 (M1/M2/M3/M4)
+jax==0.4.38; sys_platform == 'darwin' and platform_machine == 'arm64'
+jaxlib==0.4.38; sys_platform == 'darwin' and platform_machine == 'arm64'
+
+# Linux (all architectures)
+jax==0.4.38; sys_platform == 'linux'
+jaxlib==0.4.38; sys_platform == 'linux'
+
+# Windows
+jax==0.4.38; sys_platform == 'win32'
+jaxlib==0.4.38; sys_platform == 'win32'
+\end{lstlisting}
+
+\textbf{Installation:} The command \texttt{pip install -r requirements.txt} automatically selects the appropriate version based on the detected platform. No manual intervention required.
+
+\textbf{CI/CD Compatibility:} Environment markers ensure identical deployment commands across all platforms while maintaining strict version pinning.
 
 \end{document}

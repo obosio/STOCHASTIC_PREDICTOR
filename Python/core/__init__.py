@@ -25,27 +25,27 @@ Expected module structure:
 """
 
 from .fusion import FusionResult, fuse_kernel_outputs
+from .meta_optimizer import (
+    AsyncMetaOptimizer,
+    BayesianMetaOptimizer,
+    IntegrityError,
+    MetaOptimizationConfig,
+    OptimizationResult,
+    walk_forward_split,
+)
 from .orchestrator import (
     OrchestrationResult,
+    apply_host_architecture_scaling,
+    compute_adaptive_jko_params,
+    compute_adaptive_stiffness_thresholds,
+    compute_entropy_ratio,
+    initialize_batched_states,
     initialize_state,
     orchestrate_step,
     orchestrate_step_batch,
-    initialize_batched_states,
-    compute_entropy_ratio,
     scale_dgm_architecture,
-    apply_host_architecture_scaling,
-    compute_adaptive_stiffness_thresholds,
-    compute_adaptive_jko_params,
 )
 from .sinkhorn import SinkhornResult, compute_sinkhorn_epsilon
-from .meta_optimizer import (
-    BayesianMetaOptimizer,
-    AsyncMetaOptimizer,
-    MetaOptimizationConfig,
-    OptimizationResult,
-    IntegrityError,
-    walk_forward_split,
-)
 
 __all__ = [
     "AsyncMetaOptimizer",

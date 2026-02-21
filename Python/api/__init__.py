@@ -17,79 +17,72 @@ References:
   - Stochastic_Predictor_API_Python.tex §1: Data Structures (Typing)
 """
 
-# Import and re-export from submodules
-from Python.api.types import (
-    PredictorConfig,
-    ProcessState,
-    PredictionResult,
-    KernelOutput,
-    InternalState,
-    OperatingMode,
-    KernelType,
-    check_jax_config,
-)
-
+from Python.api.config import ConfigManager, PredictorConfigInjector, get_config
 from Python.api.prng import (
+    check_prng_state,
+    exponential_samples,
     initialize_jax_prng,
+    normal_samples,
     split_key,
     split_key_like,
     uniform_samples,
-    normal_samples,
-    exponential_samples,
-    check_prng_state,
     verify_determinism,
 )
+from Python.api.schemas import (
+    HealthCheckResponseSchema,
+    KernelOutputSchema,
+)
+from Python.api.schemas import OperatingMode as OperatingModeSchema
+from Python.api.schemas import (
+    PredictionResultSchema,
+    ProcessStateSchema,
+    TelemetryDataSchema,
+)
+from Python.api.state_buffer import (
+    atomic_state_update,
+    batch_update_signal_history,
+    reset_cusum_statistics,
+    update_cusum_statistics,
+    update_ema_variance,
+    update_residual_buffer,
+    update_signal_history,
+)
 
+# Import and re-export from submodules
+from Python.api.types import (
+    InternalState,
+    KernelOutput,
+    KernelType,
+    OperatingMode,
+    PredictionResult,
+    PredictorConfig,
+    ProcessState,
+    check_jax_config,
+)
 from Python.api.validation import (
-    validate_magnitude,
-    validate_timestamp,
+    cast_array_to_float64,
     check_staleness,
-    validate_shape,
-    validate_finite,
-    validate_simplex,
-    validate_holder_exponent,
+    ensure_float64,
+    sanitize_array,
+    sanitize_external_observation,
     validate_alpha_stable,
     validate_beta_stable,
-    sanitize_array,
+    validate_finite,
+    validate_holder_exponent,
+    validate_magnitude,
+    validate_shape,
+    validate_simplex,
+    validate_timestamp,
     warn_if_invalid,
-    ensure_float64,
-    sanitize_external_observation,
-    cast_array_to_float64,
 )
-
-from Python.api.schemas import (
-    OperatingMode as OperatingModeSchema,
-    ProcessStateSchema,
-    KernelOutputSchema,
-    TelemetryDataSchema,
-    PredictionResultSchema,
-    HealthCheckResponseSchema,
-)
-
-from Python.api.config import (
-    ConfigManager,
-    get_config,
-    PredictorConfigInjector,
-)
-
 from Python.api.warmup import (
+    profile_warmup_and_recommend_timeout,
     warmup_all_kernels,
     warmup_kernel_a,
     warmup_kernel_b,
     warmup_kernel_c,
     warmup_kernel_d,
     warmup_with_retry,
-    profile_warmup_and_recommend_timeout,
-)
-
-from Python.api.state_buffer import (
-    update_signal_history,
-    update_residual_buffer,
-    batch_update_signal_history,
-    update_cusum_statistics,
-    update_ema_variance,
-    atomic_state_update,
-    reset_cusum_statistics,
 )
 
 # Consolidated public exports

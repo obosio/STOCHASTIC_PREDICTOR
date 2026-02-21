@@ -13,7 +13,7 @@ See: doc/latex/specification/Stochastic_Predictor_Python.tex §2 - Physical I/O 
 See: doc/latex/specification/Stochastic_Predictor_IO.tex - Complete I/O interface specification
 
 CRITICAL SECURITY POLICIES (doc/latex/specification/Stochastic_Predictor_IO.tex §2.2):
-  
+
   ❌ PROHIBITED:
     - Hardcoding API keys, database passwords, tokens in code
     - Storing credentials in version control
@@ -36,86 +36,77 @@ Expected module structure:
   - validators.py: Data validation
 """
 
-from Python.io.validators import (
-  OutlierRejectedEvent,
-  FrozenSignalAlarmEvent,
-  StaleSignalEvent,
-  detect_catastrophic_outlier,
-  detect_frozen_signal,
-  detect_frozen_recovery,
-  compute_staleness_ns,
-  is_stale,
-)
-
-from Python.io.loaders import (
-  IngestionDecision,
-  evaluate_ingestion,
-)
-
-from Python.io.snapshots import (
-  serialize_snapshot,
-  load_snapshot_bytes,
-  save_snapshot,
-  load_snapshot,
-  write_then_rename,
-)
-
-from Python.io.telemetry import (
-  TelemetryRecord,
-  TelemetryBuffer,
-  parity_hashes,
-  should_emit_hash,
-)
-
-from Python.io.dashboard import (
-  DashboardSeries,
-  build_dashboard_html,
-  export_dashboard_snapshot,
-)
-
-from Python.io.credentials import (
-  MissingCredentialError,
-  load_env_file,
-  get_required_env,
-)
-
 from Python.io.config_mutation import (
-  ConfigMutationError,
-  atomic_write_config,
-  validate_config_mutation,
-  append_audit_log,
-  create_config_backup,
+    ConfigMutationError,
+    append_audit_log,
+    atomic_write_config,
+    create_config_backup,
+    validate_config_mutation,
+)
+from Python.io.credentials import (
+    MissingCredentialError,
+    get_required_env,
+    load_env_file,
+)
+from Python.io.dashboard import (
+    DashboardSeries,
+    build_dashboard_html,
+    export_dashboard_snapshot,
+)
+from Python.io.loaders import IngestionDecision, evaluate_ingestion
+from Python.io.snapshots import (
+    load_snapshot,
+    load_snapshot_bytes,
+    save_snapshot,
+    serialize_snapshot,
+    write_then_rename,
+)
+from Python.io.telemetry import (
+    TelemetryBuffer,
+    TelemetryRecord,
+    parity_hashes,
+    should_emit_hash,
+)
+from Python.io.validators import (
+    FrozenSignalAlarmEvent,
+    OutlierRejectedEvent,
+    StaleSignalEvent,
+    compute_staleness_ns,
+    detect_catastrophic_outlier,
+    detect_frozen_recovery,
+    detect_frozen_signal,
+    is_stale,
 )
 
 __all__ = [
-  "OutlierRejectedEvent",
-  "FrozenSignalAlarmEvent",
-  "StaleSignalEvent",
-  "detect_catastrophic_outlier",
-  "detect_frozen_signal",
-  "detect_frozen_recovery",
-  "compute_staleness_ns",
-  "is_stale",
-  "IngestionDecision",
-  "evaluate_ingestion",
-  "serialize_snapshot",
-  "load_snapshot_bytes",
-  "save_snapshot",
-  "load_snapshot",
-  "write_then_rename",
-  "TelemetryRecord",
-  "TelemetryBuffer",
-  "parity_hashes",
-  "should_emit_hash",
-  "DashboardSeries",
-  "build_dashboard_html",
-  "export_dashboard_snapshot",
-  "MissingCredentialError",
-  "load_env_file",
-  "get_required_env",
-  "ConfigMutationError",
-  "atomic_write_config",
-  "validate_config_mutation",
-  "append_audit_log",
-  "create_config_backup",
+    "OutlierRejectedEvent",
+    "FrozenSignalAlarmEvent",
+    "StaleSignalEvent",
+    "detect_catastrophic_outlier",
+    "detect_frozen_signal",
+    "detect_frozen_recovery",
+    "compute_staleness_ns",
+    "is_stale",
+    "IngestionDecision",
+    "evaluate_ingestion",
+    "serialize_snapshot",
+    "load_snapshot_bytes",
+    "save_snapshot",
+    "load_snapshot",
+    "write_then_rename",
+    "TelemetryRecord",
+    "TelemetryBuffer",
+    "parity_hashes",
+    "should_emit_hash",
+    "DashboardSeries",
+    "build_dashboard_html",
+    "export_dashboard_snapshot",
+    "MissingCredentialError",
+    "load_env_file",
+    "get_required_env",
+    "ConfigMutationError",
+    "atomic_write_config",
+    "validate_config_mutation",
+    "append_audit_log",
+    "create_config_backup",
 ]

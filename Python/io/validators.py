@@ -4,12 +4,13 @@ Nyquist Injection Frequency:
     The minimum injection frequency is enforced via besov_nyquist_interval
     parameter. This ensures that the signal sampling rate respects the Nyquist
     theorem and prevents aliasing artifacts in downstream processing.
-    
+
     Reference: IO.tex §3.1.2 - Minimum Injection Frequency (Nyquist Soft Limit)
 """
 
 from dataclasses import dataclass
 from typing import Iterable
+
 import numpy as np
 
 
@@ -81,7 +82,7 @@ def validate_besov_nyquist_interval(
     besov_nyquist_interval: float,
 ) -> bool:
     """Enforce minimum Nyquist sampling per IO.tex §3.1.2.
-    
+
     Validates that signal injection frequency meets Besov-space Nyquist
     requirement for preventing aliasing in stochastic observations.
     """

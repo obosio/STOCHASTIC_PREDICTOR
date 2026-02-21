@@ -4,6 +4,11 @@
 \usepackage{amsmath,amssymb,amsthm}
 \usepackage{geometry}
 \usepackage[hidelinks]{hyperref}
+\usepackage{xurl}
+
+% Custom hyperlink commands for file and document references
+\newcommand{\filehref}[1]{\href{file:../../#1}{\texttt{#1}}}
+\newcommand{\dochref}[2]{\href{../../pdf/specification/#1.pdf}{\texttt{#2}}}
 \usepackage{enumitem}
 \usepackage{fancyhdr}
 \usepackage{booktabs}
@@ -31,8 +36,8 @@
 \vspace{1em}
 \noindent\textbf{Source Documents:}
 \begin{itemize}[noitemsep]
-    \item \texttt{doc/latex/specification/Stochastic\_Predictor\_Test\_Cases.tex}
-    \item \texttt{doc/latex/specification/Stochastic\_Predictor\_Tests\_Python.tex}
+    \item \filehref{doc/latex/specification/Stochastic\_Predictor\_Test\_Cases.tex}
+    \item \filehref{doc/latex/specification/Stochastic\_Predictor\_Tests\_Python.tex}
 \end{itemize}
 \end{abstract}
 
@@ -45,7 +50,7 @@
 
 \subsubsection{TESTING POLICY \#1: Validation of $\alpha$-Stable Distributions (CMS Algorithm)}
 
-\textbf{Source:} \texttt{Stochastic\_Predictor\_Test\_Cases.tex}, Lines 32-38
+\textbf{Source:} \dochref{../specification/Stochastic_Predictor_Test_Cases}{Stochastic\_Predictor\_Test\_Cases.tex}, Lines 32-38
 
 \textbf{Statement:}
 Validate that the Chambers-Mallows-Stuck (CMS) algorithm generates $\alpha$-stable random variables with parameters $(\alpha, \beta, \gamma, \delta)$ matching theoretical distributions on large sample sizes.
@@ -61,7 +66,7 @@ Validate that the Chambers-Mallows-Stuck (CMS) algorithm generates $\alpha$-stab
 
 \subsubsection{TESTING POLICY \#2: Mersenne Twister/PCG64 Integrity}
 
-\textbf{Source:} \texttt{Stochastic\_Predictor\_Test\_Cases.tex}, Lines 40-48
+\textbf{Source:} \dochref{specification/Stochastic_Predictor_Test_Cases}{Stochastic\_Predictor\_Test\_Cases.tex}, Lines 40-48
 
 \textbf{Statement:}
 Verify the pseudo-random number generator (PRNG) has no serial correlations and meets long period guarantees.
@@ -77,7 +82,7 @@ Verify the pseudo-random number generator (PRNG) has no serial correlations and 
 
 \subsubsection{TESTING POLICY \#3: WTMM Validation (Hölder Exponent Detection)}
 
-\textbf{Source:} \texttt{Stochastic\_Predictor\_Test\_Cases.tex}, Lines 52-60
+\textbf{Source:} \dochref{specification/Stochastic_Predictor_Test_Cases}{Stochastic\_Predictor\_Test\_Cases.tex}, Lines 52-60
 
 \textbf{Statement:}
 Use synthetic signals with known Hölder exponent $H$ to validate that the Wavelet Transform Modulus Maxima (WTMM) algorithm recovers singularity spectrum $D(h)$ accurately.
@@ -91,7 +96,7 @@ Use synthetic signals with known Hölder exponent $H$ to validate that the Wavel
 
 \subsubsection{TESTING POLICY \#4: Cone of Influence (Besov Influence Radius)}
 
-\textbf{Source:} \texttt{Stochastic\_Predictor\_Test\_Cases.tex}, Lines 62-71
+\textbf{Source:} \dochref{specification/Stochastic_Predictor_Test_Cases}{Stochastic\_Predictor\_Test\_Cases.tex}, Lines 62-71
 
 \textbf{Statement:}
 Verify that maxima linking in scale space respects the influence radius defined by Besov constant $C_{\text{besov}}$.
@@ -105,7 +110,7 @@ Verify that maxima linking in scale space respects the influence radius defined 
 
 \subsubsection{TESTING POLICY \#5: Soft Nyquist Limit Validation (Multifractal Aliasing)}
 
-\textbf{Source:} \texttt{Stochastic\_Predictor\_Test\_Cases.tex}, Lines 73-136
+\textbf{Source:} \dochref{specification/Stochastic_Predictor_Test_Cases}{Stochastic\_Predictor\_Test\_Cases.tex}, Lines 73-136
 
 \textbf{Statement:}
 Gradually reduce sampling frequency and validate system detects Nyquist undersampling before irreversible spectrum degradation, triggering \texttt{FreezingTopologicalBranchEvent}.
@@ -122,7 +127,7 @@ Gradually reduce sampling frequency and validate system detects Nyquist undersam
 
 \subsubsection{TESTING POLICY \#6: Signature Concatenation (Chen Identity)}
 
-\textbf{Source:} \texttt{Stochastic\_Predictor\_Test\_Cases.tex}, Lines 140-150
+\textbf{Source:} \dochref{specification/Stochastic_Predictor_Test_Cases}{Stochastic\_Predictor\_Test\_Cases.tex}, Lines 140-150
 
 \textbf{Statement:}
 Validate that concatenating signatures of two path segments via tensor product equals signature of full path (Chen's identity).
@@ -136,7 +141,7 @@ Validate that concatenating signatures of two path segments via tensor product e
 
 \subsubsection{TESTING POLICY \#7: Temporal Reparametrization Invariance}
 
-\textbf{Source:} \texttt{Stochastic\_Predictor\_Test\_Cases.tex}, Lines 152-161
+\textbf{Source:} \dochref{specification/Stochastic_Predictor_Test_Cases}{Stochastic\_Predictor\_Test\_Cases.tex}, Lines 152-161
 
 \textbf{Statement:}
 Check that level-$M$ truncated signature is invariant under strictly increasing time reparametrization.
@@ -157,7 +162,7 @@ Check that level-$M$ truncated signature is invariant under strictly increasing 
 
 \subsubsection{TESTING POLICY \#8: Euler-Maruyama vs Milstein Convergence}
 
-\textbf{Source:} \texttt{Stochastic\_Predictor\_Test\_Cases.tex}, Lines 167-184
+\textbf{Source:} \dochref{specification/Stochastic_Predictor_Test_Cases}{Stochastic\_Predictor\_Test\_Cases.tex}, Lines 167-184
 
 \textbf{Statement:}
 For diffusion with non-constant volatility, verify Milstein achieves strong convergence order 1.0 versus 0.5 for Euler-Maruyama.
@@ -172,7 +177,7 @@ For diffusion with non-constant volatility, verify Milstein achieves strong conv
 
 \subsubsection{TESTING POLICY \#9: CFL Condition Violation (Mixed CFL Stability)}
 
-\textbf{Source:} \texttt{Stochastic\_Predictor\_Test\_Cases.tex}, Lines 186-200
+\textbf{Source:} \dochref{specification/Stochastic_Predictor_Test_Cases}{Stochastic\_Predictor\_Test\_Cases.tex}, Lines 186-200
 
 \textbf{Statement:}
 Force time step $\Delta t$ violating Courant-Friedrichs-Lewy restriction and confirm numerical instability as expected behavior.
@@ -189,7 +194,7 @@ Force time step $\Delta t$ violating Courant-Friedrichs-Lewy restriction and con
 
 \subsubsection{TESTING POLICY \#10: Sinkhorn Algorithm Stability (Log-Domain Convergence)}
 
-\textbf{Source:} \texttt{Stochastic\_Predictor\_Test\_Cases.tex}, Lines 204-215
+\textbf{Source:} \dochref{specification/Stochastic_Predictor_Test_Cases}{Stochastic\_Predictor\_Test\_Cases.tex}, Lines 204-215
 
 \textbf{Statement:}
 Evaluate Sinkhorn convergence in log domain with decreasing regularization $\varepsilon$, ensuring no underflow down to $\varepsilon \geq 10^{-4}$.
@@ -204,7 +209,7 @@ Evaluate Sinkhorn convergence in log domain with decreasing regularization $\var
 
 \subsubsection{TESTING POLICY \#11: Probabilistic Mass Conservation (Simplex Normalization)}
 
-\textbf{Source:} \texttt{Stochastic\_Predictor\_Test\_Cases.tex}, Lines 217-230
+\textbf{Source:} \dochref{specification/Stochastic_Predictor_Test_Cases}{Stochastic\_Predictor\_Test\_Cases.tex}, Lines 217-230
 
 \textbf{Statement:}
 Confirm that after JKO update, sum of kernel weights is strictly 1.0 (probability simplex constraint).
@@ -221,7 +226,7 @@ Confirm that after JKO update, sum of kernel weights is strictly 1.0 (probabilit
 
 \subsubsection{TESTING POLICY \#12: Gradient Stability (Gradient Explosion Under Volatility)}
 
-\textbf{Source:} \texttt{Stochastic\_Predictor\_Test\_Cases.tex}, Lines 236-268
+\textbf{Source:} \dochref{specification/Stochastic_Predictor_Test_Cases}{Stochastic\_Predictor\_Test\_Cases.tex}, Lines 236-268
 
 \textbf{Statement:}
 Monitor gradient norms during PDE training to detect and mitigate gradient explosions in high-volatility regimes.
@@ -237,7 +242,7 @@ Monitor gradient norms during PDE training to detect and mitigate gradient explo
 
 \subsubsection{TESTING POLICY \#13: Crandall-Lions Comparison Principle (Viscosity Solution Validation)}
 
-\textbf{Source:} \texttt{Stochastic\_Predictor\_Test\_Cases.tex}, Lines 270-306
+\textbf{Source:} \dochref{specification/Stochastic_Predictor_Test_Cases}{Stochastic\_Predictor\_Test\_Cases.tex}, Lines 270-306
 
 \textbf{Statement:}
 Validate neural solution respects comparison principle for viscosity solutions, ensuring uniqueness and consistency for non-linear PDEs.
@@ -252,7 +257,7 @@ Validate neural solution respects comparison principle for viscosity solutions, 
 
 \subsubsection{TESTING POLICY \#14: Mode Collapse Detection (Training Entropy Test)}
 
-\textbf{Source:} \texttt{Stochastic\_Predictor\_Test\_Cases.tex}, Lines 308-355
+\textbf{Source:} \dochref{specification/Stochastic_Predictor_Test_Cases}{Stochastic\_Predictor\_Test\_Cases.tex}, Lines 308-355
 
 \textbf{Statement:}
 Verify neural network does not collapse to trivial constant solutions during DGM training.
@@ -268,7 +273,7 @@ Verify neural network does not collapse to trivial constant solutions during DGM
 
 \subsubsection{TESTING POLICY \#15: Mesh Refinement Convergence (DGM Consistency)}
 
-\textbf{Source:} \texttt{Stochastic\_Predictor\_Test\_Cases.tex}, Lines 357-374
+\textbf{Source:} \dochref{specification/Stochastic_Predictor_Test_Cases}{Stochastic\_Predictor\_Test\_Cases.tex}, Lines 357-374
 
 \textbf{Statement:}
 Verify DGM solution converges to exact solution as collocation point density increases.
@@ -284,7 +289,7 @@ Verify DGM solution converges to exact solution as collocation point density inc
 
 \subsubsection{TESTING POLICY \#16: Minimum Variance Threshold (Mode Collapse Alternative)}
 
-\textbf{Source:} \texttt{Stochastic\_Predictor\_Test\_Cases.tex}, Lines 376-407
+\textbf{Source:} \dochref{specification/Stochastic_Predictor_Test_Cases}{Stochastic\_Predictor\_Test\_Cases.tex}, Lines 376-407
 
 \textbf{Statement:}
 Complement entropy monitoring with direct variance ratio check to detect mode collapse.
@@ -306,7 +311,7 @@ Complement entropy monitoring with direct variance ratio check to detect mode co
 
 \subsubsection{TESTING POLICY \#17: Outlier Injection (Extreme Values)}
 
-\textbf{Source:} \texttt{Stochastic\_Predictor\_Test\_Cases.tex}, Lines 415-428
+\textbf{Source:} \dochref{specification/Stochastic_Predictor_Test_Cases}{Stochastic\_Predictor\_Test\_Cases.tex}, Lines 415-428
 
 \textbf{Statement:}
 Inject extreme values ($> 20\sigma$) and verify system rejects point, emits alert, and preserves weights.
@@ -322,7 +327,7 @@ Inject extreme values ($> 20\sigma$) and verify system rejects point, emits aler
 
 \subsubsection{TESTING POLICY \#18: CUSUM Change Detection (Regime Change)}
 
-\textbf{Source:} \texttt{Stochastic\_Predictor\_Test\_Cases.tex}, Lines 430-442
+\textbf{Source:} \dochref{specification/Stochastic_Predictor_Test_Cases}{Stochastic\_Predictor\_Test\_Cases.tex}, Lines 430-442
 
 \textbf{Statement:}
 Simulate regime change (structural drift) and validate change event emitted exactly when $G_t^+$ exceeds threshold $h$.
@@ -338,7 +343,7 @@ Simulate regime change (structural drift) and validate change event emitted exac
 
 \subsubsection{TESTING POLICY \#19: Emergency Mode Activation (Critical Singularity)}
 
-\textbf{Source:} \texttt{Stochastic\_Predictor\_Test\_Cases.tex}, Lines 447-462
+\textbf{Source:} \dochref{specification/Stochastic_Predictor_Test_Cases}{Stochastic\_Predictor\_Test\_Cases.tex}, Lines 447-462
 
 \textbf{Statement:}
 When Hölder exponent drops below $H_{\min}$, force $w_D \to 1.0$ and switch cost to Huber metric.
@@ -361,7 +366,7 @@ When Hölder exponent drops below $H_{\min}$, force $w_D \to 1.0$ and switch cos
 
 \subsubsection{TESTING POLICY \#20: Hot-Start State Continuity}
 
-\textbf{Source:} \texttt{Stochastic\_Predictor\_Test\_Cases.tex}, Lines 469-485
+\textbf{Source:} \dochref{specification/Stochastic_Predictor_Test_Cases}{Stochastic\_Predictor\_Test\_Cases.tex}, Lines 469-485
 
 \textbf{Statement:}
 Serialize meta-state $\Xi_t$, restart system, load it. First prediction post-restart must match uninterrupted prediction.
@@ -376,7 +381,7 @@ Serialize meta-state $\Xi_t$, restart system, load it. First prediction post-res
 
 \subsubsection{TESTING POLICY \#21: Checksum Validation (Cryptographic Integrity)}
 
-\textbf{Source:} \texttt{Stochastic\_Predictor\_Test\_Cases.tex}, Lines 487-500
+\textbf{Source:} \dochref{specification/Stochastic_Predictor_Test_Cases}{Stochastic\_Predictor\_Test\_Cases.tex}, Lines 487-500
 
 \textbf{Statement:}
 Corrupt snapshot file bit and verify SHA-256 validation rejects load, forcing cold start.
@@ -392,7 +397,7 @@ Corrupt snapshot file bit and verify SHA-256 validation rejects load, forcing co
 
 \subsubsection{TESTING POLICY \#22: Write Interruption (Atomicity via Write-Then-Rename)}
 
-\textbf{Source:} \texttt{Stochastic\_Predictor\_Test\_Cases.tex}, Lines 510-547
+\textbf{Source:} \dochref{specification/Stochastic_Predictor_Test_Cases}{Stochastic\_Predictor\_Test\_Cases.tex}, Lines 510-547
 
 \textbf{Statement:}
 Simulate power loss during snapshot serialization and verify partially written files handled safely.
@@ -409,7 +414,7 @@ Simulate power loss during snapshot serialization and verify partially written f
 
 \subsubsection{TESTING POLICY \#23: Silent Disk Corruption Detection}
 
-\textbf{Source:} \texttt{Stochastic\_Predictor\_Test\_Cases.tex}, Lines 549-577
+\textbf{Source:} \dochref{specification/Stochastic_Predictor_Test_Cases}{Stochastic\_Predictor\_Test\_Cases.tex}, Lines 549-577
 
 \textbf{Statement:}
 Detect and handle silent data corruption (bit rot) between snapshot write and read.
@@ -425,7 +430,7 @@ Detect and handle silent data corruption (bit rot) between snapshot write and re
 
 \subsubsection{TESTING POLICY \#24: Disk Space Exhaustion Handling}
 
-\textbf{Source:} \texttt{Stochastic\_Predictor\_Test\_Cases.tex}, Lines 579-605
+\textbf{Source:} \dochref{specification/Stochastic_Predictor_Test_Cases}{Stochastic\_Predictor\_Test\_Cases.tex}, Lines 579-605
 
 \textbf{Statement:}
 Validate behavior when storage full during snapshot write.
@@ -447,7 +452,7 @@ Validate behavior when storage full during snapshot write.
 
 \subsubsection{TESTING POLICY \#25: Dynamic Regularization Under Volatility Shocks}
 
-\textbf{Source:} \texttt{Stochastic\_Predictor\_Test\_Cases.tex}, Lines 613-658
+\textbf{Source:} \dochref{specification/Stochastic_Predictor_Test_Cases}{Stochastic\_Predictor\_Test\_Cases.tex}, Lines 613-658
 
 \textbf{Statement:}
 Validate dynamic regularization equation: $\varepsilon_t = \max(\varepsilon_{\min}, \varepsilon_0(1 + \alpha \sigma_t))$.
@@ -463,7 +468,7 @@ Validate dynamic regularization equation: $\varepsilon_t = \max(\varepsilon_{\mi
 
 \subsubsection{TESTING POLICY \#26: Kurtosis-Coupled CUSUM Adaptive Threshold}
 
-\textbf{Source:} \texttt{Stochastic\_Predictor\_Test\_Cases.tex}, Lines 667-729
+\textbf{Source:} \dochref{specification/Stochastic_Predictor_Test_Cases}{Stochastic\_Predictor\_Test\_Cases.tex}, Lines 667-729
 
 \textbf{Statement:}
 Validate Adaptive Threshold Lemma: $h_t = h_0 \times (1 + \beta \times (\kappa_t - 3)/(\kappa_0 - 3))$ adapts correctly.
@@ -480,7 +485,7 @@ Validate Adaptive Threshold Lemma: $h_t = h_0 \times (1 + \beta \times (\kappa_t
 
 \subsubsection{TESTING POLICY \#27: Entropy-Driven Capacity Expansion (DGM Architecture Scaling)}
 
-\textbf{Source:} \texttt{Stochastic\_Predictor\_Test\_Cases.tex}, Lines 731-787
+\textbf{Source:} \dochref{specification/Stochastic_Predictor_Test_Cases}{Stochastic\_Predictor\_Test\_Cases.tex}, Lines 731-787
 
 \textbf{Statement:}
 Validate Entropy-Topology Coupling: $\log(W \times D) \geq \log(W_0 \times D_0) + \beta \times \log(\kappa)$.
@@ -496,7 +501,7 @@ Validate Entropy-Topology Coupling: $\log(W \times D) \geq \log(W_0 \times D_0) 
 
 \subsubsection{TESTING POLICY \#28: Meta-Optimization Determinism (TPE Checkpoint Persistence)}
 
-\textbf{Source:} \texttt{Stochastic\_Predictor\_Test\_Cases.tex}, Lines 792-856
+\textbf{Source:} \dochref{specification/Stochastic_Predictor_Test_Cases}{Stochastic\_Predictor\_Test\_Cases.tex}, Lines 792-856
 
 \textbf{Statement:}
 Validate TPE State Persistence ensuring bit-exact resumption after interruption.
@@ -521,7 +526,7 @@ Validate TPE State Persistence ensuring bit-exact resumption after interruption.
 
 \subsubsection{TESTING POLICY \#29: Multi-Architecture Equivalence (CPU/GPU/FPGA)}
 
-\textbf{Source:} \texttt{Stochastic\_Predictor\_Test\_Cases.tex}, Lines 867-880
+\textbf{Source:} \dochref{specification/Stochastic_Predictor_Test_Cases}{Stochastic\_Predictor\_Test\_Cases.tex}, Lines 867-880
 
 \textbf{Statement:}
 Verify critical algorithms produce equivalent results across architectures within precision limits.
@@ -536,7 +541,7 @@ Verify critical algorithms produce equivalent results across architectures withi
 
 \subsubsection{TESTING POLICY \#30: Fixed-Point Error Accumulation (Branch D FPGA)}
 
-\textbf{Source:} \texttt{Stochastic\_Predictor\_Test\_Cases.tex}, Lines 888-941
+\textbf{Source:} \dochref{specification/Stochastic_Predictor_Test_Cases}{Stochastic\_Predictor\_Test\_Cases.tex}, Lines 888-941
 
 \textbf{Statement:}
 Compare Branch D signatures on FPGA (fixed-point) vs CPU (64-bit floating-point).
@@ -553,7 +558,7 @@ Compare Branch D signatures on FPGA (fixed-point) vs CPU (64-bit floating-point)
 
 \subsubsection{TESTING POLICY \#31: Deterministic Reproducibility (Controlled Seed Initialization)}
 
-\textbf{Source:} \texttt{Stochastic\_Predictor\_Test\_Cases.tex}, Lines 943-950
+\textbf{Source:} \dochref{specification/Stochastic_Predictor_Test_Cases}{Stochastic\_Predictor\_Test\_Cases.tex}, Lines 943-950
 
 \textbf{Statement:}
 Guarantee identical state sequences across platforms given same PRNG seed.
@@ -568,7 +573,7 @@ Guarantee identical state sequences across platforms given same PRNG seed.
 
 \subsubsection{TESTING POLICY \#32: Cross-Platform Performance Benchmark}
 
-\textbf{Source:} \texttt{Stochastic\_Predictor\_Test\_Cases.tex}, Lines 952-968
+\textbf{Source:} \dochref{specification/Stochastic_Predictor_Test_Cases}{Stochastic\_Predictor\_Test\_Cases.tex}, Lines 952-968
 
 \textbf{Statement:}
 Measure execution time and throughput across architectures to identify bottlenecks.
@@ -589,7 +594,7 @@ Measure execution time and throughput across architectures to identify bottlenec
 
 \subsubsection{TESTING POLICY \#33: Rolling Walk-Forward (Zero Look-Ahead Bias)}
 
-\textbf{Source:} \texttt{Stochastic\_Predictor\_Test\_Cases.tex}, Lines 975-990
+\textbf{Source:} \dochref{specification/Stochastic_Predictor_Test_Cases}{Stochastic\_Predictor\_Test\_Cases.tex}, Lines 975-990
 
 \textbf{Statement:}
 Ensure training uses only data strictly prior to test horizon.
@@ -604,7 +609,7 @@ Ensure training uses only data strictly prior to test horizon.
 
 \subsubsection{TESTING POLICY \#34: Bayesian Optimization Efficiency}
 
-\textbf{Source:} \texttt{Stochastic\_Predictor\_Test\_Cases.tex}, Lines 992-1004
+\textbf{Source:} \dochref{specification/Stochastic_Predictor_Test_Cases}{Stochastic\_Predictor\_Test\_Cases.tex}, Lines 992-1004
 
 \textbf{Statement:}
 Iterative hyperparameter improvement via Gaussian Process must beat random search.
@@ -618,7 +623,7 @@ Iterative hyperparameter improvement via Gaussian Process must beat random searc
 
 \subsubsection{TESTING POLICY \#35: Temporal Integrity (TTL Staleness Metric)}
 
-\textbf{Source:} \texttt{Stochastic\_Predictor\_Test\_Cases.tex}, Lines 1006-1018
+\textbf{Source:} \dochref{specification/Stochastic_Predictor_Test_Cases}{Stochastic\_Predictor\_Test\_Cases.tex}, Lines 1006-1018
 
 \textbf{Statement:}
 Cancel JKO update if target signal delay exceeds $\Delta_{\max}$.
@@ -634,7 +639,7 @@ Cancel JKO update if target signal delay exceeds $\Delta_{\max}$.
 
 \subsubsection{TESTING POLICY \#36: Degraded Inference Mode (Lag Injection)}
 
-\textbf{Source:} \texttt{Stochastic\_Predictor\_Test\_Cases.tex}, Lines 1020-1063
+\textbf{Source:} \dochref{specification/Stochastic_Predictor_Test_Cases}{Stochastic\_Predictor\_Test\_Cases.tex}, Lines 1020-1063
 
 \textbf{Statement:}
 Artificially delay $y_{\text{target}}$ beyond $\Delta_{\max}$ and validate degraded mode activation and JKO suspension.
@@ -660,7 +665,7 @@ Artificially delay $y_{\text{target}}$ beyond $\Delta_{\max}$ and validate degra
 
 \subsubsection{TESTING POLICY \#37: CUSUM Adaptive Dynamic Threshold (Volatility Adaptation)}
 
-\textbf{Source:} \texttt{Stochastic\_Predictor\_Test\_Cases.tex}, Lines 1071-1104
+\textbf{Source:} \dochref{specification/Stochastic_Predictor_Test_Cases}{Stochastic\_Predictor\_Test\_Cases.tex}, Lines 1071-1104
 
 \textbf{Statement:}
 Validate CUSUM threshold adapts correctly to low/high volatility via $h_t = k \times \sigma_{\text{resid},t}$.
@@ -676,7 +681,7 @@ Validate CUSUM threshold adapts correctly to low/high volatility via $h_t = k \t
 
 \subsubsection{TESTING POLICY \#38: Maximum Entropy Convergence (Uniform Weights)}
 
-\textbf{Source:} \texttt{Stochastic\_Predictor\_Test\_Cases.tex}, Lines 1106-1131
+\textbf{Source:} \dochref{specification/Stochastic_Predictor_Test_Cases}{Stochastic\_Predictor\_Test\_Cases.tex}, Lines 1106-1131
 
 \textbf{Statement:}
 Confirm convergence to uniform weights $[0.25, 0.25, 0.25, 0.25]$ as Sinkhorn $\varepsilon \to \infty$.
@@ -691,7 +696,7 @@ Confirm convergence to uniform weights $[0.25, 0.25, 0.25, 0.25]$ as Sinkhorn $\
 
 \subsubsection{TESTING POLICY \#39: Path Reparametrization Invariance (Time Warping)}
 
-\textbf{Source:} \texttt{Stochastic\_Predictor\_Test\_Cases.tex}, Lines 1133-1161
+\textbf{Source:} \dochref{specification/Stochastic_Predictor_Test_Cases}{Stochastic\_Predictor\_Test\_Cases.tex}, Lines 1133-1161
 
 \textbf{Statement:}
 Test signal and time-stretched variants; rough path signature must be identical under reparametrizations.
@@ -706,7 +711,7 @@ Test signal and time-stretched variants; rough path signature must be identical 
 
 \subsubsection{TESTING POLICY \#40: Extreme Kurtosis Handling (Kurtosis $> 20$)}
 
-\textbf{Source:} \texttt{Stochastic\_Predictor\_Tests\_Python.tex}, Lines 1480-1510
+\textbf{Source:} \dochref{specification/Stochastic_Predictor_Tests_Python}{Stochastic\_Predictor\_Tests\_Python.tex}, Lines 1480-1510
 
 \textbf{Statement:}
 Kurtosis $> 20$ must generate critical alert and trigger adaptive threshold elevation.
@@ -722,7 +727,7 @@ Kurtosis $> 20$ must generate critical alert and trigger adaptive threshold elev
 
 \subsubsection{TESTING POLICY \#41: Degraded Mode with TTL Violation (Operational Limits)}
 
-\textbf{Source:} \texttt{Stochastic\_Predictor\_Tests\_Python.tex}, Lines 1424-1463
+\textbf{Source:} \dochref{specification/Stochastic_Predictor_Tests_Python}{Stochastic\_Predictor\_Tests\_Python.tex}, Lines 1424-1463
 
 \textbf{Statement:}
 TTL counter exceeds limit $\to$ activate degraded mode, freeze weights, suspend JKO.
@@ -744,7 +749,7 @@ TTL counter exceeds limit $\to$ activate degraded mode, freeze weights, suspend 
 
 \subsubsection{TESTING POLICY \#42: Prevention of Host-Device Synchronization}
 
-\textbf{Source:} \texttt{Stochastic\_Predictor\_Tests\_Python.tex}, Lines 1885-1950
+\textbf{Source:} \dochref{specification/Stochastic_Predictor_Tests_Python}{Stochastic\_Predictor\_Tests\_Python.tex}, Lines 1885-1950
 
 \textbf{Statement:}
 Ensure orchestration returns unbacked DeviceArray objects without forcing host synchronization.
@@ -760,7 +765,7 @@ Ensure orchestration returns unbacked DeviceArray objects without forcing host s
 
 \subsubsection{TESTING POLICY \#43: Vectorized Multi-Tenancy Bit-Exactness}
 
-\textbf{Source:} \texttt{Stochastic\_Predictor\_Tests\_Python.tex}, Lines 1956-2022
+\textbf{Source:} \dochref{specification/Stochastic_Predictor_Tests_Python}{Stochastic\_Predictor\_Tests\_Python.tex}, Lines 1956-2022
 
 \textbf{Statement:}
 Validate batched \texttt{jax.vmap} execution bit-exact to sequential loop execution for multi-tenant workloads.
@@ -777,7 +782,7 @@ Validate batched \texttt{jax.vmap} execution bit-exact to sequential loop execut
 
 \subsubsection{TESTING POLICY \#44: Load Shedding Without XLA Recompilation}
 
-\textbf{Source:} \texttt{Stochastic\_Predictor\_Tests\_Python.tex}, Lines 2030-2079
+\textbf{Source:} \dochref{specification/Stochastic_Predictor_Tests_Python}{Stochastic\_Predictor\_Tests\_Python.tex}, Lines 2030-2079
 
 \textbf{Statement:}
 Swapping Kernel D signature depths ($M \in \{2,3,5\}$) executes in $O(1)$ without cache miss.
@@ -794,7 +799,7 @@ Swapping Kernel D signature depths ($M \in \{2,3,5\}$) executes in $O(1)$ withou
 
 \subsubsection{TESTING POLICY \#45: Atomic TOML Mutation (POSIX Guarantees)}
 
-\textbf{Source:} \texttt{Stochastic\_Predictor\_Tests\_Python.tex}, Lines 2084-2136
+\textbf{Source:} \dochref{specification/Stochastic_Predictor_Tests_Python}{Stochastic\_Predictor\_Tests\_Python.tex}, Lines 2084-2136
 
 \textbf{Statement:}
 Ensure config mutation compliance with POSIX atomic write semantics.
@@ -904,8 +909,8 @@ XLA/JAX Specific & 4 & Performance & 89\% \\
 
 \textbf{Related Specifications:}
 \begin{itemize}[noitemsep]
-    \item \texttt{doc/latex/tests/code\_audit\_policies.tex} (36 policies)
-    \item Mathematical specification: \texttt{doc/latex/specification/}
+    \item \filehref{doc/latex/tests/code\_audit\_policies.tex} (36 policies)
+    \item Mathematical specification: \filehref{doc/latex/specification/}
     \item Implementation guide: \texttt{Python/}
 \end{itemize}
 

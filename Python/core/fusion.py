@@ -10,19 +10,20 @@ from typing import Iterable
 import jax.numpy as jnp
 from jaxtyping import Array, Bool, Float
 
-from Python.api.types import PredictorConfig, PredictionResult
+from Python.api.types import PredictorConfig
 from Python.api.validation import validate_simplex
-from Python.kernels.base import KernelOutput
 from Python.core.sinkhorn import (
     SinkhornResult,
     compute_cost_matrix,
     volatility_coupled_sinkhorn,
 )
+from Python.kernels.base import KernelOutput
 
 
 @dataclass(frozen=True)
 class FusionResult:
     """Outputs of the JKO fusion step."""
+
     fused_prediction: Float[Array, ""]
     updated_weights: Float[Array, "4"]
     free_energy: Float[Array, ""]
@@ -34,9 +35,7 @@ class FusionResult:
 
 
 def compute_fisher_rao_distance(
-    current_weights: Float[Array, "n"],
-    target_weights: Float[Array, "n"],
-    config: PredictorConfig
+    current_weights: Float[Array, "n"], target_weights: Float[Array, "n"], config: PredictorConfig
 ) -> Float[Array, ""]:
     """
     Compute Fisher-Rao distance on the probability simplex.
@@ -55,19 +54,14 @@ def compute_fisher_rao_distance(
     return 2.0 * jnp.arccos(inner)
 
 
-def _normalize_confidences(
-    confidences: Float[Array, "n"],
-    config: PredictorConfig
-) -> Float[Array, "n"]:
+def _normalize_confidences(confidences: Float[Array, "n"], config: PredictorConfig) -> Float[Array, "n"]:
     """Normalize confidences into a simplex with numerical stability."""
     weights_raw = jnp.maximum(confidences, 0.0) + config.numerical_epsilon
     return weights_raw / jnp.sum(weights_raw)
 
 
 def _jko_update_weights(
-    current_weights: Float[Array, "n"],
-    target_weights: Float[Array, "n"],
-    config: PredictorConfig
+    current_weights: Float[Array, "n"], target_weights: Float[Array, "n"], config: PredictorConfig
 ) -> Float[Array, "n"]:
     """JKO proximal update via convex combination in simplex space."""
     updated = current_weights + config.learning_rate * (target_weights - current_weights)
@@ -80,7 +74,7 @@ def fuse_kernel_outputs(
     kernel_outputs: Iterable[KernelOutput],
     current_weights: Float[Array, "4"],
     ema_variance: Float[Array, "1"],
-    config: PredictorConfig
+    config: PredictorConfig,
 ) -> FusionResult:
     """
     Fuse kernel predictions with JKO-weighted Sinkhorn coupling.

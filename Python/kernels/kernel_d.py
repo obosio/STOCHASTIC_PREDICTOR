@@ -11,17 +11,17 @@ References:
 Mathematical Foundation:
     Signature S(X) of path X is the sequence of iterated integrals:
     S(X)_0,t = (1, ∫dX, ∫∫dX⊗dX, ...)
-    
+
     Log-signature provides a more compact representation via BCH formula.
     Truncation depth M controls approximation quality vs. memory.
 """
 
+from functools import partial
+
 import jax
 import jax.numpy as jnp
-from functools import partial
-from jaxtyping import Array, Float
 import signax
-from typing import Optional
+from jaxtyping import Array, Float
 
 from .base import (
     KernelOutput,
@@ -32,27 +32,24 @@ from .base import (
 )
 
 
-def compute_log_signature(
-    path: Float[Array, "n d"],
-    config
-) -> Float[Array, "signature_dim"]:
+def compute_log_signature(path: Float[Array, "n d"], config) -> Float[Array, "signature_dim"]:
     """
     Compute log-signature of a path using Signax.
-    
+
     The log-signature is a more compact representation than the full
     signature, using the Baker-Campbell-Hausdorff formula.
-    
+
     Args:
         path: Discrete path (n time steps, d dimensions)
         config: PredictorConfig with kernel_d_depth
-    
+
     Returns:
         Log-signature vector (dimension depends on depth and d)
-    
+
     References:
         - Teoria.tex §5.1: Signature Transform
         - Python.tex §2.2.4: Signax Integration
-    
+
     Example:
         >>> from Python.api.config import PredictorConfigInjector
         >>> config = PredictorConfigInjector().create_config()
@@ -62,32 +59,30 @@ def compute_log_signature(
     # Signax expects shape (batch, length, channels) but path is (length, channels)
     # Add batch dimension
     path_batched = path[None, :, :]  # Shape: (1, n, d)
-    
+
     # Compute log-signature
     logsig = signax.logsignature(path_batched, depth=config.kernel_d_depth)
-    
+
     # Remove batch dimension
     logsig_unbatched = logsig[0]  # Shape: (signature_dim,)
-    
+
     return logsig_unbatched
 
 
 @jax.jit
-def create_path_augmentation(
-    signal: Float[Array, "n"]
-) -> Float[Array, "n 2"]:
+def create_path_augmentation(signal: Float[Array, "n"]) -> Float[Array, "n 2"]:
     """
     Create 2D path from 1D signal via time augmentation.
-    
+
     Converts signal [y_1, y_2, ..., y_n] into path [(0, y_1), (1, y_2), ..., (n-1, y_n)]
     where first coordinate is time.
-    
+
     Args:
         signal: 1D time series (length n)
-    
+
     Returns:
         2D path (n x 2) with time in first column, values in second
-    
+
     References:
         - Teoria.tex §5.2: Time Augmentation
         - Python.tex §2.2.4: Path Construction
@@ -99,9 +94,7 @@ def create_path_augmentation(
 
 
 @jax.jit
-def reparameterize_path(
-    path: Float[Array, "n d"]
-) -> Float[Array, "n d"]:
+def reparameterize_path(path: Float[Array, "n d"]) -> Float[Array, "n d"]:
     """
     Apply monotone time reparameterization for invariance check.
 
@@ -118,35 +111,33 @@ def reparameterize_path(
     """
     n = path.shape[0]
     t = jnp.linspace(0.0, 1.0, n)
-    warped = t ** 2
+    warped = t**2
     indices = jnp.clip((warped * (n - 1)).astype(jnp.int32), 0, n - 1)
     return path[indices]
 
 
 def predict_from_signature(
-    logsig: Float[Array, "signature_dim"],
-    last_value: Float[Array, ""],
-    config
+    logsig: Float[Array, "signature_dim"], last_value: Float[Array, ""], config
 ) -> tuple[Float[Array, ""], Float[Array, ""]]:
     """
     Generate prediction from log-signature features.
-    
+
     This is a simple linear extrapolation model. In production,
     this would be replaced with a trained model (e.g., signature kernel
     or neural network on signature features).
-    
+
     Args:
         logsig: Log-signature vector
         last_value: Last observed value (for baseline prediction)
         config: PredictorConfig with kernel_d_alpha, kernel_d_confidence_scale
-    
+
     Returns:
         Tuple of (prediction, confidence) as scalar arrays
-    
+
     References:
         - Python.tex §2.2.4: Signature Regression
         - Teoria.tex §5.3: Signature-based Forecasting
-    
+
     Note:
         This simplified version uses the L2 norm of signature as a
         trend indicator. Production models should use signature kernels
@@ -154,57 +145,49 @@ def predict_from_signature(
     """
     # Compute signature magnitude (proxy for path activity)
     sig_norm = jnp.linalg.norm(logsig)
-    
+
     # Simple heuristic: prediction = last_value + alpha * sign(first_sig_component)
     # where alpha is scaled by signature magnitude (from config, NOT hardcoded)
-    direction = jnp.where(
-        logsig.shape[0] > 1,
-        jnp.sign(logsig[1]),  # First non-trivial component
-        jnp.array(0.0)
-    )
-    
+    direction = jnp.where(logsig.shape[0] > 1, jnp.sign(logsig[1]), jnp.array(0.0))  # First non-trivial component
+
     # Prediction: slight extrapolation based on signature trend
     # All computations return scalar arrays for consistency with build_pdf_grid
     prediction = last_value + config.kernel_d_alpha * direction * sig_norm
-    
+
     # Confidence: Scale from config (Zero-Heuristics: all factors from config)
     # More activity (larger sig_norm) = less certainty
     confidence = config.kernel_d_confidence_scale * (config.kernel_d_confidence_base + sig_norm)
-    
+
     return prediction, confidence
 
 
 @partial(jax.jit, static_argnames=("config",))
-def kernel_d_predict(
-    signal: Float[Array, "n"],
-    key: Array,
-    config
-) -> KernelOutput:
+def kernel_d_predict(signal: Float[Array, "n"], key: Array, config) -> KernelOutput:
     """
     Kernel D: Signature-based prediction for rough paths.
-    
+
     Algorithm:
         1. Create 2D path from 1D signal (time augmentation)
         2. Compute log-signature up to truncation depth
         3. Extract prediction from signature features
         4. Return with confidence estimate
-    
+
     Zero-Heuristics Policy: All hyperparameters MUST be injected from config.
     No hardcoded constants remain in kernel implementation.
-    
+
     Args:
         signal: Input time series (historical trajectory)
         key: JAX PRNG key (for compatibility, not used in deterministic signature)
         config: PredictorConfig with kernel_d_depth and kernel_d_alpha parameters
-    
+
     Returns:
         KernelOutput with prediction, confidence, and diagnostics
-    
+
     References:
         - Python.tex §2.2.4: Kernel D Complete Algorithm
         - Teoria.tex §5: Rough Paths Theory
         - Implementacion.tex §3.4: Signature Memory Optimization
-    
+
     Example:
         >>> from Python.api.config import PredictorConfigInjector
         >>> signal = jnp.array([1.0, 1.2, 1.1, 1.3, 1.2])
@@ -212,14 +195,14 @@ def kernel_d_predict(
         >>> config = PredictorConfigInjector().create_config()
         >>> result = kernel_d_predict(signal, key, config)
         >>> prediction = result.prediction
-    
+
     Note:
         Activated when Hölder exponent H < holder_threshold (typically 0.4)
         indicating rough/irregular dynamics where classical methods fail.
     """
     # Step 1: Create 2D path (time augmentation)
     path = create_path_augmentation(signal)
-    
+
     # Step 2: Compute log-signature
     logsig = compute_log_signature(path, config)
 
@@ -227,15 +210,11 @@ def kernel_d_predict(
     path_warped = reparameterize_path(path)
     logsig_warped = compute_log_signature(path_warped, config)
     reparam_invariance_error = jnp.linalg.norm(logsig_warped - logsig)
-    
+
     # Step 3: Predict from signature (config injection pattern)
     last_value = signal[-1]
-    prediction, confidence = predict_from_signature(
-        logsig, 
-        last_value, 
-        config
-    )
-    
+    prediction, confidence = predict_from_signature(logsig, last_value, config)
+
     # Diagnostics
     diagnostics = {
         "kernel_type": "D_Signature_Rough_Paths",
@@ -246,7 +225,7 @@ def kernel_d_predict(
         "last_value": last_value,
         "reparam_invariance_error": reparam_invariance_error,
     }
-    
+
     grid, dx = build_pdf_grid(prediction, confidence, config)
     probability_density = compute_normal_pdf(grid, prediction, confidence, config)
     entropy = compute_density_entropy(probability_density, dx, config)
@@ -262,10 +241,8 @@ def kernel_d_predict(
     }
 
     # Apply stop_gradient to diagnostics
-    prediction, diagnostics = apply_stop_gradient_to_diagnostics(
-        prediction, diagnostics
-    )
-    
+    prediction, diagnostics = apply_stop_gradient_to_diagnostics(prediction, diagnostics)
+
     return KernelOutput(
         prediction=prediction,
         confidence=confidence,
@@ -283,5 +260,5 @@ __all__ = [
     "kernel_d_predict",
     "compute_log_signature",
     "create_path_augmentation",
-    "predict_from_signature"
+    "predict_from_signature",
 ]

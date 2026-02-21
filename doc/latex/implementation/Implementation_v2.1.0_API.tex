@@ -14,6 +14,11 @@
 
 \usepackage[english]{babel}
 
+% Custom hyperlink commands
+\usepackage{xurl}
+\newcommand{\filehref}[1]{\href{file:../../#1}{\texttt{#1}}}
+\newcommand{\dochref}[2]{\href{../../pdf/#1.pdf}{\texttt{#2}}}
+
 % Code highlighting
 \definecolor{codegreen}{rgb}{0,0.6,0}
 \definecolor{codegray}{rgb}{0.5,0.5,0.5}

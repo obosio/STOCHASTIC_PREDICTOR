@@ -6,6 +6,11 @@
 \usepackage{listings}
 \usepackage{xcolor}
 \usepackage[english]{babel}
+
+% Custom hyperlink commands
+\usepackage{xurl}
+\newcommand{\filehref}[1]{\href{file:../../#1}{\texttt{#1}}}
+\newcommand{\dochref}[2]{\href{../../pdf/#1.pdf}{\texttt{#2}}}
 \usepackage[hidelinks]{hyperref}
 
 \geometry{a4paper, margin=1in}
@@ -704,7 +709,7 @@ Strict version pinning is mandatory. Any update must be tested for bit-exact par
 
 \section{Meta-Optimization API (Bayesian Hyperparameter Tuning)}
 
-To support the autonomous Level 4 operation defined in \texttt{Stochastic\_Predictor\_Implementation.tex} (tiered meta-optimization), the API must expose contracts for persistent, resumable Bayesian optimization.
+To support the autonomous Level 4 operation defined in \dochref{specification/Stochastic_Predictor_Implementation}{Stochastic\_Predictor\_Implementation.tex} (tiered meta-optimization), the API must expose contracts for persistent, resumable Bayesian optimization.
 
 \subsection{BayesianMetaOptimizer Class}
 

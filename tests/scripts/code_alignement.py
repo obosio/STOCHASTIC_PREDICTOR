@@ -20,7 +20,7 @@ import os
 import re
 import sys
 from dataclasses import dataclass
-from datetime import datetime
+from datetime import datetime, timezone
 from pathlib import Path
 from typing import Callable, Dict, List, Tuple
 
@@ -461,7 +461,7 @@ def write_reports(results: List[PolicyResult]) -> Tuple[str, str]:
     os.makedirs(RESULTS_DIR, exist_ok=True)
     os.makedirs(REPORTS_DIR, exist_ok=True)
     
-    timestamp = datetime.utcnow().strftime("%Y-%m-%d %H:%M:%S UTC")
+    timestamp = datetime.now(timezone.utc).strftime("%Y-%m-%d %H:%M:%S UTC")
     passed = sum(1 for r in results if r.passed)
     failed = sum(1 for r in results if not r.passed)
     total = len(results)

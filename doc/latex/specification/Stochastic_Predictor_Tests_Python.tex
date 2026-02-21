@@ -1832,11 +1832,15 @@ Degraded mode & \checkmark & \checkmark & 91\% \\
 
 Before running the mathematical test suite (\texttt{pytest}), the CI pipeline must verify the virtual environment matches production via strict dependency validation. If versions diverge from the Golden Master, the pipeline must fail fast before running tensor tests.
 
+\textbf{Note:} Since requirements.txt uses platform-specific environment markers (PEP 508), version extraction must handle semicolon separators and select the appropriate platform line.
+
 \begin{lstlisting}[language=bash, caption={Pre-Test Environment Validation}]
 #!/bin/bash
 # Pre-pytest environment validation
 
-EXPECTED_JAX=$(grep "^jax==" ../requirements.txt | cut -d'=' -f3)
+# Extract versions from requirements.txt (handles environment markers)
+# Format: "jax==0.4.38; sys_platform == 'darwin' and platform_machine == 'x86_64'"
+EXPECTED_JAX=$(grep "^jax==" ../requirements.txt | head -1 | cut -d'=' -f3 | cut -d';' -f1)
 EXPECTED_EQUINOX=$(grep "^equinox==" ../requirements.txt | cut -d'=' -f3)
 EXPECTED_DIFFRAX=$(grep "^diffrax==" ../requirements.txt | cut -d'=' -f3)
 

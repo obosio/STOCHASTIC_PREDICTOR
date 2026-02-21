@@ -5,6 +5,11 @@
 \usepackage{geometry}
 \usepackage{array}
 \usepackage[english]{babel}
+
+% Custom hyperlink commands
+\usepackage{xurl}
+\newcommand{\filehref}[1]{\href{file:../../#1}{\texttt{#1}}}
+\newcommand{\dochref}[2]{\href{../../pdf/#1.pdf}{\texttt{#2}}}
 \usepackage{algorithm}
 \usepackage{algpseudocode}
 \usepackage[hidelinks]{hyperref}
@@ -528,7 +533,7 @@ To prevent optimizer pathologies (e.g., thrashing between configurations), the m
 
 \subsection{Integration with Meta-Optimization Workflow}
 
-The mutation protocol integrates with the tiered optimization framework (Deep Tuning + Fast Tuning) defined in \texttt{Stochastic\_Predictor\_Implementation.tex}:
+The mutation protocol integrates with the tiered optimization framework (Deep Tuning + Fast Tuning) defined in \dochref{specification/Stochastic_Predictor_Implementation}{Stochastic\_Predictor\_Implementation.tex}:
 
 \begin{enumerate}
     \item \textbf{Deep Tuning Phase:} After 500 iterations, the best configuration $\theta^*_{\text{deep}}$ is committed via atomic mutation to \texttt{[structural]} subsections.

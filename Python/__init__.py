@@ -23,6 +23,7 @@ Date: February 18, 2026
 # ═══════════════════════════════════════════════════════════════════════════
 
 import os
+
 import jax
 
 # ─────────────────────────────────────────────────────────────────────────────
@@ -35,7 +36,7 @@ import jax
 # - Holder exponent precision (Kernel A - WTMM)
 # - Sinkhorn convergence under extreme conditions (JKO Orchestrator, epsilon -> 0)
 # - Path signature accuracy (Kernel D - rough paths with H < 0.5)
-jax.config.update('jax_enable_x64', True)
+jax.config.update("jax_enable_x64", True)
 
 # ─────────────────────────────────────────────────────────────────────────────
 # 2. DETERMINISTIC EXECUTION (MANDATORY per Stochastic_Predictor_Tests_Python.tex §1.1)
@@ -60,7 +61,7 @@ os.environ["XLA_FLAGS"] = "--xla_gpu_deterministic_ops=true"
 # Enable compilation cache to ensure JIT consistency across sessions
 # Prevents recompilation overhead and guarantees identical XLA lowering
 cache_dir = os.getenv("USP_JAX_CACHE_DIR", "/tmp/jax_cache")
-jax.config.update('jax_compilation_cache_dir', cache_dir)
+jax.config.update("jax_compilation_cache_dir", cache_dir)
 
 # ═══════════════════════════════════════════════════════════════════════════
 # PACKAGE METADATA
@@ -68,4 +69,3 @@ jax.config.update('jax_compilation_cache_dir', cache_dir)
 
 __version__ = "1.0.0-diamond-implementation"
 __author__ = "Stochastic Predictor Development Consortium"
-

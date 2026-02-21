@@ -7,6 +7,11 @@
 \usepackage{fancyhdr}
 \usepackage{booktabs}
 \usepackage[hidelinks]{hyperref}
+\usepackage{xurl}
+
+% Custom hyperlink commands for file and document references
+\newcommand{\filehref}[1]{\href{file:../../#1}{\texttt{#1}}}
+\newcommand{\dochref}[2]{\href{../../pdf/specification/#1.pdf}{\texttt{#2}}}
 
 \geometry{margin=1in}
 \pagestyle{fancy}
@@ -38,13 +43,13 @@ This document defines the complete set of 36 audit policies derived exclusively 
 All policies below are derived from the complete specification set in:
 
 \begin{itemize}[noitemsep]
-    \item \texttt{doc/latex/specification/Stochastic\_Predictor\_Theory.tex}
-    \item \texttt{doc/latex/specification/Stochastic\_Predictor\_Implementation.tex}
-    \item \texttt{doc/latex/specification/Stochastic\_Predictor\_IO.tex}
-    \item \texttt{doc/latex/specification/Stochastic\_Predictor\_API\_Python.tex}
-    \item \texttt{doc/latex/specification/Stochastic\_Predictor\_Python.tex}
-    \item \texttt{doc/latex/specification/Stochastic\_Predictor\_Test\_Cases.tex}
-    \item \texttt{doc/latex/specification/Stochastic\_Predictor\_Tests\_Python.tex}
+    \item \filehref{doc/latex/specification/Stochastic\_Predictor\_Theory.tex}
+    \item \filehref{doc/latex/specification/Stochastic\_Predictor\_Implementation.tex}
+    \item \filehref{doc/latex/specification/Stochastic\_Predictor\_IO.tex}
+    \item \filehref{doc/latex/specification/Stochastic\_Predictor\_API\_Python.tex}
+    \item \filehref{doc/latex/specification/Stochastic\_Predictor\_Python.tex}
+    \item \filehref{doc/latex/specification/Stochastic\_Predictor\_Test\_Cases.tex}
+    \item \filehref{doc/latex/specification/Stochastic\_Predictor\_Tests\_Python.tex}
 \end{itemize}
 
 \textbf{Critical Rule:} No external sources are used. If a requirement does not appear in the specification corpus, it is not a policy.
@@ -98,7 +103,7 @@ All policies below are derived from the complete specification set in:
 
 \subsection{Policy \#1: Configuration Sourcing (Zero-Heuristics)}
 
-\textbf{Source:} \texttt{Stochastic\_Predictor\_IO.tex} (Configuration Mutation Protocol) and \texttt{Stochastic\_Predictor\_API\_Python.tex} (PredictorConfig)
+\textbf{Source:} \dochref{specification/Stochastic_Predictor_IO}{Stochastic\_Predictor\_IO.tex} (Configuration Mutation Protocol) and \dochref{specification/Stochastic_Predictor_API_Python}{Stochastic\_Predictor\_API\_Python.tex} (PredictorConfig)
 
 \textbf{Policy Statement:}
 All numerical parameters, thresholds, and algorithmic decisions must be derived from configuration values. No implicit or silent defaults are allowed at runtime.
@@ -111,7 +116,7 @@ All numerical parameters, thresholds, and algorithmic decisions must be derived 
 
 \subsection{Policy \#2: Configuration Immutability (Locked Subsections)}
 
-\textbf{Source:} \texttt{Stochastic\_Predictor\_IO.tex} (Invariant Protection)
+\textbf{Source:} \dochref{specification/Stochastic_Predictor_IO}{Stochastic\_Predictor\_IO.tex} (Invariant Protection)
 
 \textbf{Policy Statement:}
 The following subsections are immutable and must not appear in optimizer search space:
@@ -131,7 +136,7 @@ The following subsections are immutable and must not appear in optimizer search 
 
 \subsection{Policy \#3: Validation Schema Enforcement}
 
-\textbf{Source:} \texttt{Stochastic\_Predictor\_IO.tex} (Validation Schema)
+\textbf{Source:} \dochref{specification/Stochastic_Predictor_IO}{Stochastic\_Predictor\_IO.tex} (Validation Schema)
 
 \textbf{Policy Statement:}
 All configuration mutations must pass strict schema validation: types, ranges, constraints, immutability, and interdependencies.
@@ -152,7 +157,7 @@ All configuration mutations must pass strict schema validation: types, ranges, c
 
 \subsection{Policy \#4: Atomic Configuration Mutation Protocol}
 
-\textbf{Source:} \texttt{Stochastic\_Predictor\_IO.tex} (Atomic TOML Update Algorithm)
+\textbf{Source:} \dochref{specification/Stochastic_Predictor_IO}{Stochastic\_Predictor\_IO.tex} (Atomic TOML Update Algorithm)
 
 \textbf{Policy Statement:}
 Configuration mutations must follow the 5-phase POSIX atomic protocol:
@@ -173,7 +178,7 @@ Configuration mutations must follow the 5-phase POSIX atomic protocol:
 
 \subsection{Policy \#5: Mutation Rate Limiting and Rollback}
 
-\textbf{Source:} \texttt{Stochastic\_Predictor\_IO.tex} (Rate Limiting and Safety Guardrails)
+\textbf{Source:} \dochref{specification/Stochastic_Predictor_IO}{Stochastic\_Predictor\_IO.tex} (Rate Limiting and Safety Guardrails)
 
 \textbf{Policy Statement:}
 \begin{itemize}[noitemsep]
@@ -194,7 +199,7 @@ Configuration mutations must follow the 5-phase POSIX atomic protocol:
 
 \subsection{Policy \#6: Walk-Forward Validation (Causal)}
 
-\textbf{Source:} \texttt{Stochastic\_Predictor\_Implementation.tex} and \texttt{Tests\_Python.tex}
+\textbf{Source:} \dochref{specification/Stochastic_Predictor_Implementation}{Stochastic\_Predictor\_Implementation.tex} and \dochref{specification/Stochastic_Predictor_Tests_Python}{Stochastic\_Predictor\_Tests\_Python.tex}
 
 \textbf{Policy Statement:}
 K-Fold and random splits are prohibited. Validation must be rolling walk-forward with future-only test windows and step size $H$.
@@ -207,7 +212,7 @@ K-Fold and random splits are prohibited. Validation must be rolling walk-forward
 
 \subsection{Policy \#7: CUSUM Dynamic Threshold with Kurtosis}
 
-\textbf{Source:} \texttt{Stochastic\_Predictor\_Implementation.tex} and \texttt{Stochastic\_Predictor\_Python.tex}
+\textbf{Source:} \dochref{specification/Stochastic_Predictor_Implementation}{Stochastic\_Predictor\_Implementation.tex} and \dochref{specification/Stochastic_Predictor_Python}{Stochastic\_Predictor\_Python.tex}
 
 \textbf{Policy Statement:}
 CUSUM threshold must be dynamic and kurtosis-adjusted:
@@ -224,7 +229,7 @@ with $k \in [3, 5]$ and rolling window size 252.
 
 \subsection{Policy \#8: Signature Depth Constraint (M in [3,5])}
 
-\textbf{Source:} \texttt{Stochastic\_Predictor\_Implementation.tex}
+\textbf{Source:} \dochref{specification/Stochastic_Predictor_Implementation}{Stochastic\_Predictor\_Implementation.tex}
 
 \textbf{Policy Statement:}
 Signature truncation depth $M$ must be in $\{3, 4, 5\}$.
@@ -237,7 +242,7 @@ Signature truncation depth $M$ must be in $\{3, 4, 5\}$.
 
 \subsection{Policy \#9: Sinkhorn Epsilon Bounds}
 
-\textbf{Source:} \texttt{Stochastic\_Predictor\_Implementation.tex} and \texttt{Test\_Cases.tex}
+\textbf{Source:} \dochref{specification/Stochastic_Predictor_Implementation}{Stochastic\_Predictor\_Implementation.tex} and \dochref{specification/Stochastic_Predictor_Test_Cases}{Stochastic\_Predictor\_Test\_Cases.tex}
 
 \textbf{Policy Statement:}
 Entropic regularization $\varepsilon$ must satisfy $10^{-4} \leq \varepsilon \leq 10^{-1}$ and include underflow protection.
@@ -249,7 +254,7 @@ Entropic regularization $\varepsilon$ must satisfy $10^{-4} \leq \varepsilon \le
 
 \subsection{Policy \#10: CFL Condition for PIDE Schemes}
 
-\textbf{Source:} \texttt{Stochastic\_Predictor\_Implementation.tex}
+\textbf{Source:} \dochref{specification/Stochastic_Predictor_Implementation}{Stochastic\_Predictor\_Implementation.tex}
 
 \textbf{Policy Statement:}
 Time step must satisfy the generalized CFL condition:
@@ -269,7 +274,7 @@ with $C_{\text{safe}} \approx 0.9$.
 
 \subsection{Policy \#11: 64-bit Precision Enablement}
 
-\textbf{Source:} \texttt{Stochastic\_Predictor\_Python.tex}
+\textbf{Source:} \dochref{specification/Stochastic_Predictor_Python}{Stochastic\_Predictor\_Python.tex}
 
 \textbf{Policy Statement:}
 \texttt{jax\_enable\_x64} must be enabled for Malliavin and signature computations.
@@ -281,7 +286,7 @@ with $C_{\text{safe}} \approx 0.9$.
 
 \subsection{Policy \#12: Stop-Gradient for Diagnostics}
 
-\textbf{Source:} \texttt{Stochastic\_Predictor\_Python.tex}
+\textbf{Source:} \dochref{specification/Stochastic_Predictor_Python}{Stochastic\_Predictor\_Python.tex}
 
 \textbf{Policy Statement:}
 All diagnostic and telemetry computations must apply \texttt{jax.lax.stop\_gradient}.
@@ -293,7 +298,7 @@ All diagnostic and telemetry computations must apply \texttt{jax.lax.stop\_gradi
 
 \subsection{Policy \#13: Kernel Purity and Statelessness}
 
-\textbf{Source:} \texttt{Stochastic\_Predictor\_Python.tex} (kernels are pure XLA kernels)
+\textbf{Source:} \dochref{specification/Stochastic_Predictor_Python}{Stochastic\_Predictor\_Python.tex} (kernels are pure XLA kernels)
 
 \textbf{Policy Statement:}
 Kernels must be pure and stateless functions compatible with JAX transformations.
@@ -309,7 +314,7 @@ Kernels must be pure and stateless functions compatible with JAX transformations
 
 \subsection{Policy \#14: Frozen Signal Detection and Recovery}
 
-\textbf{Source:} \texttt{Stochastic\_Predictor\_IO.tex}
+\textbf{Source:} \dochref{specification/Stochastic_Predictor_IO}{Stochastic\_Predictor\_IO.tex}
 
 \textbf{Policy Statement:}
 If $N_{\text{freeze}} \geq 5$ identical values occur, detect frozen signal, emit event, freeze Kernel D, do not update weights, enable degraded mode. Recovery when variance $> 0.1 \cdot \text{Var}_{\text{historical}}$ for 2 steps.
@@ -321,21 +326,21 @@ If $N_{\text{freeze}} \geq 5$ identical values occur, detect frozen signal, emit
 
 \subsection{Policy \#15: Catastrophic Outlier Rejection (20 sigma)}
 
-\textbf{Source:} \texttt{Stochastic\_Predictor\_IO.tex}
+\textbf{Source:} \dochref{specification/Stochastic_Predictor_IO}{Stochastic\_Predictor\_IO.tex}
 
 \textbf{Policy Statement:}
 If $|y_t| > 20\sigma$, discard input, keep inertial state, emit critical alert.
 
 \subsection{Policy \#16: Minimum Injection Frequency (Nyquist Soft Limit)}
 
-\textbf{Source:} \texttt{Stochastic\_Predictor\_IO.tex} and \texttt{Test\_Cases.tex}
+\textbf{Source:} \dochref{specification/Stochastic_Predictor_IO}{Stochastic\_Predictor\_IO.tex} and \dochref{specification/Stochastic_Predictor_Test_Cases}{Stochastic\_Predictor\_Test\_Cases.tex}
 
 \textbf{Policy Statement:}
 Minimum injection frequency must be enforced based on WTMM scales and $C_{\text{besov}}$. Violation freezes Kernel D and emits alert before Holder error exceeds 10\%.
 
 \subsection{Policy \#17: Staleness Policy and Degraded Mode Recovery (TTL)}
 
-\textbf{Source:} \texttt{Stochastic\_Predictor\_IO.tex} and \texttt{Tests\_Python.tex}
+\textbf{Source:} \dochref{specification/Stochastic_Predictor_IO}{Stochastic\_Predictor\_IO.tex} and \dochref{specification/Stochastic_Predictor_Tests_Python}{Stochastic\_Predictor\_Tests\_Python.tex}
 
 \textbf{Policy Statement:}
 If $\text{TTL}(y_{\text{target}}) > \Delta_{\max}$, cancel JKO update, freeze weights, set degraded mode. Recovery only when $\text{TTL} < 0.8 \cdot \Delta_{\max}$.
@@ -346,28 +351,28 @@ If $\text{TTL}(y_{\text{target}}) > \Delta_{\max}$, cancel JKO update, freeze we
 
 \subsection{Policy \#18: Secret Injection via Environment Variables}
 
-\textbf{Source:} \texttt{Stochastic\_Predictor\_IO.tex}
+\textbf{Source:} \dochref{specification/Stochastic_Predictor_IO}{Stochastic\_Predictor\_IO.tex}
 
 \textbf{Policy Statement:}
-Credentials must be injected via environment variables. No secrets in source, config, or logs. \texttt{.env} must be gitignored.
+Credentials must be injected via environment variables. No secrets in source, config, or logs. \filehref{.env} must be gitignored.
 
 \subsection{Policy \#19: Snapshot Integrity (SHA-256) and Validation}
 
-\textbf{Source:} \texttt{Stochastic\_Predictor\_IO.tex} and \texttt{API\_Python.tex}
+\textbf{Source:} \dochref{specification/Stochastic_Predictor_IO}{Stochastic\_Predictor\_IO.tex} and \dochref{specification/Stochastic_Predictor_API_Python}{Stochastic\_Predictor\_API\_Python.tex}
 
 \textbf{Policy Statement:}
 Snapshots must include SHA-256 hash and validation before load. Corrupt snapshots must be rejected with cold-start fallback.
 
 \subsection{Policy \#20: Non-Blocking Telemetry and I/O}
 
-\textbf{Source:} \texttt{Stochastic\_Predictor\_IO.tex} and \texttt{API\_Python.tex}
+\textbf{Source:} \dochref{specification/Stochastic_Predictor_IO}{Stochastic\_Predictor\_IO.tex} and \dochref{specification/Stochastic_Predictor_API_Python}{Stochastic\_Predictor\_API\_Python.tex}
 
 \textbf{Policy Statement:}
 Telemetry and snapshot I/O must be non-blocking and decoupled from compute threads.
 
 \subsection{Policy \#21: Hardware Parity Audit Hashes}
 
-\textbf{Source:} \texttt{Stochastic\_Predictor\_IO.tex}
+\textbf{Source:} \dochref{specification/Stochastic_Predictor_IO}{Stochastic\_Predictor\_IO.tex}
 
 \textbf{Policy Statement:}
 SHA-256 parity hashes of critical state must be logged at configurable intervals using canonical float64 serialization.
@@ -378,14 +383,14 @@ SHA-256 parity hashes of critical state must be logged at configurable intervals
 
 \subsection{Policy \#22: Emergency Mode on Singularities (Holder Threshold)}
 
-\textbf{Source:} \texttt{Stochastic\_Predictor\_Theory.tex} and \texttt{Tests\_Python.tex}
+\textbf{Source:} \dochref{specification/Stochastic_Predictor_Theory}{Stochastic\_Predictor\_Theory.tex} and \dochref{specification/Stochastic_Predictor_Tests_Python}{Stochastic\_Predictor\_Tests\_Python.tex}
 
 \textbf{Policy Statement:}
 If Holder exponent falls below $H_{\min}$, force Kernel D weight to 1.0 and switch to Huber cost until recovery hysteresis.
 
 \subsection{Policy \#23: Entropy-Driven Capacity Expansion (DGM)}
 
-\textbf{Source:} \texttt{Stochastic\_Predictor\_Theory.tex} and \texttt{Test\_Cases.tex}
+\textbf{Source:} \dochref{specification/Stochastic_Predictor_Theory}{Stochastic\_Predictor\_Theory.tex} and \dochref{specification/Stochastic_Predictor_Test_Cases}{Stochastic\_Predictor\_Test\_Cases.tex}
 
 \textbf{Policy Statement:}
 Capacity must scale with entropy ratio $\kappa$ using:
@@ -395,7 +400,7 @@ Capacity must scale with entropy ratio $\kappa$ using:
 
 \subsection{Policy \#24: Dynamic Sinkhorn Regularization Coupling}
 
-\textbf{Source:} \texttt{Stochastic\_Predictor\_Implementation.tex}
+\textbf{Source:} \dochref{specification/Stochastic_Predictor_Implementation}{Stochastic\_Predictor\_Implementation.tex}
 
 \textbf{Policy Statement:}
 \[
@@ -404,7 +409,7 @@ Capacity must scale with entropy ratio $\kappa$ using:
 
 \subsection{Policy \#25: Entropy Window and Learning Rate Scaling (JKO)}
 
-\textbf{Source:} \texttt{Stochastic\_Predictor\_Implementation.tex}
+\textbf{Source:} \dochref{specification/Stochastic_Predictor_Implementation}{Stochastic\_Predictor\_Implementation.tex}
 
 \textbf{Policy Statement:}
 Entropy window and learning rate must scale with volatility:
@@ -415,7 +420,7 @@ Entropy window and learning rate must scale with volatility:
 
 \subsection{Policy \#26: Load Shedding (Kernel D Depth Set)}
 
-\textbf{Source:} \texttt{Stochastic\_Predictor\_API\_Python.tex} and \texttt{Tests\_Python.tex}
+\textbf{Source:} \dochref{specification/Stochastic_Predictor_API_Python}{Stochastic\_Predictor\_API\_Python.tex} and \dochref{specification/Stochastic_Predictor_Tests_Python}{Stochastic\_Predictor\_Tests\_Python.tex}
 
 \textbf{Policy Statement:}
 Kernel D must support depth set $M \in \{2, 3, 5\}$ with warmup precompile to avoid JIT cache misses.
@@ -426,21 +431,21 @@ Kernel D must support depth set $M \in \{2, 3, 5\}$ with warmup precompile to av
 
 \subsection{Policy \#27: Deterministic Execution and PRNG Configuration}
 
-\textbf{Source:} \texttt{Stochastic\_Predictor\_API\_Python.tex}
+\textbf{Source:} \dochref{specification/Stochastic_Predictor_API_Python}{Stochastic\_Predictor\_API\_Python.tex}
 
 \textbf{Policy Statement:}
 Deterministic PRNG and reduction settings must be configured before importing JAX.
 
 \subsection{Policy \#28: Dependency Pinning (Exact Versions)}
 
-\textbf{Source:} \texttt{Stochastic\_Predictor\_Python.tex}
+\textbf{Source:} \dochref{specification/Stochastic_Predictor_Python}{Stochastic\_Predictor\_Python.tex}
 
 \textbf{Policy Statement:}
 All dependencies must be pinned to exact versions. Open ranges are forbidden.
 
 \subsection{Policy \#29: Five-Layer Architecture Enforcement}
 
-\textbf{Source:} \texttt{Stochastic\_Predictor\_Python.tex}
+\textbf{Source:} \dochref{specification/Stochastic_Predictor_Python}{Stochastic\_Predictor\_Python.tex}
 
 \textbf{Policy Statement:}
 Implementations must use the five-layer structure: api, core, kernels, io, tests.
@@ -451,28 +456,28 @@ Implementations must use the five-layer structure: api, core, kernels, io, tests
 
 \subsection{Policy \#30: Snapshot Atomicity and Recovery (I/O)}
 
-\textbf{Source:} \texttt{Stochastic\_Predictor\_Tests\_Python.tex}
+\textbf{Source:} \dochref{specification/Stochastic_Predictor_Tests_Python}{Stochastic\_Predictor\_Tests\_Python.tex}
 
 \textbf{Policy Statement:}
 Snapshots must be written to temp, fsync, and atomically renamed. Recovery must ignore torn temp files and load last valid snapshot.
 
 \subsection{Policy \#31: Meta-Optimization Checkpoint Integrity}
 
-\textbf{Source:} \texttt{Stochastic\_Predictor\_API\_Python.tex} and \texttt{Tests\_Python.tex}
+\textbf{Source:} \dochref{specification/Stochastic_Predictor_API_Python}{Stochastic\_Predictor\_API\_Python.tex} and \dochref{specification/Stochastic_Predictor_Tests_Python}{Stochastic\_Predictor\_Tests\_Python.tex}
 
 \textbf{Policy Statement:}
 TPE checkpoints must include SHA-256 sidecar validation and fail on mismatch.
 
 \subsection{Policy \#32: TPE Resume Determinism}
 
-\textbf{Source:} \texttt{Stochastic\_Predictor\_Test\_Cases.tex} and \texttt{Tests\_Python.tex}
+\textbf{Source:} \dochref{specification/Stochastic_Predictor_Test_Cases}{Stochastic\_Predictor\_Test\_Cases.tex} and \dochref{specification/Stochastic_Predictor_Tests_Python}{Stochastic\_Predictor\_Tests\_Python.tex}
 
 \textbf{Policy Statement:}
 Checkpoint resume must be bit-exact: best params, objective values, and trial history must match uninterrupted run.
 
 \subsection{Policy \#33: Telemetry Flags and Alerts (Required Fields)}
 
-\textbf{Source:} \texttt{Stochastic\_Predictor\_API\_Python.tex} and \texttt{Stochastic\_Predictor\_IO.tex}
+\textbf{Source:} \dochref{specification/Stochastic_Predictor_API_Python}{Stochastic\_Predictor\_API\_Python.tex} and \dochref{specification/Stochastic_Predictor_IO}{Stochastic\_Predictor\_IO.tex}
 
 \textbf{Policy Statement:}
 Telemetry must include \texttt{degraded\_inference}, \texttt{emergency\_mode}, \texttt{regime\_change}, and \texttt{mode\_collapse\_warning} flags.
@@ -483,21 +488,21 @@ Telemetry must include \texttt{degraded\_inference}, \texttt{emergency\_mode}, \
 
 \subsection{Policy \#34: XLA No Host-Device Sync in Orchestrator}
 
-\textbf{Source:} \texttt{Stochastic\_Predictor\_Tests\_Python.tex}
+\textbf{Source:} \dochref{specification/Stochastic_Predictor_Tests_Python}{Stochastic\_Predictor\_Tests\_Python.tex}
 
 \textbf{Policy Statement:}
 Orchestrator outputs must remain on device; no host synchronization in hot path.
 
 \subsection{Policy \#35: Vectorized vmap Parity}
 
-\textbf{Source:} \texttt{Stochastic\_Predictor\_Tests\_Python.tex}
+\textbf{Source:} \dochref{specification/Stochastic_Predictor_Tests_Python}{Stochastic\_Predictor\_Tests\_Python.tex}
 
 \textbf{Policy Statement:}
 Batched vmap execution must be bit-exact with sequential execution.
 
 \subsection{Policy \#36: JIT Cache Warmup Guarantees}
 
-\textbf{Source:} \texttt{Stochastic\_Predictor\_Tests\_Python.tex}
+\textbf{Source:} \dochref{specification/Stochastic_Predictor_Tests_Python}{Stochastic\_Predictor\_Tests\_Python.tex}
 
 \textbf{Policy Statement:}
 Load shedding warmup must precompile all depths with cache hit rate $\geq$ 99\%.
@@ -524,8 +529,8 @@ Any policy violation results in audit failure. Only checks explicitly derived fr
 
 All audit logic is implemented in:
 \begin{itemize}[noitemsep]
-    \item \texttt{tests/scripts/code\_alignement.py} - 36 CODE\_AUDIT\_POLICIES
-    \item \texttt{tests/scripts/scope\_discovery.py} - Auto-discovery utilities
+    \item \filehref{tests/scripts/code\_alignement.py} - 36 CODE\_AUDIT\_POLICIES
+    \item \filehref{tests/scripts/scope\_discovery.py} - Auto-discovery utilities
 \end{itemize}
 
 \end{document}

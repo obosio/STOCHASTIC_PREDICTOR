@@ -16,7 +16,7 @@ import os
 from dataclasses import fields
 from datetime import datetime
 from pathlib import Path
-from typing import Any, Dict, Optional, TYPE_CHECKING
+from typing import TYPE_CHECKING, Any, Dict, Optional
 
 try:
     import tomllib  # Python 3.11+
@@ -24,7 +24,6 @@ except ImportError:
     import tomli as tomllib  # Fallback for Python < 3.11
 
 import jax
-from jaxtyping import Float
 
 # Module logger for config hot-reload events (V-MIN-3)
 logger = logging.getLogger(__name__)
@@ -45,23 +44,23 @@ jax.config.update("jax_enable_x64", True)
 def verify_xla_precision() -> None:
     """
     Audit internal XLA compilation target to ensure FP64 is active.
-    
+
     Guarantees immutability of algorithmic signatures (Kernel D log-signatures)
     and prevents silent truncation in Malliavin calculus operations.
-    
+
     Raises:
         RuntimeError: If JAX FP64 enforcement failed (catastrophic failure mode)
-    
+
     References:
         - Stochastic_Predictor_Implementation.tex §2.0.0 (Bootstrap FP64 policy)
         - config.toml [core] float_precision = 64
-    
+
     Example:
         >>> verify_xla_precision()  # Raises if FP64 not active
         >>> # Proceed with kernel operations
     """
     test_array = jax.numpy.array([1.0], dtype=jax.numpy.float64)
-    
+
     if test_array.dtype != jax.numpy.float64:
         raise RuntimeError(
             "CRITICAL: JAX FP64 enforcement failed. "
@@ -69,7 +68,7 @@ def verify_xla_precision() -> None:
             "Verify that jax.config.update('jax_enable_x64', True) executed before XLA tracing. "
             "This may indicate a JAX version incompatibility or environment configuration issue."
         )
-    
+
     # Verify dtype attribute is correctly set
     if str(test_array.dtype) != "float64":
         raise RuntimeError(
@@ -85,31 +84,31 @@ verify_xla_precision()
 class ConfigManager:
     """
     Singleton configuration manager.
-    
+
     Loads config.toml from the project root, applies environment variable
     overrides, and provides validated access to configuration parameters.
-    
+
     Thread-safe singleton pattern (lazy initialization).
     """
-    
+
     _instance: Optional["ConfigManager"] = None
     _config: Dict[str, Any] = {}
     _initialized: bool = False
     _config_path: Optional[Path] = None
     _last_mtime: float = 0.0
-    
+
     def __new__(cls) -> "ConfigManager":
         if cls._instance is None:
             cls._instance = super().__new__(cls)
             cls._instance._initialize()
         return cls._instance
-    
+
     @classmethod
     def _initialize(cls) -> None:
         """Load and parse config.toml, apply environment overrides."""
         if cls._initialized:
             return
-        
+
         # Discover config.toml from project root
         config_path = cls._find_config_file()
         if not config_path:
@@ -117,18 +116,18 @@ class ConfigManager:
                 "config.toml not found. Expected in project root. "
                 "See doc/latex/specification/Stochastic_Predictor_Implementation.tex §1.2"
             )
-        
+
         cls._config_path = config_path
         cls._last_mtime = config_path.stat().st_mtime
-        
+
         # Parse TOML
         with open(config_path, "rb") as f:
             cls._config = tomllib.load(f)
-        
+
         # Apply environment variable overrides (dot-notation: CORE__JAX_PLATFORMS)
         cls._apply_env_overrides()
         cls._initialized = True
-    
+
     @staticmethod
     def _find_config_file() -> Optional[Path]:
         """Discover config.toml in the project hierarchy."""
@@ -138,12 +137,12 @@ class ConfigManager:
             Path(__file__).parent.parent.parent / "config.toml",  # Project root (../../..)
             Path.home() / ".Python" / "config.toml",  # User home (optional)
         ]
-        
+
         for path in search_paths:
             if path.exists():
                 return path
         return None
-    
+
     @classmethod
     def _apply_env_overrides(cls) -> None:
         """Apply environment variable overrides (dot-notation)."""
@@ -172,86 +171,85 @@ class ConfigManager:
             return float(value)
         except ValueError:
             return value
-    
+
     def get(self, section: str, key: str, default: Any = None) -> Any:
         """
         Get configuration value with fallback.
-        
+
         Args:
             section: Config section (e.g., "core", "kernels")
             key: Configuration key
             default: Fallback value if key not found
-            
+
         Returns:
             Configuration value or default
         """
         return self._config.get(section, {}).get(key, default)
-    
+
     def get_section(self, section: str) -> Dict[str, Any]:
         """Get entire configuration section."""
         return self._config.get(section, {})
-    
+
     def raw_config(self) -> Dict[str, Any]:
         """Get raw configuration dictionary (for inspection/debugging)."""
         return self._config.copy()
-    
+
     def check_and_reload(self) -> bool:
         """
         Check if config.toml has been modified and reload if necessary.
-        
+
         Enables hot-reload after autonomous config mutations without restart.
         Uses mtime (modification time) tracking for efficient change detection.
-        
+
         COMPLIANCE:
             - V-CRIT-4: Hot-reload config mechanism
             - V-MIN-3: Log config hot-reload events to telemetry
-        
+
         Returns:
             True if config was reloaded, False if no changes detected
-        
+
         Example:
             >>> config_manager = get_config()
             >>> # After atomic_write_config() mutation
             >>> if config_manager.check_and_reload():
             ...     print("Configuration reloaded")
-        
+
         References:
             - AUDIT_SPEC_COMPLIANCE_2026-02-19.md: V-CRIT-4, V-MIN-3
             - IO.tex §3.3.7: Hot-reload integration with mutation protocol
         """
         if not self._config_path or not self._config_path.exists():
             return False
-        
+
         # Check modification time
         current_mtime = self._config_path.stat().st_mtime
-        
+
         if current_mtime <= self._last_mtime:
             return False  # No changes
-        
+
         # Reload configuration
         try:
             with open(self._config_path, "rb") as f:
                 self._config = tomllib.load(f)
-            
+
             # Reapply environment overrides
             self._apply_env_overrides()
-            
+
             # Update mtime
             self._last_mtime = current_mtime
-            
+
             # V-MIN-3: Log successful reload event
             logger.info(
                 f"Config hot-reloaded at {datetime.now().isoformat()}. "
                 f"Trigger: external mutation detected (mtime={current_mtime:.3f})."
             )
-            
+
             return True
-        
+
         except Exception as e:
             # V-MIN-3: Log reload failure
             logger.error(
-                f"Config hot-reload failed at {datetime.now().isoformat()}: {e}. "
-                f"mtime={current_mtime:.3f}"
+                f"Config hot-reload failed at {datetime.now().isoformat()}: {e}. " f"mtime={current_mtime:.3f}"
             )
             return False
 
@@ -280,7 +278,6 @@ FIELD_TO_SECTION_MAP: Dict[str, str] = {
     "schema_version": "meta",
     "prng_seed": "core",
     "prng_split_count": "core",
-    
     # JKO Orchestrator & Optimal Transport
     "epsilon": "orchestration",
     "learning_rate": "orchestration",
@@ -297,7 +294,6 @@ FIELD_TO_SECTION_MAP: Dict[str, str] = {
     "sinkhorn_inner_iterations": "orchestration",
     "sinkhorn_cost_type": "orchestration",
     "sinkhorn_huber_delta": "orchestration",
-    
     # Entropy Monitoring
     "entropy_window": "orchestration",
     "entropy_threshold": "orchestration",
@@ -310,7 +306,6 @@ FIELD_TO_SECTION_MAP: Dict[str, str] = {
     "entropy_ratio_max": "orchestration",
     "entropy_baseline_floor": "orchestration",
     "entropy_scaling_trigger": "orchestration",
-    
     # Kernel Parameters
     "log_sig_depth": "kernels",
     "wtmm_buffer_size": "kernels",
@@ -376,7 +371,6 @@ FIELD_TO_SECTION_MAP: Dict[str, str] = {
     "kurtosis_min": "kernels",
     "kurtosis_max": "kernels",
     "kurtosis_reference": "kernels",
-    
     # Circuit Breaker & Regime Detection
     "holder_threshold": "orchestration",
     "dgm_entropy_coupling_beta": "orchestration",
@@ -394,13 +388,11 @@ FIELD_TO_SECTION_MAP: Dict[str, str] = {
     "residual_window_size": "orchestration",
     "volatility_alpha": "orchestration",
     "inference_recovery_hysteresis": "orchestration",
-    
     # Validation & Outlier Detection
     "sigma_bound": "orchestration",
     "sigma_val": "orchestration",
     "max_future_drift_ns": "orchestration",
     "max_past_drift_ns": "orchestration",
-    
     # Validation Constraints (Phase 5: Zero-Heuristics)
     "validation_finite_allow_nan": "validation",
     "validation_finite_allow_inf": "validation",
@@ -414,7 +406,6 @@ FIELD_TO_SECTION_MAP: Dict[str, str] = {
     "validation_beta_stable_max": "validation",
     "validation_viscosity_residual_max": "validation",
     "sanitize_replace_nan_value": "validation",
-    
     # Phase 6: SDE Integration Tolerances (Kernel C - Zero-Heuristics)
     "sde_brownian_tree_tol": "kernels",
     "sde_pid_rtol": "kernels",
@@ -423,22 +414,18 @@ FIELD_TO_SECTION_MAP: Dict[str, str] = {
     "sde_pid_dtmax": "kernels",
     "sde_solver_type": "kernels",
     "sde_initial_dt_factor": "kernels",
-    
     # Phase 6: Kernel B Hyperparameters (Zero-Heuristics)
     "kernel_b_spatial_samples": "kernels",
     "kernel_b_spatial_range_factor": "kernels",
     "kernel_ridge_lambda": "kernels",
     "sde_diffusion_sigma": "kernels",
-    
     # Phase 6: Kernel D Hyperparameters (Zero-Heuristics)
     "kernel_d_confidence_scale": "kernels",
     "sanitize_replace_inf_value": "validation",
     "sanitize_clip_range": "validation",
-    
     # Mode Collapse Detection (Orchestration)
     "mode_collapse_min_threshold": "orchestration",
     "mode_collapse_window_ratio": "orchestration",
-    
     # Meta-Optimization (Capa 3 - Auto-Tuning v2.1.0)
     "log_sig_depth_min": "meta_optimization",
     "log_sig_depth_max": "meta_optimization",
@@ -458,7 +445,6 @@ FIELD_TO_SECTION_MAP: Dict[str, str] = {
     "multivariate": "meta_optimization",
     "train_ratio": "meta_optimization",
     "n_folds": "meta_optimization",
-    
     # I/O Policies
     "data_feed_timeout": "io",
     "data_feed_max_retries": "io",
@@ -484,7 +470,6 @@ FIELD_TO_SECTION_MAP: Dict[str, str] = {
     "frozen_signal_recovery_ratio": "io",
     "frozen_signal_recovery_steps": "io",
     "degraded_recovery_min_steps": "io",
-    
     # Core System Policies
     "staleness_ttl_ns": "core",
 }
@@ -493,58 +478,58 @@ FIELD_TO_SECTION_MAP: Dict[str, str] = {
 class PredictorConfigInjector:
     """
     Dependency injection wrapper for PredictorConfig.
-    
+
     Bridges config.toml values with the types.PredictorConfig dataclass,
     allowing seamless configuration-driven instantiation.
-    
+
     Example:
         >>> injector = PredictorConfigInjector()
         >>> cfg = injector.create_config()
         >>> assert cfg.grace_period_steps == 20  # or env override
     """
-    
+
     def __init__(self):
         self.config_manager = get_config()
-    
+
     def create_config(self) -> PredictorConfig:
         """
         Create a PredictorConfig instance from config.toml using automated field mapping.
-        
+
         Uses dataclass introspection to ensure all PredictorConfig fields are populated
         from config.toml or environment variables, without falling back to dataclass defaults.
-        
+
         Architecture:
             1. Introspect PredictorConfig fields using dataclasses.fields()
             2. Map each field to its config.toml section via FIELD_TO_SECTION_MAP
             3. Auto-construct cfg_dict without manual hard-coding
             4. Validate completeness (all fields have section mappings)
-        
+
         Returns:
             Configured PredictorConfig instance with all fields populated
-            
+
         Raises:
             ValueError: If FIELD_TO_SECTION_MAP is incomplete (missing field mappings)
-        
+
         References:
             - FIELD_TO_SECTION_MAP: Single source of truth for field→section mapping
             - PredictorConfig: types.py dataclass with defaults
         """
         from .types import PredictorConfig
-        
+
         # Introspect PredictorConfig dataclass fields
         config_fields = fields(PredictorConfig)
-        
+
         # Validate that FIELD_TO_SECTION_MAP is complete
         field_names = {f.name for f in config_fields}
         mapped_fields = set(FIELD_TO_SECTION_MAP.keys())
-        
+
         missing_mappings = field_names - mapped_fields
         if missing_mappings:
             raise ValueError(
                 f"FIELD_TO_SECTION_MAP is incomplete. Missing mappings for: {missing_mappings}. "
                 f"Update FIELD_TO_SECTION_MAP in config.py to include all PredictorConfig fields."
             )
-        
+
         # Auto-construct configuration dictionary
         cfg_dict = {}
         for field in config_fields:
@@ -562,56 +547,48 @@ class PredictorConfigInjector:
             cfg_dict[field_name] = section_values[field_name]
 
         if isinstance(cfg_dict.get("kernel_d_load_shedding_depths"), list):
-            cfg_dict["kernel_d_load_shedding_depths"] = tuple(
-                cfg_dict["kernel_d_load_shedding_depths"]
-            )
+            cfg_dict["kernel_d_load_shedding_depths"] = tuple(cfg_dict["kernel_d_load_shedding_depths"])
 
         if isinstance(cfg_dict.get("sanitize_clip_range"), list):
-            cfg_dict["sanitize_clip_range"] = tuple(
-                cfg_dict["sanitize_clip_range"]
-            )
-        
+            cfg_dict["sanitize_clip_range"] = tuple(cfg_dict["sanitize_clip_range"])
+
         return PredictorConfig(**cfg_dict)
-    
+
     def verify_jax_config(self) -> Dict[str, bool]:
         """
         Verify that JAX is configured per config.toml specifications.
-        
+
         Compares JAX runtime config with config.toml requirements.
         POLICY: Zero-Heuristics - Explicit config validation, no silent defaults
-        
+
         Returns:
             Dictionary of verification flags: {check_name: passed}
-            
+
         Raises:
             ValueError: If required JAX configuration is missing from [core] section
         """
         checks = {}
-        
+
         # Check JAX precision mode - explicit validation, no defaults
         core_section = self.config_manager.get_section("core")
         if "jax_default_dtype" not in core_section:
             raise ValueError(
-                "Missing required config: [core].jax_default_dtype. "
-                "Zero-Heuristics policy forbids silent defaults."
+                "Missing required config: [core].jax_default_dtype. " "Zero-Heuristics policy forbids silent defaults."
             )
-        expected_dtype = core_section["jax_default_dtype"]
-        
+        core_section["jax_default_dtype"]
+
         # Note: JAX config attributes vary by version; verify using device capabilities
         current_devices = jax.devices()
         checks["jax_device_available"] = len(current_devices) > 0
-        
+
         # Check platform configuration - explicit validation, no defaults
         if "jax_platforms" not in core_section:
             raise ValueError(
-                "Missing required config: [core].jax_platforms. "
-                "Zero-Heuristics policy forbids silent defaults."
+                "Missing required config: [core].jax_platforms. " "Zero-Heuristics policy forbids silent defaults."
             )
         expected_platform = core_section["jax_platforms"]
-        checks["jax_platform_matches"] = any(
-            expected_platform in str(d).lower() for d in current_devices
-        )
-        
+        checks["jax_platform_matches"] = any(expected_platform in str(d).lower() for d in current_devices)
+
         return checks
 
 

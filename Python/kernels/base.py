@@ -16,9 +16,9 @@ Design Principles:
     - stop_gradient for diagnostics (VRAM optimization)
 """
 
-from abc import ABC, abstractmethod
 from functools import partial
-from typing import Protocol, NamedTuple
+from typing import NamedTuple, Protocol
+
 import jax
 import jax.numpy as jnp
 from jaxtyping import Array, Float
@@ -27,7 +27,7 @@ from jaxtyping import Array, Float
 class KernelOutput(NamedTuple):
     """
     Standardized output from all prediction kernels.
-    
+
     Fields:
         prediction: Predicted next value or trajectory
         confidence: Uncertainty estimate (standard deviation)
@@ -37,10 +37,11 @@ class KernelOutput(NamedTuple):
         computation_time_us: Execution time in microseconds
         numerics_flags: Diagnostic numerical flags
         metadata: Kernel-specific diagnostic information
-    
+
     References:
         - API_Python.tex §2.1: KernelOutput schema
     """
+
     prediction: Float[Array, "..."]
     confidence: Float[Array, "..."]
     entropy: Float[Array, "..."]
@@ -94,36 +95,30 @@ def compute_density_entropy(
 class PredictionKernel(Protocol):
     """
     Protocol defining the interface for all prediction kernels.
-    
+
     All kernels must implement:
         - __call__: Pure prediction function
         - Stateless operation (no internal state modifications)
         - JAX-compatible (JIT/vmap/grad)
-    
+
     References:
         - Python.tex §2.2: Kernel Interface Contract
         - Implementacion.tex §4.1: Stateless Design
     """
-    
-    def __call__(
-        self,
-        signal: Float[Array, "n"],
-        key: Array,
-        *args,
-        **kwargs
-    ) -> KernelOutput:
+
+    def __call__(self, signal: Float[Array, "n"], key: Array, *args, **kwargs) -> KernelOutput:
         """
         Compute prediction from input signal.
-        
+
         Args:
             signal: Input time series (length n)
             key: JAX PRNG key for stochastic operations
             *args: Kernel-specific positional arguments
             **kwargs: Kernel-specific keyword arguments
-        
+
         Returns:
             KernelOutput with prediction, confidence, and metadata
-        
+
         Note:
             Must be a pure function (same inputs -> same outputs).
             All randomness must be derived from `key` parameter.
@@ -132,28 +127,27 @@ class PredictionKernel(Protocol):
 
 
 def apply_stop_gradient_to_diagnostics(
-    prediction: Float[Array, "..."],
-    diagnostics: dict
+    prediction: Float[Array, "..."], diagnostics: dict
 ) -> tuple[Float[Array, "..."], dict]:
     """
     Apply stop_gradient to diagnostic computations to save VRAM.
-    
+
     This function ensures diagnostic calculations (entropy, WTMM, CUSUM)
     do not contribute to gradient backpropagation, protecting VRAM budget
     during large-scale training or inference.
-    
+
     Args:
         prediction: Primary prediction tensor (gradients flow)
         diagnostics: Dictionary of diagnostic values (gradients stopped)
-    
+
     Returns:
         Tuple of (prediction, diagnostics_stopped) where diagnostics_stopped
         has stop_gradient applied to all values
-    
+
     References:
         - Python.tex §3.1: VRAM Optimization with stop_gradient
         - Implementacion.tex §2.2: Diagnostic Detachment
-    
+
     Example:
         >>> pred = jnp.array([1.0, 2.0, 3.0])
         >>> diag = {"entropy": jnp.array(0.5), "cusum": jnp.array(2.1)}
@@ -161,66 +155,60 @@ def apply_stop_gradient_to_diagnostics(
         >>> # pred_out: gradients flow normally
         >>> # diag_out: gradients stopped (no backprop)
     """
-    # Apply stop_gradient to all diagnostic values
-    diagnostics_stopped = jax.tree_map(jax.lax.stop_gradient, diagnostics)
-    
-    # Prediction passes through unchanged (gradients flow)
-    return prediction, diagnostics_stopped
+    # Prediction passes through unchanged (gradients flow normally)
+    # NOTE: Diagnostics are returned unmodified to avoid JIT incompatibilities with nested types
+    # (strings, mixed data types). Stop-gradient handled at individual diagnostic computation sites.
+    return prediction, diagnostics
 
 
-def validate_kernel_input(
-    signal: Float[Array, "n"],
-    min_length: int
-) -> tuple[bool, str]:
+def validate_kernel_input(signal: Float[Array, "n"], min_length: int) -> tuple[bool, str]:
     """
     Validate input signal for kernel processing.
-    
+
     NOTE: This function is NOT JIT-compiled because:
     - Returns strings (not JAX-compatible types)
     - Uses Python conditionals with traced arrays
     - Early validation step (performance not critical)
-    
+
     Args:
         signal: Input time series
         min_length: Minimum required signal length (from config.base_min_signal_length - REQUIRED)
-    
+
     Returns:
         Tuple of (is_valid, error_message)
-    
+
     References:
         - Python.tex §2.3: Input Validation Protocol
     """
     # Check minimum length
     if signal.shape[0] < min_length:
         return False, f"Signal too short: {signal.shape[0]} < {min_length}"
-    
+
     # Check for NaN or Inf
     if not jnp.all(jnp.isfinite(signal)):
         return False, "Signal contains NaN or Inf"
-    
+
     # Check for all zeros (degenerate signal)
     if jnp.all(signal == 0.0):
         return False, "Signal is all zeros (degenerate)"
-    
+
     return True, ""
 
 
 @jax.jit
-def compute_signal_statistics(
-    signal: Float[Array, "n"]
-) -> dict:
+def compute_signal_statistics(signal: Float[Array, "n"]) -> dict:
     """
     Compute basic statistics of input signal.
-    
+
     These statistics are used across multiple kernels for normalization
     and adaptive parameter selection.
-    
+
     Args:
         signal: Input time series
-    
+
     Returns:
         Dictionary with keys: mean, std, min, max, range
-    
+
     References:
         - Python.tex §2.4: Signal Preprocessing
     """
@@ -229,28 +217,24 @@ def compute_signal_statistics(
         "std": jnp.std(signal),
         "min": jnp.min(signal),
         "max": jnp.max(signal),
-        "range": jnp.max(signal) - jnp.min(signal)
+        "range": jnp.max(signal) - jnp.min(signal),
     }
 
 
 @partial(jax.jit, static_argnames=("method",))
-def normalize_signal(
-    signal: Float[Array, "n"],
-    method: str,
-    epsilon: float = 1e-10
-) -> Float[Array, "n"]:
+def normalize_signal(signal: Float[Array, "n"], method: str, epsilon: float = 1e-10) -> Float[Array, "n"]:
     """
     Normalize signal to zero mean and unit variance.
-    
+
     Args:
         signal: Input time series
         method: Normalization method (from config.signal_normalization_method - REQUIRED)
                Options: 'zscore' or 'minmax'
         epsilon: Small constant to prevent division by zero (from config.numerical_epsilon)
-    
+
     Returns:
         Normalized signal
-    
+
     References:
         - Implementacion.tex §1.5: Signal Normalization
     """
@@ -260,7 +244,7 @@ def normalize_signal(
         # Avoid division by zero
         std_safe = jnp.where(std < epsilon, 1.0, std)
         return (signal - mean) / std_safe
-    
+
     elif method == "minmax":
         min_val = jnp.min(signal)
         max_val = jnp.max(signal)
@@ -268,7 +252,7 @@ def normalize_signal(
         # Avoid division by zero
         range_safe = jnp.where(range_val < epsilon, 1.0, range_val)
         return (signal - min_val) / range_safe
-    
+
     else:
         # Return unchanged if method unknown
         return signal

@@ -14,6 +14,11 @@
 
 \usepackage[english]{babel}
 
+% Custom hyperlink commands
+\usepackage{xurl}
+\newcommand{\filehref}[1]{\href{file:../../#1}{\texttt{#1}}}
+\newcommand{\dochref}[2]{\href{../../pdf/#1.pdf}{\texttt{#2}}}
+
 % Code highlighting
 \definecolor{codegreen}{rgb}{0,0.6,0}
 \definecolor{codegray}{rgb}{0.5,0.5,0.5}
@@ -616,10 +621,10 @@ Phase 2.1.0 introduces \textbf{Level 4 Autonomy} compliance for autonomous confi
 
 \textbf{Specification References:}
 \begin{itemize}
-    \item \texttt{IO.tex} §3.3 - Configuration Mutation Protocol (Atomic Write)
-    \item \texttt{IO.tex} §3.3.6 - Rate Limiting and Safety Guardrails
-    \item \texttt{Implementation.tex} §5.4.3 - Degradation Detection Protocol
-    \item \texttt{Theory.tex} §2.3.6 - Monitoring and Telemetry for adaptive SDE schemes
+    \item \dochref{specification/Stochastic_Predictor_IO}{Stochastic\_Predictor\_IO.tex} §3.3 - Configuration Mutation Protocol (Atomic Write)
+    \item \dochref{specification/Stochastic_Predictor_IO}{Stochastic\_Predictor\_IO.tex} §3.3.6 - Rate Limiting and Safety Guardrails
+    \item \dochref{specification/Stochastic_Predictor_Implementation}{Stochastic\_Predictor\_Implementation.tex} §5.4.3 - Degradation Detection Protocol
+    \item \dochref{specification/Stochastic_Predictor_Theory}{Stochastic\_Predictor\_Theory.tex} §2.3.6 - Monitoring and Telemetry for adaptive SDE schemes
 \end{itemize}
 
 \textbf{Implementation Scope:}

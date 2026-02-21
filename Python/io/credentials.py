@@ -21,7 +21,7 @@ def load_env_file(path: str) -> Dict[str, str]:
         if "=" not in stripped:
             continue
         key, value = stripped.split("=", 1)
-        values[key.strip()] = value.strip().strip("\"")
+        values[key.strip()] = value.strip().strip('"')
     return values
 
 

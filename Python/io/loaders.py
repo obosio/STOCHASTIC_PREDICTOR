@@ -1,18 +1,19 @@
 """Ingestion pipeline helpers for IO policies."""
 
 from dataclasses import dataclass
-from typing import List, Optional
+from typing import List
+
 import numpy as np
 
 from Python.api.types import InternalState, PredictorConfig, ProcessState
+from Python.io.validators import detect_frozen_recovery  # V-MAJ-6: Import recovery detector
 from Python.io.validators import (
-    OutlierRejectedEvent,
     FrozenSignalAlarmEvent,
+    OutlierRejectedEvent,
     StaleSignalEvent,
     compute_staleness_ns,
     detect_catastrophic_outlier,
     detect_frozen_signal,
-    detect_frozen_recovery,  # V-MAJ-6: Import recovery detector
     is_stale,
 )
 
@@ -66,22 +67,18 @@ def evaluate_ingestion(
 
     history_with_new = np.concatenate([signal_history, np.array([magnitude], dtype=np.float64)])
     frozen = detect_frozen_signal(history_with_new, config.frozen_signal_min_steps)
-    
+
     # V-MAJ-6: Check for frozen signal recovery
     # If frozen, but variance has recovered above threshold, lift the frozen flag
     in_recovery = False
     if frozen:
         residual_window = np.asarray(state.residual_window, dtype=np.float64)
         historical_variance = (
-            float(np.var(residual_window))
-            if residual_window.size > 1
-            else config.frozen_signal_variance_floor
+            float(np.var(residual_window)) if residual_window.size > 1 else config.frozen_signal_variance_floor
         )
-        recent_window = residual_window[-config.frozen_signal_recovery_steps:]
+        recent_window = residual_window[-config.frozen_signal_recovery_steps :]
         recent_variance = (
-            float(np.var(recent_window))
-            if recent_window.size > 1
-            else config.frozen_signal_variance_floor
+            float(np.var(recent_window)) if recent_window.size > 1 else config.frozen_signal_variance_floor
         )
         variance_history = [recent_variance] * config.frozen_signal_recovery_steps
 
@@ -96,7 +93,7 @@ def evaluate_ingestion(
         # If in recovery, lift the frozen flag
         if in_recovery:
             frozen = False
-    
+
     if frozen:
         events.append(
             FrozenSignalAlarmEvent(

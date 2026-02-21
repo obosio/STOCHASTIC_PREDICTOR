@@ -205,21 +205,35 @@ Bootstrap establishes the foundational language policy:
 
 \section{Frozen Requirements}
 
-\texttt{requirements.txt} established with strict \texttt{==} operators:
+\texttt{requirements.txt} established with strict \texttt{==} operators and platform-specific environment markers (PEP 508) to ensure cross-platform compatibility:
 
 \begin{verbatim}
-jax==0.4.20
-jaxlib==0.4.20
-equinox==0.11.2
-diffrax==0.4.1
-jaxtyping==0.2.25
-ott-jax==0.4.5
-signax==0.1.4
-PyWavelets==1.4.1
-numpy==1.24.0
-scipy==1.10.0
-pandas==2.0.0
+# Platform-specific JAX versions
+jax==0.4.38; sys_platform == 'darwin' and platform_machine == 'x86_64'
+jaxlib==0.4.38; sys_platform == 'darwin' and platform_machine == 'x86_64'
+
+jax==0.4.38; sys_platform == 'darwin' and platform_machine == 'arm64'
+jaxlib==0.4.38; sys_platform == 'darwin' and platform_machine == 'arm64'
+
+jax==0.4.38; sys_platform == 'linux'
+jaxlib==0.4.38; sys_platform == 'linux'
+
+jax==0.4.38; sys_platform == 'win32'
+jaxlib==0.4.38; sys_platform == 'win32'
+
+# Platform-independent dependencies
+equinox==0.13.4
+diffrax==0.7.2
+jaxtyping==0.3.9
+ott-jax==0.6.0
+signax==0.2.1
+PyWavelets==1.9.0
+numpy==2.4.2
+scipy==1.17.0
+pandas==3.0.1
 \end{verbatim}
+
+\textbf{Note:} Environment markers enable single-file dependency specification while supporting platform-specific binary requirements (JAX/JAXlib). The \texttt{pip} installer automatically selects the appropriate version based on \texttt{sys.platform} and \texttt{platform.machine()}.
 
 \section{Rationale}
 
@@ -228,6 +242,7 @@ Per \texttt{Stochastic\_Predictor\_Python.tex §1}:
 \begin{itemize}
     \item \textbf{Bit-exactness}: Numerical results must be reproducible
     \item \textbf{XLA caching}: JIT compilation depends on exact library versions
+    \item \textbf{Cross-platform support}: Environment markers enable portability across macOS (Intel/ARM), Linux, and Windows
     \item \textbf{JAX API stability}: Breaking changes in minor versions
     \item \textbf{Research integrity}: Published results must be reproducible
 \end{itemize}

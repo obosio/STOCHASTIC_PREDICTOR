@@ -2,6 +2,7 @@
 # Universal Stochastic Predictor Implementation
 # Version: v1.0.0-Diamond-Spec
 # Date: February 18, 2026
+# Updated: February 21, 2026 - Latest stable versions from PyPI
 
 # CRITICAL: Use == for all packages
 # Prohibition: >= and pip install -U are forbidden
@@ -9,25 +10,42 @@
 
 # ==================== Core XLA ==================== #
 # Fundamental engine for differentiable computing with GPU/TPU support
-jax==0.4.20
-jaxlib==0.4.20
+# Platform-specific versions ensure cross-platform compatibility
+# macOS Intel: Limited to 0.4.38 (last supported version)
+# All other platforms: 0.4.38 (current stable baseline)
+
+# macOS Intel (x86_64)
+jax==0.4.38; sys_platform == 'darwin' and platform_machine == 'x86_64'
+jaxlib==0.4.38; sys_platform == 'darwin' and platform_machine == 'x86_64'
+
+# macOS ARM64 (M1/M2/M3/M4)
+jax==0.4.38; sys_platform == 'darwin' and platform_machine == 'arm64'
+jaxlib==0.4.38; sys_platform == 'darwin' and platform_machine == 'arm64'
+
+# Linux (all architectures)
+jax==0.4.38; sys_platform == 'linux'
+jaxlib==0.4.38; sys_platform == 'linux'
+
+# Windows
+jax==0.4.38; sys_platform == 'win32'
+jaxlib==0.4.38; sys_platform == 'win32'
 
 # ==================== Neural Networks ==================== #
 # Pythonic framework for Branch B (Fokker-Planck, DGM) and C (Neural ODEs)
-equinox==0.11.2
+equinox==0.13.4
 
 # ==================== SDE/ODE Solvers ==================== #
 # Differentiable solvers for stochastic differential equations (Branch C)
 # Supports Euler-Maruyama, implicit schemes, and dynamic stiffness transition
-diffrax==0.4.1
+diffrax==0.7.2
 
 # ==================== Type Annotations ==================== #
 # Type hints for JAX: static typing for jax arrays and operations
-jaxtyping==0.2.24
+jaxtyping==0.3.9
 
 # ==================== Data Validation ==================== #
 # Pydantic for schema validation and serialization
-pydantic==2.5.2
+pydantic==2.12.5
 
 # ==================== Configuration Management ==================== #
 # TOML parser for config.toml (fallback for Python < 3.11)
@@ -35,47 +53,47 @@ tomli==2.0.1
 
 # ==================== Optimal Transport ==================== #
 # Differentiable optimal transport: JKO algorithm, Sinkhorn with volatility-coupled regularization
-ott-jax==0.4.5
+ott-jax==0.6.0
 
 # ==================== Log-Signatures (Branch D) ==================== #
 # Robust signature calculation for rough paths analysis
 # Processes with low Holder regularity (H <= 1/2)
-signax==0.1.4
+signax==0.2.1
 
 # ==================== Wavelet Analysis (SIA) ==================== #
 # Continuous wavelet transform for multifractal analysis (WTMM)
 # Detection of local singularities and singularity spectrum
-PyWavelets==1.4.1
+PyWavelets==1.9.0
 
 # ==================== Scientific Computing ==================== #
 # Mathematical foundations: numerical operations, special functions
-numpy==1.24.0
-scipy==1.11.4
+numpy==2.4.2
+scipy==1.17.0
 
 # ==================== Data Manipulation ==================== #
 # Time series management and structured data
-pandas==2.0.0
+pandas==3.0.1
 
 # ==================== Visualization (Development Only) ==================== #
-matplotlib==3.7.0
-seaborn==0.12.0
+matplotlib==3.10.8
+seaborn==0.13.2
 
 # ==================== Meta-Optimization (Layer 3 - Optional) ==================== #
 # Bayesian hyperparameter search for auto-tuning (Learning to Learn)
 # TPE (Tree-structured Parzen Estimator) sampler for structural parameters
 # Optional: System operates without this, but meta-optimization unavailable
-optuna==3.5.0
+optax==0.2.5
 
 # ==================== Development & Testing ==================== #
 # Testing framework with coverage
-pytest==7.3.0
-pytest-cov==4.1.0
+pytest==9.0.2
+pytest-cov==7.0.0
 
 # Code quality tools
-black==23.0.0
-flake8==6.0.0
-mypy==1.0.0
-isort==5.12.0
+black==26.1.0
+flake8==7.3.0
+mypy==1.19.1
+isort==8.0.0
 
 # ==================== Documentation ==================== #
 # Sphinx for automatic documentation (optional, future)

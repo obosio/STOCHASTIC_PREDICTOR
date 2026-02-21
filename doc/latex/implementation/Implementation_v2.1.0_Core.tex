@@ -14,6 +14,11 @@
 
 \usepackage[english]{babel}
 
+% Custom hyperlink commands
+\usepackage{xurl}
+\newcommand{\filehref}[1]{\href{file:../../#1}{\texttt{#1}}}
+\newcommand{\dochref}[2]{\href{../../pdf/#1.pdf}{\texttt{#2}}}
+
 % Code highlighting
 \definecolor{codegreen}{rgb}{0,0.6,0}
 \definecolor{codegray}{rgb}{0.5,0.5,0.5}
@@ -1543,9 +1548,9 @@ Phase 2.1.0 introduces \textbf{Level 4 Autonomy} compliance, implementing adapti
 
 \textbf{Specification References:}
 \begin{itemize}
-    \item \texttt{Theory.tex} §2.4.2 - Adaptive Architecture Criterion for Dynamic Entropy Regimes
-    \item \texttt{Theory.tex} §2.3.6 - Hölder-Informed Stiffness Threshold Optimization
-    \item \texttt{Theory.tex} §3.4.1 - Non-Universality of JKO Flow Hyperparameters
+    \item \dochref{specification/Stochastic_Predictor_Theory}{Stochastic\_Predictor\_Theory.tex} §2.4.2 - Adaptive Architecture Criterion for Dynamic Entropy Regimes
+    \item \dochref{specification/Stochastic_Predictor_Theory}{Stochastic\_Predictor\_Theory.tex} §2.3.6 - Hölder-Informed Stiffness Threshold Optimization
+    \item \dochref{specification/Stochastic_Predictor_Theory}{Stochastic\_Predictor\_Theory.tex} §3.4.1 - Non-Universality of JKO Flow Hyperparameters
 \end{itemize}
 
 \textbf{Implementation Scope:}
@@ -2226,6 +2231,6 @@ No manual intervention required over weeks/months of continuous operation. All 6
 
 \section{Phase 4 Integration Note}
 
-Phase 4 extends the orchestration pipeline with ingestion validation and IO gates. The \texttt{orchestrate\_step()} signature now accepts observation metadata (\texttt{ProcessState}, \texttt{now\_ns}) and integrates the ingestion gate prior to kernel execution. See \texttt{Implementation\_v2.1.0\_IO.tex} for complete documentation.
+Phase 4 extends the orchestration pipeline with ingestion validation and IO gates. The \texttt{orchestrate\_step()} signature now accepts observation metadata (\texttt{ProcessState}, \texttt{now\_ns}) and integrates the ingestion gate prior to kernel execution. See \dochref{implementation/Implementation_v2.1.0_IO}{Implementation\_v2.1.0\_IO.tex} for complete documentation.
 
 \end{document}
