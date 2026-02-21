@@ -6,13 +6,13 @@ from typing import List
 import numpy as np
 
 from Python.api.types import InternalState, PredictorConfig, ProcessState
-from Python.io.validators import detect_frozen_recovery  # V-MAJ-6: Import recovery detector
-from Python.io.validators import (
+from Python.io.validators import (  # V-MAJ-6: Import recovery detector
     FrozenSignalAlarmEvent,
     OutlierRejectedEvent,
     StaleSignalEvent,
     compute_staleness_ns,
     detect_catastrophic_outlier,
+    detect_frozen_recovery,
     detect_frozen_signal,
     is_stale,
 )

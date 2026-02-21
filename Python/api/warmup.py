@@ -333,11 +333,8 @@ def warmup_all_kernels(
     load_shedding_timings = warmup_kernel_d_load_shedding(config, keys[3], verbose=verbose)
     timings["kernel_d_load_shedding"] = load_shedding_timings
 
-    total_time = (
-        sum(timings.values())
-        if not isinstance(timings.get("kernel_d_load_shedding"), dict)
-        else sum(v for k, v in timings.items() if k != "kernel_d_load_shedding")
-        + sum(timings["kernel_d_load_shedding"].values())
+    total_time = sum(
+        float(v) if not isinstance(v, dict) else sum(float(x) for x in v.values()) for v in timings.values()
     )
 
     if verbose:

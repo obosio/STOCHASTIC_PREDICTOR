@@ -752,9 +752,9 @@ All operational parameters sourced from:
 
 ## References
 
-- **Theory**: doc/latex/specification/Stochastic_Predictor_Theory.tex
-- **API**: doc/latex/specification/Stochastic_Predictor_API_Python.tex
-- **Implementation**: doc/latex/implementation/Implementation_v2.1.0_*.tex
+- **Theory**: Doc/latex/specification/Stochastic_Predictor_Theory.tex
+- **API**: Doc/latex/specification/Stochastic_Predictor_API_Python.tex
+- **Implementation**: Doc/latex/implementation/Implementation_v2.1.0_*.tex
 - **Configuration**: config.toml
 - **Source Code**: Python/ (all modules)
 

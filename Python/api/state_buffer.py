@@ -377,7 +377,12 @@ def reset_cusum_statistics(state: InternalState) -> InternalState:
     References:
         - Teoria.tex §3.4.2: CUSUM Reset Logic
     """
-    return replace(state, cusum_g_plus=jnp.array(0.0), cusum_g_minus=jnp.array(0.0), grace_counter=0)
+    return replace(
+        state,
+        cusum_g_plus=jnp.array(0.0),
+        cusum_g_minus=jnp.array(0.0),
+        grace_counter=0,
+    )
 
 
 # Export public API

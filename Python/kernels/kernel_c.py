@@ -155,7 +155,11 @@ def solve_sde(
         solver_idx_next = jnp.where(
             use_explicit,
             jnp.array(0, dtype=jnp.int32),
-            jnp.where(use_implicit, jnp.array(2, dtype=jnp.int32), jnp.array(1, dtype=jnp.int32)),
+            jnp.where(
+                use_implicit,
+                jnp.array(2, dtype=jnp.int32),
+                jnp.array(1, dtype=jnp.int32),
+            ),
         )
 
         max_stiffness = jnp.maximum(max_stiffness, stiffness_metric)

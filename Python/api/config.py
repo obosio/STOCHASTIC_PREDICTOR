@@ -114,7 +114,7 @@ class ConfigManager:
         if not config_path:
             raise FileNotFoundError(
                 "config.toml not found. Expected in project root. "
-                "See doc/latex/specification/Stochastic_Predictor_Implementation.tex §1.2"
+                "See Doc/latex/specification/Stochastic_Predictor_Implementation.tex §1.2"
             )
 
         cls._config_path = config_path
@@ -133,8 +133,8 @@ class ConfigManager:
         """Discover config.toml in the project hierarchy."""
         # Start from current file location and traverse upward
         search_paths = [
-            Path.cwd() / "config.toml",  # Current working directory
-            Path(__file__).parent.parent.parent / "config.toml",  # Project root (../../..)
+            Path(__file__).parent.parent / "config.toml",  # Python/config.toml (primary)
+            Path.cwd() / "config.toml",  # Current working directory (backward compatibility)
             Path.home() / ".Python" / "config.toml",  # User home (optional)
         ]
 

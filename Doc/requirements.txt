@@ -1,0 +1,19 @@
+# Documentation Dependencies - Golden Master
+# Universal Stochastic Predictor - Documentation Tooling
+# Version: v1.0.0-Diamond-Spec
+# Date: February 21, 2026
+
+# ==================== LaTeX Compilation ==================== #
+# LaTeX documentation is compiled using system-level tools (pdflatex, latexmk)
+# No Python dependencies required for current documentation workflow
+
+# ==================== Future Documentation Tools ==================== #
+# Sphinx for automatic API documentation (optional, reserved for future)
+# sphinx==7.0.0
+# sphinx-rtd-theme==2.0.0
+
+# ==================== NOTES ==================== #
+# - Current documentation uses pure LaTeX (16 .tex files)
+# - Compilation handled by Doc/compile.sh using system LaTeX distribution
+# - If Sphinx integration is added, update this file and dependency_check.py
+# - See Doc/latex/ for all specification and implementation documents

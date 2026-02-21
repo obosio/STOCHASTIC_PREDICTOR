@@ -8,7 +8,7 @@ Architecture:
   - Branch C (Ito/Levy): Differentiable SDE integration with dynamic scheme switching
   - Branch D (Rough Paths): Signature-based topology for low Holder regularity
 
-See: doc/latex/specification/Stochastic_Predictor_Python.tex §2 - XLA Engine Layer
+See: Doc/latex/specification/Stochastic_Predictor_Python.tex §2 - XLA Engine Layer
 
 Each kernel must:
   - Accept time series and return predictions
@@ -17,14 +17,14 @@ Each kernel must:
   - Reference exact theory section in docstrings
 
 Branch specifications:
-  - A (Hilbert): doc/latex/specification/Stochastic_Predictor_Python.tex
+  - A (Hilbert): Doc/latex/specification/Stochastic_Predictor_Python.tex
     (search for Branch A)
-  - B (Fokker-Planck): doc/latex/specification/Stochastic_Predictor_Implementation.tex
-    + doc/latex/specification/Stochastic_Predictor_Python.tex
-  - C (Ito/Levy): doc/latex/specification/Stochastic_Predictor_Theory.tex §2.3.3
-    + doc/latex/specification/Stochastic_Predictor_Python.tex
-  - D (Signatures): doc/latex/specification/Stochastic_Predictor_Python.tex
-    + doc/latex/specification/Stochastic_Predictor_Theory.tex §5
+  - B (Fokker-Planck): Doc/latex/specification/Stochastic_Predictor_Implementation.tex
+    + Doc/latex/specification/Stochastic_Predictor_Python.tex
+  - C (Ito/Levy): Doc/latex/specification/Stochastic_Predictor_Theory.tex §2.3.3
+    + Doc/latex/specification/Stochastic_Predictor_Python.tex
+  - D (Signatures): Doc/latex/specification/Stochastic_Predictor_Python.tex
+    + Doc/latex/specification/Stochastic_Predictor_Theory.tex §5
 
 Expected module structure:
   - kernel_a.py: Hilbert/RKHS kernel

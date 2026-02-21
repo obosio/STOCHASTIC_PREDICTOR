@@ -11,10 +11,7 @@ import jax
 import jax.numpy as jnp
 from jaxtyping import Array, Float
 
-from Python.api.state_buffer import (
-    atomic_state_update,
-    update_ema_variance,
-)
+from Python.api.state_buffer import atomic_state_update, update_ema_variance
 from Python.api.types import (
     InternalState,
     KernelType,
@@ -56,7 +53,10 @@ class OrchestrationResult:
 
 
 def initialize_state(
-    signal: Float[Array, "n"], timestamp_ns: int, rng_key: Array, config: PredictorConfig
+    signal: Float[Array, "n"],
+    timestamp_ns: int,
+    rng_key: Array,
+    config: PredictorConfig,
 ) -> InternalState:
     """Initialize InternalState buffers from an initial signal."""
     min_length = config.base_min_signal_length
@@ -102,7 +102,9 @@ def initialize_state(
 
 
 def compute_entropy_ratio(
-    current_entropy: Float[Array, ""], baseline_entropy: Float[Array, ""], config: PredictorConfig
+    current_entropy: Float[Array, ""],
+    baseline_entropy: Float[Array, ""],
+    config: PredictorConfig,
 ) -> Float[Array, ""]:
     """
     Compute entropy ratio κ for regime transition detection.
@@ -525,8 +527,8 @@ def orchestrate_step(
     )
     kernel_c_config = replace(
         config,
-        stiffness_low=jnp.asarray(theta_low),
-        stiffness_high=jnp.asarray(theta_high),
+        stiffness_low=int(theta_low),
+        stiffness_high=int(theta_high),
     )
     output_c = kernel_c_predict(signal, key_c, kernel_c_config)
 
@@ -576,7 +578,7 @@ def orchestrate_step(
 
     # Provisional fusion to update volatility for current step
     provisional_window, provisional_lr = compute_adaptive_jko_params(
-        state.ema_variance,
+        float(state.ema_variance),
         config=config,
     )
     # Cost type selection: static in vmap path, dynamic in host-only path
@@ -598,7 +600,7 @@ def orchestrate_step(
     ema_variance_current = update_ema_variance(state, provisional_residual, config.volatility_alpha).ema_variance
 
     adaptive_entropy_window, adaptive_learning_rate = compute_adaptive_jko_params(
-        ema_variance_current,
+        float(ema_variance_current),
         config=config,
     )
     fusion_config = replace(
@@ -704,11 +706,11 @@ def orchestrate_step(
     force_emergency = False
     # Degradation monitor (post-mutation rollback guardrail)
     if degradation_monitor is not None and not reject_observation:
-        degradation_monitor.record_prediction_error(residual)
+        degradation_monitor.record_prediction_error(float(residual))
         degraded, _ = degradation_monitor.check_degradation()
         if degraded:
             degradation_monitor.trigger_rollback()
-            degraded_mode = True
+            degraded_mode = jnp.array(True)
             force_emergency = True
 
     # CAPA 1: Entropy reset on regime change (CUSUM alarm)

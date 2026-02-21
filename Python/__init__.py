@@ -4,15 +4,15 @@ This package implements the complete specification for the Universal Stochastic 
 a system for prediction of dynamic processes with unknown underlying probability law.
 
 References:
-  - doc/latex/specification/Stochastic_Predictor_Python.tex §2: Physical Directory Architecture
-  - doc/latex/specification/Stochastic_Predictor_Theory.tex: Mathematical Foundations
+  - Doc/latex/specification/Stochastic_Predictor_Python.tex §2: Physical Directory Architecture
+  - Doc/latex/specification/Stochastic_Predictor_Theory.tex: Mathematical Foundations
 
 Architecture (5-Layer Clean Architecture):
   - api/: Exposure layer (facade, configuration, load shedding)
   - core/: Orchestration layer (JKO, Sinkhorn, entropy monitoring)
   - kernels/: XLA Motors (kernels A, B, C, D for prediction)
   - io/: Physical I/O layer (atomic snapshots, channel management)
-  - tests/: External validation (outside main package)
+  - Test/: External validation (outside main package)
 
 Version: v1.0.0-Diamond-Spec
 Date: February 18, 2026

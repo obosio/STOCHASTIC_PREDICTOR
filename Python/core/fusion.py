@@ -35,7 +35,9 @@ class FusionResult:
 
 
 def compute_fisher_rao_distance(
-    current_weights: Float[Array, "n"], target_weights: Float[Array, "n"], config: PredictorConfig
+    current_weights: Float[Array, "n"],
+    target_weights: Float[Array, "n"],
+    config: PredictorConfig,
 ) -> Float[Array, ""]:
     """
     Compute Fisher-Rao distance on the probability simplex.
@@ -61,7 +63,9 @@ def _normalize_confidences(confidences: Float[Array, "n"], config: PredictorConf
 
 
 def _jko_update_weights(
-    current_weights: Float[Array, "n"], target_weights: Float[Array, "n"], config: PredictorConfig
+    current_weights: Float[Array, "n"],
+    target_weights: Float[Array, "n"],
+    config: PredictorConfig,
 ) -> Float[Array, "n"]:
     """JKO proximal update via convex combination in simplex space."""
     updated = current_weights + config.learning_rate * (target_weights - current_weights)

@@ -181,7 +181,10 @@ def compute_entropy_dgm(model: DGM_HJB_Solver, t: float, x_samples: Float[Array,
 
 
 def loss_hjb(
-    model: DGM_HJB_Solver, t_batch: Float[Array, "n_t"], x_batch: Float[Array, "n_x d"], config
+    model: DGM_HJB_Solver,
+    t_batch: Float[Array, "n_t"],
+    x_batch: Float[Array, "n_x d"],
+    config,
 ) -> Float[Array, ""]:
     """
     HJB PDE residual loss for DGM training.

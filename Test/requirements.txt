@@ -1,0 +1,30 @@
+# Test Infrastructure Dependencies - Golden Master
+# Universal Stochastic Predictor - Testing & Quality Assurance
+# Version: v1.0.0-Diamond-Spec
+# Date: February 21, 2026
+
+# Include production dependencies
+-r ../Python/requirements.txt
+
+# ==================== Testing Framework ==================== #
+# Testing framework with coverage
+pytest==9.0.2
+pytest-cov==7.0.0
+
+# ==================== Code Quality Tools ==================== #
+# Style enforcement and type checking
+black==26.1.0
+flake8==7.3.0
+mypy==1.19.1
+isort==8.0.0
+
+# ==================== Visualization (Test Reports) ==================== #
+# Used for generating test visualizations and diagnostics
+matplotlib==3.10.8
+seaborn==0.13.2
+
+# ==================== CONSTRAINTS ==================== #
+# - All versions MUST match Golden Master exactly (== operator required)
+# - Testing dependencies are isolated to Test/ directory
+# - Production code in Python/ should NOT depend on testing tools
+# - See Doc/latex/tests/Testing_Infrastructure_Implementation.tex for pipeline details

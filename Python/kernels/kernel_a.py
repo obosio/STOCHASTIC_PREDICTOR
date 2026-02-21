@@ -58,7 +58,10 @@ def morlet_wavelet(t: Float[Array, ""], sigma: float, f_c: float) -> Float[Array
 
 @partial(jax.jit, static_argnames=("mother_wavelet_fn",))
 def continuous_wavelet_transform(
-    signal: Float[Array, "n"], scales: Float[Array, "m"], mother_wavelet_fn, epsilon: float = 1e-10
+    signal: Float[Array, "n"],
+    scales: Float[Array, "m"],
+    mother_wavelet_fn,
+    epsilon: float = 1e-10,
 ) -> Float[Array, "m n"]:
     """
     Compute continuous wavelet transform (CWT) at multiple scales.
@@ -273,7 +276,11 @@ def compute_partition_function(
 
 @jax.jit
 def compute_singularity_spectrum(
-    tau_q: Float[Array, "q"], q_range: Float[Array, "q"], h_min: float, h_max: float, h_steps: int
+    tau_q: Float[Array, "q"],
+    q_range: Float[Array, "q"],
+    h_min: float,
+    h_max: float,
+    h_steps: int,
 ) -> tuple[Float[Array, ""], Float[Array, ""]]:
     """
     Compute singularity spectrum D(h) via Legendre transform.
@@ -610,7 +617,10 @@ def compute_gram_matrix(X: Float[Array, "n d"], bandwidth: float) -> Float[Array
 
 
 def kernel_ridge_regression(
-    X_train: Float[Array, "n d"], y_train: Float[Array, "n"], X_test: Float[Array, "m d"], config
+    X_train: Float[Array, "n d"],
+    y_train: Float[Array, "n"],
+    X_test: Float[Array, "m d"],
+    config,
 ) -> tuple[Float[Array, "m"], Float[Array, "m"]]:
     """
     Kernel Ridge Regression for prediction.

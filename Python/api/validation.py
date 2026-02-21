@@ -463,7 +463,9 @@ def warn_if_invalid(is_valid: bool, message: str, exception_type: Union[type, No
 # ═══════════════════════════════════════════════════════════════════════════
 
 
-def ensure_float64(value: Union[float, int, Float[Array, "..."]]) -> Float[Array, "..."]:
+def ensure_float64(
+    value: Union[float, int, Float[Array, "..."]],
+) -> Float[Array, "..."]:
     """
     Explicitly cast value to float64 to prevent precision degradation.
 

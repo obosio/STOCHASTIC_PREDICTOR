@@ -94,7 +94,7 @@ PyWavelets   == 1.4.1
 Python       == 3.10.12
 ```
 
-**Critical restriction**: versions must be pinned with `==`. No `>=` or `-U`. See [doc/latex/specification/Stochastic_Predictor_Python.tex](doc/latex/specification/Stochastic_Predictor_Python.tex).
+**Critical restriction**: versions must be pinned with `==`. No `>=` or `-U`. See [Doc/latex/specification/Stochastic_Predictor_Python.tex](Doc/latex/specification/Stochastic_Predictor_Python.tex).
 
 ### Required 5-Layer Architecture
 
@@ -103,13 +103,13 @@ For future implementations:
 ```bash
 Python/
 |-- api/          # Facade, config, load shedding
-|-- core/         # JKO, Sinkhorn, monitoring
+|-- core/         # JKO, Sinkhorn,monitoring
 |-- kernels/      # XLA engines (A,B,C,D)
 |-- io/           # Physical I/O, atomic snapshots
-`-- tests/        # External validation
+`-- Test/        # External validation
 ```
 
-See [doc/latex/specification/Stochastic_Predictor_Python.tex](doc/latex/specification/Stochastic_Predictor_Python.tex).
+See [Doc/latex/specification/Stochastic_Predictor_Python.tex](Doc/latex/specification/Stochastic_Predictor_Python.tex).
 
 ### Security Policies
 
@@ -117,7 +117,7 @@ See [doc/latex/specification/Stochastic_Predictor_Python.tex](doc/latex/specific
 - Required: environment variable injection (`.env`)
 - `.gitignore` rule: `.env`, `secrets/`, `*.log`
 
-See [doc/latex/specification/Stochastic_Predictor_IO.tex](doc/latex/specification/Stochastic_Predictor_IO.tex).
+See [Doc/latex/specification/Stochastic_Predictor_IO.tex](Doc/latex/specification/Stochastic_Predictor_IO.tex).
 
 ### CI/CD Environment Validation
 
@@ -129,7 +129,7 @@ ACTUAL_JAX=$(python -c "import jax; print(jax.__version__)")
 [[ "$EXPECTED_JAX" == "$ACTUAL_JAX" ]] || exit 1
 ```
 
-See [doc/latex/specification/Stochastic_Predictor_Tests_Python.tex](doc/latex/specification/Stochastic_Predictor_Tests_Python.tex).
+See [Doc/latex/specification/Stochastic_Predictor_Tests_Python.tex](Doc/latex/specification/Stochastic_Predictor_Tests_Python.tex).
 
 ## Documentation
 
@@ -186,7 +186,7 @@ For details, see [doc/README.md](doc/README.md).
 Completed (Phases 1-4 + Level 4 Autonomy):
 
 - 7 LaTeX specification documents (1.73 MB PDFs)
-- 5-layer structure implemented (`api/`, `core/`, `kernels/`, `io/`, `tests/`)
+- 5-layer structure implemented (`api/`, `core/`, `kernels/`, `io/`, `Test/`)
 - **API layer materialized**:
   - `types.py` (544 lines): PredictorConfig, InternalState (extended with Level 4 telemetry counters)
   - `prng.py` (301 lines): JAX threefry2x32 deterministic PRNG management

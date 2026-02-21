@@ -44,7 +44,7 @@ import time
 from dataclasses import dataclass, field
 from datetime import datetime, timezone
 from pathlib import Path
-from typing import Any, Dict, List, Optional, Tuple
+from typing import Any, Dict, List, Optional, Tuple, cast
 
 import numpy as np
 import toml
@@ -194,7 +194,7 @@ def validate_config_mutation(
 
         # Constraint checks
         if "constraint" in rules:
-            if rules["constraint"] == "power_of_2" and not _is_power_of_2(int(new_value)):
+            if rules["constraint"] == "power_of_2" and not _is_power_of_2(int(cast(int, new_value))):
                 raise ConfigMutationError(f"Parameter '{param_key}' must be power of 2, got {new_value}")
 
     # Cross-parameter constraints
@@ -241,7 +241,7 @@ def atomic_write_config(
 
     Example:
         >>> atomic_write_config(
-        ...     Path("config.toml"),
+        ...     Path("Python/config.toml"),
         ...     {"sensitivity.cusum_k": 0.72, "kernels.dgm_width_size": 256},
         ...     trigger="DeepTuning_Iteration_500",
         ...     best_objective=0.0234
@@ -409,7 +409,9 @@ class MutationRateLimiter:
         return True, "OK"
 
     def validate_delta(
-        self, delta: Dict[str, Tuple[float, float]], max_relative_change: Optional[float] = None
+        self,
+        delta: Dict[str, Tuple[float, float]],
+        max_relative_change: Optional[float] = None,
     ) -> Tuple[bool, str]:
         """
         Validate parameter delta magnitude.
@@ -545,8 +547,8 @@ class DegradationMonitor:
 
     degradation_threshold: float = 0.3
     monitoring_window: int = 100
-    config_path: Path = Path("config.toml")
-    backup_path: Path = Path("config.toml.bak")
+    config_path: Path = Path("Python/config.toml")
+    backup_path: Path = Path("Python/config.toml.bak")
     audit_log_path: Path = Path("io/mutations.log")
 
     # Internal state
@@ -681,7 +683,10 @@ class DegradationMonitor:
         self._post_mutation_errors = []
 
 
-def create_config_backup(config_path: Path = Path("config.toml"), backup_path: Path = Path("config.toml.bak")) -> None:
+def create_config_backup(
+    config_path: Path = Path("Python/config.toml"),
+    backup_path: Path = Path("Python/config.toml.bak"),
+) -> None:
     """
     Create config backup before mutation.
 
@@ -691,7 +696,7 @@ def create_config_backup(config_path: Path = Path("config.toml"), backup_path: P
 
     Example:
         >>> create_config_backup()
-        >>> # config.toml.bak created
+        >>> # Python/config.toml.bak created
     """
     if not config_path.exists():
         raise FileNotFoundError(f"Config file not found: {config_path}")

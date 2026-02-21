@@ -135,7 +135,11 @@ def split_key_like(key: PRNGKeyArray, target_shape: Sequence[int]) -> tuple[PRNG
 
 
 def uniform_samples(
-    key: PRNGKeyArray, shape: Sequence[int], minval: float, maxval: float, dtype: jnp.dtype
+    key: PRNGKeyArray,
+    shape: Sequence[int],
+    minval: float,
+    maxval: float,
+    dtype: jnp.dtype,
 ) -> jnp.ndarray:
     """
     Generate uniform samples in [minval, maxval).

@@ -1,0 +1,84 @@
+# Python Production Dependencies - Golden Master
+# Universal Stochastic Predictor - Core Runtime
+# Version: v1.0.0-Diamond-Spec
+# Date: February 21, 2026
+
+# CRITICAL: Use == for all packages
+# Prohibition: >= and pip install -U are forbidden
+# Rationale: See Doc/latex/specification/Stochastic_Predictor_Python.tex §2.1
+
+# ==================== Core XLA ==================== #
+# Fundamental engine for differentiable computing with GPU/TPU support
+# Platform-specific versions ensure cross-platform compatibility
+
+# macOS Intel (x86_64)
+jax==0.4.38; sys_platform == 'darwin' and platform_machine == 'x86_64'
+jaxlib==0.4.38; sys_platform == 'darwin' and platform_machine == 'x86_64'
+
+# macOS ARM64 (M1/M2/M3/M4)
+jax==0.4.38; sys_platform == 'darwin' and platform_machine == 'arm64'
+jaxlib==0.4.38; sys_platform == 'darwin' and platform_machine == 'arm64'
+
+# Linux (all architectures)
+jax==0.4.38; sys_platform == 'linux'
+jaxlib==0.4.38; sys_platform == 'linux'
+
+# Windows
+jax==0.4.38; sys_platform == 'win32'
+jaxlib==0.4.38; sys_platform == 'win32'
+
+# ==================== Neural Networks ==================== #
+# Pythonic framework for Branch B (Fokker-Planck, DGM) and C (Neural ODEs)
+equinox==0.13.4
+
+# ==================== SDE/ODE Solvers ==================== #
+# Differentiable solvers for stochastic differential equations (Branch C)
+# Supports Euler-Maruyama, implicit schemes, and dynamic stiffness transition
+diffrax==0.7.2
+
+# ==================== Type Annotations ==================== #
+# Type hints for JAX: static typing for jax arrays and operations
+jaxtyping==0.3.9
+
+# ==================== Data Validation ==================== #
+# Pydantic for schema validation and serialization
+pydantic==2.12.5
+
+# ==================== Configuration Management ==================== #
+# TOML parser for config.toml (fallback for Python < 3.11)
+tomli==2.0.1
+
+# ==================== Optimal Transport ==================== #
+# Differentiable optimal transport: JKO algorithm, Sinkhorn with volatility-coupled regularization
+ott-jax==0.6.0
+
+# ==================== Log-Signatures (Branch D) ==================== #
+# Robust signature calculation for rough paths analysis
+# Processes with low Holder regularity (H <= 1/2)
+signax==0.2.1
+
+# ==================== Wavelet Analysis (SIA) ==================== #
+# Continuous wavelet transform for multifractal analysis (WTMM)
+# Detection of local singularities and singularity spectrum
+PyWavelets==1.9.0
+
+# ==================== Scientific Computing ==================== #
+# Mathematical foundations: numerical operations, special functions
+numpy==2.4.2
+scipy==1.17.0
+
+# ==================== Data Manipulation ==================== #
+# Time series management and structured data
+pandas==3.0.1
+
+# ==================== Meta-Optimization (Layer 3 - Optional) ==================== #
+# Bayesian hyperparameter search for auto-tuning (Learning to Learn)
+# TPE (Tree-structured Parzen Estimator) sampler for structural parameters
+# Optional: System operates without this, but meta-optimization unavailable
+optax==0.2.5
+
+# ==================== CONSTRAINTS ==================== #
+# - All versions MUST match Golden Master exactly (== operator required)
+# - Any version divergence detected by CI/CD triggers failure BEFORE pytest
+# - See Doc/latex/specification/Stochastic_Predictor_Tests_Python.tex §1.1 for pre-test validation
+# - See Doc/latex/specification/Stochastic_Predictor_Python.tex §1 for justification of each package
