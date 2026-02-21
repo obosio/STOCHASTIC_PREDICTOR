@@ -1,0 +1,342 @@
+# Configuration for Universal Stochastic Predictor
+
+[meta]
+# Snapshot versioning for backward compatibility
+schema_version = "1.0"
+
+[core]
+# JAX configuration
+jax_platforms = "cpu"  # Change to "gpu" or "tpu" as needed
+jax_default_dtype = "float64"  # Sync with __init__.py (jax_enable_x64 = True)
+
+# Numerical precision
+float_precision = 64  # Must match jax_enable_x64 for Malliavin stability
+
+# PRNG defaults
+prng_seed = 42
+prng_split_count = 4
+
+# Latency policies
+staleness_ttl_ns = 500_000_000  # TTL: 500ms (degraded mode trigger)
+
+[orchestration]
+# JKO Orchestrator (Optimal Transport)
+epsilon = 0.001  # Entropic regularization (Sinkhorn)
+learning_rate = 0.01  # JKO learning rate (tau)
+jko_domain_length = 1.0  # Domain length for JKO scaling
+entropy_window_relaxation_factor = 5.0  # Relaxation multiplier for entropy window
+entropy_window_bounds_min = 10  # Minimum entropy window
+entropy_window_bounds_max = 500  # Maximum entropy window
+learning_rate_safety_factor = 0.8  # Safety factor for learning rate stability
+learning_rate_minimum = 1e-6  # Minimum learning rate
+
+# Sinkhorn parameters (dispersion-coupled, see doc/Predictor_Estocastico_Implementacion.tex §2.4)
+sinkhorn_epsilon_min = 0.01
+sinkhorn_epsilon_0 = 0.1
+sinkhorn_alpha = 0.5  # Coupling coefficient to volatility
+sinkhorn_max_iter = 200  # Max Sinkhorn iterations (scan length)
+sinkhorn_inner_iterations = 10  # Inner log-domain stabilization iterations
+sinkhorn_cost_type = "squared"  # Cost type: "squared" or "huber"
+sinkhorn_huber_delta = 1.0  # Huber delta for robust cost
+
+# Entropy monitoring (adaptive threshold based on volatility regime)
+entropy_window = 100
+entropy_threshold = 0.8          # Deprecated: use entropy_gamma_* parameters
+entropy_gamma_min = 0.5          # Crisis mode: lenient mode collapse detection
+entropy_gamma_max = 1.0          # Low-vol mode: strict mode collapse detection
+entropy_gamma_default = 0.8      # Normal mode: balanced mode collapse detection
+entropy_volatility_low_threshold = 0.05   # Low-volatility sigma threshold
+entropy_volatility_high_threshold = 0.2   # High-volatility sigma threshold
+entropy_ratio_min = 0.1                  # Entropy ratio lower bound
+entropy_ratio_max = 10.0                 # Entropy ratio upper bound
+entropy_baseline_floor = 1e-6            # Baseline entropy floor
+entropy_scaling_trigger = 2.0            # Entropy ratio trigger for scaling
+mode_collapse_min_threshold = 10  # Minimum consecutive steps before mode collapse warning
+mode_collapse_window_ratio = 0.1  # Ratio of entropy_window for mode collapse warning threshold
+
+# CUSUM grace period (in steps, see doc/Predictor_Estocastico_API_Python.tex §3.2)
+grace_period_steps = 20
+cusum_h = 5.0  # Drift threshold
+cusum_k = 0.5  # Slack tolerance
+residual_window_size = 252  # Annual rolling window for kurtosis computation
+
+# Volatility monitoring (EWMA)
+volatility_alpha = 0.1
+
+# Outlier detection (Black Swan threshold)
+sigma_bound = 20.0  # N sigma for catastrophic outlier detection
+sigma_val = 1.0  # Reference standard deviation for outlier detection
+
+# Temporal drift validation (clock skew and stale data thresholds)
+max_future_drift_ns = 1_000_000_000  # 1 second (future clock skew tolerance)
+max_past_drift_ns = 86_400_000_000_000  # 24 hours (stale data threshold)
+
+# Circuit breaker
+holder_threshold = 0.4  # Holder exponent critical threshold
+robustness_dimension_threshold = 1.5  # Fractal dimension threshold
+robustness_force_kernel_d = true  # Force kernel D during robustness trigger
+
+# DGM entropy-topology coupling
+dgm_entropy_coupling_beta = 0.7  # Coupling beta for DGM scaling
+dgm_max_capacity_factor = 4.0    # Max width*depth multiplier
+
+# Holder-informed stiffness calibration
+stiffness_calibration_c1 = 25.0  # Low-threshold calibration constant
+stiffness_calibration_c2 = 250.0  # High-threshold calibration constant
+stiffness_min_low = 100.0        # Minimum low threshold
+stiffness_min_high = 1000.0      # Minimum high threshold
+holder_exponent_guard = 1e-3     # Guard against alpha -> 1 singularity
+
+# Recovery hysteresis
+inference_recovery_hysteresis = 0.8
+
+[kernels]
+# Kernel D (Path Signatures - Rough Paths Theory)
+log_sig_depth = 3                       # Truncation depth for signature transform (legacy field)
+kernel_d_depth = 3                      # Log-signature truncation depth (L)
+kernel_d_load_shedding_depths = [2, 3, 5]
+kernel_d_alpha = 0.1                    # Signature extrapolation scaling factor
+kernel_d_confidence_scale = 0.1         # Scaling factor for signature-based confidence
+kernel_d_confidence_base = 1.0          # Base factor for confidence (base + sig_norm)
+
+# Base/Validation Parameters
+base_min_signal_length = 32             # Minimum required signal length
+signal_normalization_method = "zscore"  # Normalization method: 'zscore' or 'minmax'
+signal_sampling_interval = 1.0           # Sampling interval for FFT-based diagnostics
+numerical_epsilon = 1e-10               # Unified stability epsilon (divisions, logs, stiffness)
+warmup_signal_length = 100              # Representative signal length for JIT warm-up
+pdf_grid_min_z = -4.0                   # PDF grid lower bound (z-score)
+pdf_grid_max_z = 4.0                    # PDF grid upper bound (z-score)
+pdf_grid_num_points = 256               # PDF grid resolution
+pdf_min_sigma = 1e-6                    # Minimum sigma for PDF construction
+confidence_interval_z = 1.96            # Z-score for confidence bounds
+kernel_output_time_us = 1.0             # Placeholder runtime in microseconds
+kurtosis_min = 1.0                      # Minimum kurtosis clamp
+kurtosis_max = 100.0                    # Maximum kurtosis clamp
+kurtosis_reference = 3.0                # Reference kurtosis for adaptive CUSUM
+
+# Kernel A (RKHS - Reproducing Kernel Hilbert Space)
+wtmm_buffer_size = 128                  # Sliding memory buffer
+besov_cone_c = 1.5                      # Besov cone of influence
+besov_nyquist_interval_ns = 100_000_000 # Nyquist interval (100ms)
+wtmm_num_scales = 16                    # Number of WTMM scales
+wtmm_scale_min = 1.0                    # Minimum WTMM scale
+wtmm_sigma = 1.0                        # Morlet wavelet sigma
+wtmm_fc = 0.5                           # Morlet wavelet central frequency
+wtmm_modulus_threshold = 0.01           # Modulus maxima threshold
+wtmm_max_link_distance = 2.0            # Max link distance for maxima chains
+wtmm_q_min = -2.0                       # Min q for partition function
+wtmm_q_max = 2.0                        # Max q for partition function
+wtmm_q_steps = 9                        # Number of q values
+wtmm_h_min = 0.0                        # Min Holder exponent grid
+wtmm_h_max = 1.5                        # Max Holder exponent grid
+wtmm_h_steps = 151                      # Holder exponent grid size
+wtmm_tau_default_scale = 0.5            # Default tau scale for non-finite q
+kernel_a_bandwidth = 0.1                # Gaussian kernel bandwidth (smoothness)
+kernel_a_embedding_dim = 5              # Time-delay embedding dimension (Takens)
+kernel_a_min_wiener_hopf_order = 2      # Minimum Wiener-Hopf filter order
+kernel_a_min_variance = 1e-10           # Minimum variance clipping (numerical stability)
+kernel_ridge_lambda = 1e-6              # Ridge regularization parameter
+koopman_top_k = 5                       # Top-K Koopman spectral modes
+koopman_min_power = 1e-10               # Minimum spectral power for Koopman modes
+paley_wiener_integral_max = 100.0       # Max Paley-Wiener integral threshold
+
+# Kernel C (SDE Integration - Levy Process)
+# SDE scheme switching stiffness thresholds (Rama C, see doc/Predictor_Estocastico_Teoria.tex §2.3.3)
+stiffness_low = 100                     # Below: use explicit Euler-Maruyama
+stiffness_high = 1000                   # Above: use implicit trapezial
+sde_dt = 0.01                           # Time step
+sde_numel_integrations = 100            # Number of integration steps
+sde_diffusion_sigma = 0.2               # Diffusion coefficient (Levy process volatility)
+sde_fd_epsilon = 1e-6                    # Finite-difference epsilon for stiffness Jacobian
+kernel_c_mu = 0.0                       # Drift (mean reversion rate)
+kernel_c_alpha = 1.8                    # Stability parameter (1 < alpha <= 2)
+kernel_c_beta = 0.0                     # Skewness parameter (-1 <= beta <= 1)
+kernel_c_horizon = 1.0                  # Prediction horizon (integration time)
+kernel_c_dt0 = 0.01                     # Initial time step (adaptive stepping)
+kernel_c_alpha_gaussian_threshold = 1.99  # Gaussian regime threshold (alpha > threshold)
+kernel_c_jump_intensity = 0.05          # Levy jump intensity (events per unit time)
+kernel_c_jump_mean = 0.0                # Mean jump size
+kernel_c_jump_scale = 0.1               # Jump size scale (std dev)
+kernel_c_jump_max_events = 16           # Max jump events per step (static shape)
+
+# Phase 6: SDE Solver Hyperparameters (Zero-Heuristics - Kernel C)
+sde_brownian_tree_tol = 1e-3                # Brownian tree tolerance
+sde_pid_rtol = 1e-3                         # Relative tolerance for PID controller
+sde_pid_atol = 1e-6                         # Absolute tolerance for PID controller
+sde_pid_dtmin = 1e-5                        # Minimum time step
+sde_pid_dtmax = 0.1                         # Maximum time step
+sde_solver_type = "heun"                    # Solver type: "euler" or "heun"
+sde_initial_dt_factor = 10.0                # Safety factor for dt0 calculation (dtmax / factor)
+
+# Kernel B (DGM - Deep Galerkin Method for HJB PDE)
+dgm_width_size = 64                     # Hidden layer width for DGM network
+dgm_depth = 4                           # Number of hidden layers
+dgm_entropy_num_bins = 50               # Histogram bins for entropy monitoring
+dgm_activation = "tanh"                 # Activation function: "tanh" (smooth PDEs), "relu", "elu", "gelu"
+kernel_b_r = 0.05                       # Drift rate parameter (HJB Hamiltonian)
+kernel_b_sigma = 0.2                    # Dispersion coefficient (HJB diffusion term)
+kernel_b_horizon = 1.0                  # Prediction horizon (integration time)
+kernel_b_spatial_samples = 100          # Number of spatial sample points for entropy computation
+kernel_b_spatial_range_factor = 0.5     # Spatial sampling range factor (±factor around current_state)
+
+[io]
+# Data feed parameters (domain-agnostic: applies to any external data source)
+data_feed_timeout = 30  # seconds
+data_feed_max_retries = 3
+
+# Frozen signal policy
+frozen_signal_min_steps = 5
+frozen_signal_recovery_ratio = 0.1
+frozen_signal_recovery_steps = 2
+degraded_recovery_min_steps = 2
+
+# Snapshot parameters
+snapshot_atomic_fsync = true
+snapshot_compression = "none"  # or "gzip", "brotli"
+snapshot_format = "msgpack"  # or "protobuf"
+snapshot_hash_algorithm = "sha256"  # or "crc32c"
+
+# Telemetry
+telemetry_hash_interval_steps = 1
+telemetry_buffer_capacity = 1024  # Maximum capacity of telemetry buffer (zero-heuristics injection)
+telemetry_hash_algorithm = "sha256"  # Telemetry parity hash algorithm
+telemetry_adaptive_log_path = "io/adaptive_telemetry.jsonl"
+telemetry_adaptive_window_size = 100
+telemetry_placeholder_max_stiffness_metric = 0.0
+telemetry_placeholder_num_internal_iterations_mean = 0.0
+telemetry_placeholder_implicit_residual_norm_max = 0.0
+telemetry_dashboard_title = "USP Telemetry Dashboard"
+telemetry_dashboard_width = 720
+telemetry_dashboard_height = 180
+telemetry_dashboard_spread_epsilon = 1e-9
+telemetry_dashboard_recent_rows = 25
+frozen_signal_variance_floor = 1e-12
+
+[meta_optimization]
+# Bayesian Meta-Optimization Search Space (Capa 3 - Auto-Tuning v2.1.0)
+# Reference: MIGRATION_AUTOTUNING_v1.0.md §3.2
+
+# Structural parameters (high impact, coarse tuning)
+log_sig_depth_min = 3
+log_sig_depth_max = 5
+wtmm_buffer_size_min = 64
+wtmm_buffer_size_max = 512
+wtmm_buffer_size_step = 64
+besov_cone_c_min = 1.0
+besov_cone_c_max = 3.0
+dgm_width_size_min = 32
+dgm_width_size_max = 256
+dgm_width_size_step = 32
+dgm_depth_min = 2
+dgm_depth_max = 6
+dgm_entropy_num_bins_min = 20
+dgm_entropy_num_bins_max = 100
+stiffness_low_min = 50.0
+stiffness_low_max = 500.0
+stiffness_high_min = 500.0
+stiffness_high_max = 5000.0
+sde_dt_min = 0.001
+sde_dt_max = 0.1
+sde_numel_integrations_min = 50
+sde_numel_integrations_max = 200
+sde_diffusion_sigma_min = 0.05
+sde_diffusion_sigma_max = 0.5
+kernel_ridge_lambda_min = 1e-8
+kernel_ridge_lambda_max = 1e-3
+
+# Sensitivity parameters (medium impact, fine tuning)
+cusum_k_min = 0.1
+cusum_k_max = 1.0
+cusum_h_min = 2.0
+cusum_h_max = 10.0
+cusum_grace_period_steps_min = 5
+cusum_grace_period_steps_max = 100
+sinkhorn_alpha_min = 0.1
+sinkhorn_alpha_max = 1.0
+sinkhorn_epsilon_min_min = 0.001
+sinkhorn_epsilon_min_max = 0.1
+sinkhorn_epsilon_0_min = 0.05
+sinkhorn_epsilon_0_max = 0.5
+volatility_alpha_min = 0.05
+volatility_alpha_max = 0.3
+learning_rate_min = 0.001
+learning_rate_max = 0.1
+entropy_window_min = 50
+entropy_window_max = 500
+entropy_threshold_min = 0.5
+entropy_threshold_max = 0.95
+holder_threshold_min = 0.2
+holder_threshold_max = 0.65
+
+# Optimization control (TPE sampler)
+n_trials = 50
+n_startup_trials = 10
+multivariate = true
+enable_deep_tuning = false
+
+# Walk-forward validation (prevent overfitting)
+train_ratio = 0.7
+n_folds = 5
+
+[mutation_policy.locked_subsections]
+meta = ["schema_version"]
+core = ["jax_platforms", "jax_default_dtype", "float_precision", "staleness_ttl_ns"]
+io = ["snapshot_format", "snapshot_hash_algorithm", "snapshot_compression", "telemetry_hash_interval_steps", "telemetry_hash_algorithm", "telemetry_buffer_capacity"]
+meta_optimization = ["n_trials", "n_startup_trials", "multivariate", "train_ratio", "n_folds"]
+
+[mutation_policy.validation_schema]
+"orchestration.cusum_k" = { type = "float", min = 0.1, max = 1.0 }
+"orchestration.cusum_h" = { type = "float", min = 2.0, max = 10.0 }
+"orchestration.grace_period_steps" = { type = "int", min = 5, max = 100 }
+"orchestration.volatility_alpha" = { type = "float", min = 0.05, max = 0.3 }
+"orchestration.learning_rate" = { type = "float", min = 1e-5, max = 1e-1 }
+"orchestration.entropy_window" = { type = "int", min = 10, max = 500 }
+"orchestration.entropy_threshold" = { type = "float", min = 0.5, max = 0.95 }
+"orchestration.holder_threshold" = { type = "float", min = 0.2, max = 0.65 }
+"orchestration.sinkhorn_alpha" = { type = "float", min = 0.1, max = 1.0 }
+"orchestration.sinkhorn_epsilon_min" = { type = "float", min = 0.001, max = 0.1 }
+"orchestration.sinkhorn_epsilon_0" = { type = "float", min = 0.05, max = 0.5 }
+"orchestration.sinkhorn_max_iter" = { type = "int", min = 50, max = 500 }
+"kernels.log_sig_depth" = { type = "int", min = 2, max = 5 }
+"kernels.wtmm_buffer_size" = { type = "int", min = 64, max = 512, constraint = "power_of_2" }
+"kernels.besov_cone_c" = { type = "float", min = 1.0, max = 3.0 }
+"kernels.dgm_width_size" = { type = "int", min = 32, max = 256, constraint = "power_of_2" }
+"kernels.dgm_depth" = { type = "int", min = 2, max = 6 }
+"kernels.dgm_entropy_num_bins" = { type = "int", min = 20, max = 100 }
+"kernels.stiffness_low" = { type = "float", min = 50.0, max = 500.0 }
+"kernels.stiffness_high" = { type = "float", min = 500.0, max = 5000.0 }
+"kernels.sde_dt" = { type = "float", min = 0.001, max = 0.1 }
+"kernels.sde_numel_integrations" = { type = "int", min = 50, max = 200 }
+"kernels.sde_diffusion_sigma" = { type = "float", min = 0.05, max = 0.5 }
+"kernels.kernel_ridge_lambda" = { type = "float", min = 1e-8, max = 1e-3 }
+
+[validation]
+# Phase 5: Zero-Heuristics Validation Constraints
+# All hardcoded defaults have been eliminated and moved to config-driven parameters
+
+# Finite value validation (NaN/Inf detection)
+validation_finite_allow_nan = false         # Permit NaN values?
+validation_finite_allow_inf = false         # Permit Inf values?
+
+# Simplex constraint validation (weights sum to 1.0)
+validation_simplex_atol = 1e-6              # Absolute tolerance for sum check
+
+# Holder exponent range validation
+validation_holder_exponent_min = 0.0        # Min Holder exponent
+validation_holder_exponent_max = 1.0        # Max Holder exponent
+
+# Alpha-stable parameter validation
+validation_alpha_stable_min = 0.0           # Min alpha (stability parameter)
+validation_alpha_stable_max = 2.0           # Max alpha (stability parameter)
+validation_alpha_stable_exclusive_bounds = true  # Use strict inequalities?
+
+# Beta (skewness) parameter validation
+validation_beta_stable_min = -1.0           # Min beta (skewness parameter)
+validation_beta_stable_max = 1.0            # Max beta (skewness parameter)
+validation_viscosity_residual_max = 1e-3    # Max PDE residual for viscosity check
+
+# Array sanitization policies
+sanitize_replace_nan_value = 0.0            # Default NaN replacement value
+sanitize_replace_inf_value = 0.0            # Replacement for Inf
+sanitize_clip_range = [-1e6, 1e6]           # Tuple [min, max] for clipping

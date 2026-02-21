@@ -1,53 +1,66 @@
-# 🔧 Dependency Version Check Report
+# Dependency Report
 
-**Generated:** 2026-02-21 15:48:32 UTC
+## Introduction
 
-**Platform:** darwin (x86_64)
+This report inventories all project dependencies across production, testing, and documentation layers. It verifies requirements consistency and tracks package versions pinned by the project.
 
-## 📊 Executive Summary
+## Execution Summary
 
-✅ **Overall Status:** PASS
+| Metric | Count |
+| ------ | ----- |
+| Total Unique Packages | 22 |
+| Status | ✅ PASS |
 
-| Metric | Value |
-| --- | --- |
-| Total Packages | 22 |
-| Passed | 22 (100.0%) |
-| Failed | 0 |
-| Missing | 0 |
+## Requirements Details
 
----
+### Production Layer
 
-## Package Details
+**Requirement File:** `Python/requirements.txt`
 
-| Package | Expected | Installed | Status |
-| --- | --- | --- | --- |
-| PyWavelets | 1.9.0 | 1.9.0 | ✅ PASS |
-| black | 26.1.0 | 26.1.0 | ✅ PASS |
-| diffrax | 0.7.2 | 0.7.2 | ✅ PASS |
-| equinox | 0.13.4 | 0.13.4 | ✅ PASS |
-| flake8 | 7.3.0 | 7.3.0 | ✅ PASS |
-| isort | 8.0.0 | 8.0.0 | ✅ PASS |
-| jax | 0.4.38 | 0.4.38 | ✅ PASS |
-| jaxlib | 0.4.38 | 0.4.38 | ✅ PASS |
-| jaxtyping | 0.3.9 | 0.3.9 | ✅ PASS |
-| matplotlib | 3.10.8 | 3.10.8 | ✅ PASS |
-| mypy | 1.19.1 | 1.19.1 | ✅ PASS |
-| numpy | 2.4.2 | 2.4.2 | ✅ PASS |
-| optax | 0.2.5 | 0.2.5 | ✅ PASS |
-| ott-jax | 0.6.0 | 0.6.0 | ✅ PASS |
-| pandas | 3.0.1 | 3.0.1 | ✅ PASS |
-| pydantic | 2.12.5 | 2.12.5 | ✅ PASS |
-| pytest | 9.0.2 | 9.0.2 | ✅ PASS |
-| pytest-cov | 7.0.0 | 7.0.0 | ✅ PASS |
-| scipy | 1.17.0 | 1.17.0 | ✅ PASS |
-| seaborn | 0.13.2 | 0.13.2 | ✅ PASS |
-| signax | 0.2.1 | 0.2.1 | ✅ PASS |
-| tomli | 2.0.1 | 2.0.1 | ✅ PASS |
+**Package Count:** 14
 
----
+**Packages:**
 
-## 🎯 Final Summary
+- `PyWavelets`
+- `diffrax`
+- `equinox`
+- `jax`
+- `jaxlib`
+- `jaxtyping`
+- `numpy`
+- `optax`
+- `ott-jax`
+- `pandas`
+- `pydantic`
+- `scipy`
+- `signax`
+- `tomli`
 
-✅ **All dependencies match Golden Master specification!**
+### Testing Layer
 
-**Report generated at:** 2026-02-21 15:48:32 UTC
+**Requirement File:** `Test/requirements.txt`
+
+**Package Count:** 8
+
+**Packages:**
+
+- `black`
+- `flake8`
+- `isort`
+- `matplotlib`
+- `mypy`
+- `pytest`
+- `pytest-cov`
+- `seaborn`
+
+### Documentation Layer
+
+**Requirement File:** `Doc/requirements.txt`
+
+**Package Count:** 0
+
+No packages.
+
+## Debug Information
+
+All requirements files found and parsed successfully. No conflicts detected.

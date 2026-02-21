@@ -29,5 +29,10 @@
   ],
   "[latex]": {
     "editor.formatOnSave": false
+  },
+  "chat.tools.terminal.autoApprove": {
+    ".venv/bin/isort": true,
+    ".venv/bin/mypy": true,
+    ".venv/bin/flake8": true
   }
 }

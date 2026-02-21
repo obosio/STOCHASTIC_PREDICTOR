@@ -7,13 +7,9 @@
 # This file aggregates all project dependencies from modular requirements files
 # Organized by layer following Clean Architecture principles
 
-# ==================== Production Dependencies ==================== #
-# Core runtime dependencies for Python/ layer
--r Python/requirements.txt
-
 # ==================== Testing & Quality Assurance ==================== #
 # Testing infrastructure, code quality, and coverage tools for Test/ layer
-# Note: This includes all Python/ dependencies via -r directive
+# (includes all Python/ production dependencies via -r directive in Test/requirements.txt)
 -r Test/requirements.txt
 
 # ==================== Documentation ==================== #
@@ -27,9 +23,9 @@
 #
 # Total unique packages: 21 (13 production + 8 testing)
 #
-# To install production only: pip install -r Python/requirements.txt
-# To install with testing:   pip install -r Test/requirements.txt
-# To install everything:     pip install -r requirements.txt (this file)
+# To install production only:     pip install -r Python/requirements.txt
+# To install prod + testing:      pip install -r Test/requirements.txt
+# To install everything:          pip install -r requirements.txt (this file - includes Test + Doc)
 #
 # See Doc/latex/specification/Stochastic_Predictor_Python.tex § for dependency justifications
 # See doc/latex/tests/Testing_Infrastructure_Implementation.tex for test pipeline details
