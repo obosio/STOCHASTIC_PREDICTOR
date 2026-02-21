@@ -9,6 +9,12 @@ Scope Discovery:
     - Adapts automatically to new modules (no hardcoding)
     - Currently discovers: api, core, io, kernels
 
+Cache System:
+    - Uses scope_discovery.py to detect changed files
+    - Reports which modules have changes (informational)
+    - Currently runs all tests regardless (pytest limitation with fixtures)
+    - Use --force-all flag for explicit full validation (CI/CD)
+
 Philosophy:
     - 100% coverage = all lines executed without exceptions
     - Valid inputs per current function signatures
@@ -26,6 +32,7 @@ Output:
     - Markdown report: Test/reports/code_structure_last.md
 """
 
+import argparse
 import os
 import sys
 from datetime import datetime, timezone
@@ -35,6 +42,17 @@ from typing import Dict, List, Set
 # Add project root to Python path
 PROJECT_ROOT = Path(__file__).parent.parent.parent
 sys.path.insert(0, str(PROJECT_ROOT))
+
+# Cache system (informational only for now)
+try:
+    from Test.scripts.scope_discovery import discover_changed_files, get_cache_info
+    CACHE_AVAILABLE = True
+except ImportError:
+    CACHE_AVAILABLE = False
+    def discover_changed_files(root=None, force_all=False):
+        return []
+    def get_cache_info():
+        return {"cached_files": 0, "exists": False}
 
 import jax
 import jax.numpy as jnp
@@ -805,6 +823,39 @@ def main() -> int:
     import sys
     import re
     import textwrap
+    
+    # Parse CLI arguments
+    parser = argparse.ArgumentParser(
+        description="Structural execution tests with cache-aware reporting"
+    )
+    parser.add_argument(
+        "--force-all",
+        action="store_true",
+        help="Explicit full validation flag (informational, all tests run regardless)"
+    )
+    args = parser.parse_args()
+    
+    # Report cache status (informational only, pytest still runs all tests)
+    if CACHE_AVAILABLE and not args.force_all:
+        try:
+            changed_files = discover_changed_files(force_all=False)
+            cache_info = get_cache_info()
+            python_files = [f for f in changed_files if f.startswith(str(PROJECT_ROOT / "Python"))]
+            
+            if python_files:
+                print(f"📋 Cache mode: INCREMENTAL ({len(python_files)} Python files changed)")
+                if cache_info.get("exists"):
+                    print(f"   Cache: {cache_info.get('cached_files', 0)} files tracked")
+            else:
+                print("📋 Cache mode: NO CHANGES DETECTED (running all tests anyway)")
+            print("   Note: Pytest executes all tests due to fixture dependencies\n")
+        except Exception as e:
+            print(f"⚠️  Cache error: {e}. Proceeding with full test execution.\n")
+    else:
+        if args.force_all:
+            print("📋 Cache mode: FULL VALIDATION (--force-all)\n")
+        else:
+            print("📋 Cache mode: FULL VALIDATION (cache unavailable)\n")
     
     def sanitize_output_for_markdown(text: str, max_line_length: int = 120) -> str:
         """Sanitize pytest output for markdown: wrap long lines, escape problematic chars."""

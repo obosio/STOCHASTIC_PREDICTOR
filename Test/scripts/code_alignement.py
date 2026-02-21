@@ -7,6 +7,11 @@ NOTE: CODE_AUDIT_POLICIES_SPECIFICATION.md is documentation only.
 All policies are defined in code (policy_checks() function).
 If policies change, update policy_checks() directly in this script.
 
+Cache System:
+- Uses scope_discovery.py to detect changed files
+- Only validates modified files by default (fast incremental checks)
+- Use --force-all flag for complete validation (CI/CD, pre-release)
+
 Outputs:
 - Console summary (PASS/FAIL per policy)
 - JSON report: Test/results/code_alignement_last.json
@@ -15,6 +20,7 @@ Outputs:
 
 from __future__ import annotations
 
+import argparse
 import json
 import os
 import re
@@ -24,10 +30,15 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Callable, Dict, List, Tuple
 
-# Dynamic scope discovery
+# Dynamic scope discovery with cache support
 try:
-    from scope_discovery import discover_modules, discover_module_files, get_root
+    from scope_discovery import (
+        discover_modules, discover_module_files, get_root,
+        discover_changed_files, get_cache_info
+    )
+    CACHE_AVAILABLE = True
 except ImportError:
+    CACHE_AVAILABLE = False
     # Fallback if module not found
     def discover_modules(root: str | Path | None = None) -> List[str]:
         if root is None:
@@ -49,7 +60,15 @@ except ImportError:
         return sorted([f.name for f in module_dir.glob("*.py")])
     
     def get_root() -> Path:
-        return Path(os.path.abspath(os.path.join(os.path.dirname(__file__), "../..")))
+        return Path(os.path.abspath(os.path.join(os.path.dirname(__file__), "../..")))   
+    
+    def discover_changed_files(root: str | Path | None = None, force_all: bool = False) -> List[str]:
+        # Fallback: return all files
+        root = get_root() if root is None else Path(root)
+        return [str(f) for f in (root / "Python").rglob("*.py") if "__pycache__" not in str(f)]
+    
+    def get_cache_info() -> Dict:
+        return {"cached_files": 0, "exists": False}
 
 ROOT = str(get_root())
 RESULTS_DIR = os.path.join(ROOT, "Test", "results")
@@ -57,6 +76,10 @@ REPORTS_DIR = os.path.join(ROOT, "Test", "reports")
 
 # Auto-discovered modules (updates dynamically)
 DISCOVERED_MODULES = discover_modules(ROOT)
+
+# Global flag for cache usage (set by CLI args)
+USE_CACHE = True
+CHANGED_FILES_CACHE: List[str] | None = None
 
 
 @dataclass(frozen=True)
@@ -83,7 +106,36 @@ def find_in_file(pattern: str, path: str) -> bool:
 
 
 def find_in_dir(pattern: str, dir_path: str, extensions: Tuple[str, ...] = (".py",)) -> Tuple[bool, str]:
+    """Search for pattern in directory.  Uses cache to only search changed files when possible."""
+    global CHANGED_FILES_CACHE
     regex = re.compile(pattern, re.MULTILINE)
+    
+    # Get files to search (use cache if enabled and available)
+    if USE_CACHE and CACHE_AVAILABLE and CHANGED_FILES_CACHE is not None:
+        # Filter cached changed files to only those in dir_path with matching extensions
+        files_to_search = [
+            f for f in CHANGED_FILES_CACHE 
+            if f.startswith(dir_path) and any(f.endswith(ext) for ext in extensions)
+        ]
+        
+        # Search only changed files
+        for full_path in files_to_search:
+            if regex.search(read_text(full_path)):
+                return True, "OK"
+        
+        # Not found in changed files - check if there are unchanged files we should warn about
+        all_files = []
+        for root, _, files in os.walk(dir_path):
+            for name in files:
+                if name.endswith(extensions):
+                    all_files.append(os.path.join(root, name))
+        
+        if files_to_search:  # Had changed files but pattern not found
+            return False, f"Pattern '{pattern}' not found in {len(files_to_search)} changed file(s) in {dir_path}"
+        else:  # No changed files in this directory
+            return False, f"Pattern '{pattern}' - no changed files in {dir_path} (skipped {len(all_files)} unchanged)"
+    
+    # Fallback: search all files (when cache disabled or unavailable)
     for root, _, files in os.walk(dir_path):
         for name in files:
             if not name.endswith(extensions):
@@ -550,6 +602,52 @@ def write_reports(results: List[PolicyResult]) -> Tuple[str, str]:
 
 def main() -> int:
     """Run all policy compliance checks. Policies are defined in code, not loaded from file."""
+    global USE_CACHE, CHANGED_FILES_CACHE
+    
+    # Parse command line arguments
+    parser = argparse.ArgumentParser(
+        description="Policy compliance checker with incremental cache support"
+    )
+    parser.add_argument(
+        "--force-all",
+        action="store_true",
+        help="Process all files regardless of cache (use for CI/CD, pre-release, post-merge)"
+    )
+    parser.add_argument(
+        "--no-cache",
+        action="store_true",
+        help="Disable cache system (same as --force-all but explicit)"
+    )
+    args = parser.parse_args()
+    
+    # Determine cache usage
+    USE_CACHE = not (args.force_all or args.no_cache)
+    
+    # Initialize changed files cache if using cache
+    if USE_CACHE and CACHE_AVAILABLE:
+        try:
+            CHANGED_FILES_CACHE = discover_changed_files(force_all=False)
+            cache_info = get_cache_info()
+            print(f"📋 Cache mode: INCREMENTAL ({len(CHANGED_FILES_CACHE)} changed files)")
+            if cache_info.get("exists"):
+                print(f"   Cache: {cache_info.get('cached_files', 0)} files tracked")
+        except Exception as e:
+            print(f"⚠️  Cache error: {e}. Falling back to full scan.")
+            USE_CACHE = False
+            CHANGED_FILES_CACHE = None
+    else:
+        if args.force_all or args.no_cache:
+            print("📋 Cache mode: FULL SCAN (--force-all)")
+        else:
+            print("📋 Cache mode: FULL SCAN (cache unavailable)")
+        
+        if CACHE_AVAILABLE:
+            # Still populate cache for full scan to update it
+            CHANGED_FILES_CACHE = discover_changed_files(force_all=True)
+    
+    print("")
+    
+    # Run checks
     results = run_checks()
     for result in results:
         status = "PASS" if result.passed else "FAIL"
