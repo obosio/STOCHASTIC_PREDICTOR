@@ -4,7 +4,16 @@
 ################################################################################
 #
 # Sequentially runs all validation and test scripts for the Universal
-# Stochastic Predictor project. Execution scope: /Python/ and subdirectories.
+# Stochastic Predictor project.
+#
+# Scope Discovery:
+#   - Automatically discovers all Python/* subdirectories (api, core, io, kernels, etc.)
+#   - No hardcoded module lists; adapts when new modules are added
+#   - All scripts (code_alignement, code_structure) use auto-discovery
+#
+# Pipeline:
+#   1. Policy Compliance (code_alignement.py) - verifies 36 CODE_AUDIT_POLICIES
+#   2. Code Execution (code_structure.py) - runs tests with real JAX + auto-generated
 #
 # Exit immediately on first failure (fail-fast strategy).
 #
@@ -13,17 +22,14 @@
 #
 # OPTIONS:
 #   --help                Show this help message
-#   --all                 Run all tests (default)
+#   --all                 Run all tests (default: compliance → execute)
 #   --compliance          Run only policy compliance check
-#   --coverage            Run only structural coverage validation
 #   --execute             Run only code structure execution tests
-#   --scope PYTHON/path   Set custom scope for coverage/execution tests
 #
 # EXAMPLES:
-#   ./tests_start.sh                          # Run all in order: compliance → coverage → execute
+#   ./tests_start.sh                          # Run all in order: compliance → execute
 #   ./tests_start.sh --compliance             # Run only policy compliance check
-#   ./tests_start.sh --coverage --execute     # Run coverage then execution (skip compliance)
-#   ./tests_start.sh --scope Python/api       # Run coverage/execute with custom Python/api scope
+#   ./tests_start.sh --execute                # Run only execution tests
 #
 # EXIT CODES:
 #   0  All tests passed
@@ -47,15 +53,28 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 PROJECT_ROOT="$(cd "${SCRIPT_DIR}/../.." && pwd)"
 TESTS_DIR="${SCRIPT_DIR}"
 RESULTS_DIR="${PROJECT_ROOT}/tests/results"
+REPORTS_DIR="${PROJECT_ROOT}/tests/reports"
 
-# Create results directory if it doesn't exist
+# Python interpreter from .venv
+PYTHON_BIN="${PROJECT_ROOT}/.venv/bin/python"
+
+# Verify .venv exists
+if [ ! -f "$PYTHON_BIN" ]; then
+    echo -e "${RED}ERROR: Python virtual environment not found at ${PYTHON_BIN}${NC}"
+    echo "Please create the virtual environment first:"
+    echo "  python3 -m venv .venv"
+    echo "  source .venv/bin/activate"
+    echo "  pip install -r requirements.txt"
+    exit 127
+fi
+
+# Create results and reports directories if they don't exist
 mkdir -p "$RESULTS_DIR"
+mkdir -p "$REPORTS_DIR"
 
 # Default options
 RUN_COMPLIANCE=true
-RUN_COVERAGE=true
 RUN_EXECUTE=true
-CUSTOM_SCOPE=""
 
 ################################################################################
 # Functions
@@ -96,9 +115,9 @@ run_test() {
         return 127
     fi
     
-    # Run the test
+    # Run the test using .venv Python
     cd "$PROJECT_ROOT" || return 1
-    python3 "$script_path"
+    "$PYTHON_BIN" "$script_path"
     local exit_code=$?
     
     # Check result
@@ -159,32 +178,18 @@ while [[ $# -gt 0 ]]; do
             ;;
         --all)
             RUN_COMPLIANCE=true
-            RUN_COVERAGE=true
             RUN_EXECUTE=true
             shift
             ;;
         --compliance)
             RUN_COMPLIANCE=true
-            RUN_COVERAGE=false
-            RUN_EXECUTE=false
-            shift
-            ;;
-        --coverage)
-            RUN_COMPLIANCE=false
-            RUN_COVERAGE=true
             RUN_EXECUTE=false
             shift
             ;;
         --execute)
             RUN_COMPLIANCE=false
-            RUN_COVERAGE=false
             RUN_EXECUTE=true
             shift
-            ;;
-        --scope)
-            RUN_COMPLIANCE=false
-            CUSTOM_SCOPE="$2"
-            shift 2
             ;;
         *)
             print_failure "Unknown option: $1"
@@ -193,10 +198,6 @@ while [[ $# -gt 0 ]]; do
             ;;
     esac
 done
-
-# If --compliance and --coverage both specified, allow both
-# (parse_args above sets defaults, so we need to handle combination)
-# For now, this simple logic works for the documented use cases
 
 # Initialize counters
 TOTAL_TESTS=0
@@ -221,20 +222,7 @@ if [ "$RUN_COMPLIANCE" = true ]; then
     fi
 fi
 
-# Test 2: Structural Coverage (Python/ scope)
-if [ "$RUN_COVERAGE" = true ]; then
-    TOTAL_TESTS=$((TOTAL_TESTS + 1))
-    if run_test "Structural Coverage Validation (tests_coverage.py)" "${TESTS_DIR}/tests_coverage.py"; then
-        PASSED_TESTS=$((PASSED_TESTS + 1))
-    else
-        FAILED_TESTS=$((FAILED_TESTS + 1))
-        print_warning "Stopping execution: coverage validation failed"
-        print_summary $TOTAL_TESTS $PASSED_TESTS $FAILED_TESTS
-        exit 1
-    fi
-fi
-
-# Test 3: Code Execution (Python/ scope, pytest)
+# Test 2: Code Execution (Python/ scope, pytest) - includes parametrized tests
 if [ "$RUN_EXECUTE" = true ]; then
     TOTAL_TESTS=$((TOTAL_TESTS + 1))
     if run_test "Code Structure Execution Tests (code_structure.py)" "${TESTS_DIR}/code_structure.py"; then

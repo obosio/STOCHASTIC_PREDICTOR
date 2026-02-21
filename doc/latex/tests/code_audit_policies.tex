@@ -1,0 +1,531 @@
+\documentclass[11pt,a4paper]{article}
+\usepackage[utf8]{inputenc}
+\usepackage[english]{babel}
+\usepackage{amsmath,amssymb,amsthm}
+\usepackage{geometry}
+\usepackage{enumitem}
+\usepackage{fancyhdr}
+\usepackage{booktabs}
+\usepackage[hidelinks]{hyperref}
+
+\geometry{margin=1in}
+\pagestyle{fancy}
+\fancyhf{}
+\lhead{USP Code Audit Policies}
+\rhead{v2.0 | 2026-02-20}
+\cfoot{\thepage}
+
+\title{\textbf{Audit Policies and Evaluation Criteria}\\[0.5em]\large Specification-Complete}
+\author{Universal Stochastic Predictor (USP)}
+\date{Document Version: 2.0 \\ Last Updated: 2026-02-20 \\ Audit Scope: USP v2.1.0-RC1}
+
+\begin{document}
+
+\maketitle
+\thispagestyle{fancy}
+
+\begin{abstract}
+\noindent\textbf{Policy Strictness:} ZERO-HEURISTICS (STRICT: 0\% Fallback Tolerance)
+
+This document defines the complete set of 36 audit policies derived exclusively from the authoritative specification corpus. All policies are strict, deterministic, and verifiable without subjective interpretation.
+\end{abstract}
+
+\tableofcontents
+\newpage
+
+\section{Source Specification Corpus (Authoritative)}
+
+All policies below are derived from the complete specification set in:
+
+\begin{itemize}[noitemsep]
+    \item \texttt{doc/latex/specification/Stochastic\_Predictor\_Theory.tex}
+    \item \texttt{doc/latex/specification/Stochastic\_Predictor\_Implementation.tex}
+    \item \texttt{doc/latex/specification/Stochastic\_Predictor\_IO.tex}
+    \item \texttt{doc/latex/specification/Stochastic\_Predictor\_API\_Python.tex}
+    \item \texttt{doc/latex/specification/Stochastic\_Predictor\_Python.tex}
+    \item \texttt{doc/latex/specification/Stochastic\_Predictor\_Test\_Cases.tex}
+    \item \texttt{doc/latex/specification/Stochastic\_Predictor\_Tests\_Python.tex}
+\end{itemize}
+
+\textbf{Critical Rule:} No external sources are used. If a requirement does not appear in the specification corpus, it is not a policy.
+
+\newpage
+
+\section{Policy Index}
+
+\begin{enumerate}[noitemsep]
+    \item Configuration Sourcing (Zero-Heuristics)
+    \item Configuration Immutability (Locked Subsections)
+    \item Validation Schema Enforcement
+    \item Atomic Configuration Mutation Protocol
+    \item Mutation Rate Limiting and Rollback
+    \item Walk-Forward Validation (Causal)
+    \item CUSUM Dynamic Threshold with Kurtosis
+    \item Signature Depth Constraint (M in [3,5])
+    \item Sinkhorn Epsilon Bounds
+    \item CFL Condition for PIDE Schemes
+    \item 64-bit Precision Enablement
+    \item Stop-Gradient for Diagnostics
+    \item Kernel Purity and Statelessness
+    \item Frozen Signal Detection and Recovery
+    \item Catastrophic Outlier Rejection (20 sigma)
+    \item Minimum Injection Frequency (Nyquist Soft Limit)
+    \item Staleness Policy and Degraded Mode Recovery (TTL)
+    \item Secret Injection via Environment Variables
+    \item Snapshot Integrity (SHA-256) and Validation
+    \item Non-Blocking Telemetry and I/O
+    \item Hardware Parity Audit Hashes
+    \item Emergency Mode on Singularities (Holder Threshold)
+    \item Entropy-Driven Capacity Expansion (DGM)
+    \item Dynamic Sinkhorn Regularization Coupling
+    \item Entropy Window and Learning Rate Scaling (JKO)
+    \item Load Shedding (Kernel D Depth Set)
+    \item Deterministic Execution and PRNG Configuration
+    \item Dependency Pinning (Exact Versions)
+    \item Five-Layer Architecture Enforcement
+    \item Snapshot Atomicity and Recovery (I/O)
+    \item Meta-Optimization Checkpoint Integrity
+    \item TPE Resume Determinism
+    \item Telemetry Flags and Alerts (Required Fields)
+    \item XLA No Host-Device Sync in Orchestrator
+    \item Vectorized vmap Parity
+    \item JIT Cache Warmup Guarantees
+\end{enumerate}
+
+\newpage
+
+\section{Configuration and Validation Policies}
+
+\subsection{Policy \#1: Configuration Sourcing (Zero-Heuristics)}
+
+\textbf{Source:} \texttt{Stochastic\_Predictor\_IO.tex} (Configuration Mutation Protocol) and \texttt{Stochastic\_Predictor\_API\_Python.tex} (PredictorConfig)
+
+\textbf{Policy Statement:}
+All numerical parameters, thresholds, and algorithmic decisions must be derived from configuration values. No implicit or silent defaults are allowed at runtime.
+
+\textbf{Audit Criteria:}
+\begin{itemize}
+    \item \textbf{Fail} if any operational threshold is hardcoded without config mapping.
+    \item \textbf{Pass} if all \texttt{PredictorConfig} fields are mapped from config and validated.
+\end{itemize}
+
+\subsection{Policy \#2: Configuration Immutability (Locked Subsections)}
+
+\textbf{Source:} \texttt{Stochastic\_Predictor\_IO.tex} (Invariant Protection)
+
+\textbf{Policy Statement:}
+The following subsections are immutable and must not appear in optimizer search space:
+
+\begin{itemize}[noitemsep]
+    \item \texttt{[core]}: \texttt{float\_precision}, \texttt{jax\_platform}
+    \item \texttt{[io]}: \texttt{snapshot\_path}, \texttt{telemetry\_buffer\_maxlen}, \texttt{credentials\_vault\_path}
+    \item \texttt{[security]}: \texttt{telemetry\_hash\_interval\_steps}, \texttt{snapshot\_integrity\_hash\_algorithm}, \texttt{allowed\_mutation\_rate\_per\_hour}
+    \item \texttt{[meta\_optimization]}: \texttt{max\_deep\_tuning\_iterations}, \texttt{checkpoint\_path}, \texttt{mutation\_protocol\_version}
+\end{itemize}
+
+\textbf{Audit Criteria:}
+\begin{itemize}
+    \item \textbf{Fail} if locked parameters are mutated or included in search space.
+    \item \textbf{Pass} if mutation validation rejects locked updates.
+\end{itemize}
+
+\subsection{Policy \#3: Validation Schema Enforcement}
+
+\textbf{Source:} \texttt{Stochastic\_Predictor\_IO.tex} (Validation Schema)
+
+\textbf{Policy Statement:}
+All configuration mutations must pass strict schema validation: types, ranges, constraints, immutability, and interdependencies.
+
+\textbf{Mandatory Rules (Examples):}
+\begin{itemize}[noitemsep]
+    \item \texttt{cusum\_k} $\in [0.3, 1.5]$
+    \item \texttt{dgm\_width\_size} $\in [32, 256]$ and power of 2
+    \item \texttt{stiffness\_low} $<$ \texttt{stiffness\_high}
+    \item \texttt{signature\_depth} $\in \{3, 4, 5\}$
+\end{itemize}
+
+\textbf{Audit Criteria:}
+\begin{itemize}
+    \item \textbf{Fail} if schema validation is bypassed or incomplete.
+    \item \textbf{Pass} if validation rejects invalid updates with explicit errors.
+\end{itemize}
+
+\subsection{Policy \#4: Atomic Configuration Mutation Protocol}
+
+\textbf{Source:} \texttt{Stochastic\_Predictor\_IO.tex} (Atomic TOML Update Algorithm)
+
+\textbf{Policy Statement:}
+Configuration mutations must follow the 5-phase POSIX atomic protocol:
+
+\begin{enumerate}
+    \item Validation
+    \item Backup
+    \item Temp write with \texttt{O\_EXCL} and \texttt{fsync}
+    \item \texttt{os.replace}
+    \item Audit log
+\end{enumerate}
+
+\textbf{Audit Criteria:}
+\begin{itemize}
+    \item \textbf{Fail} if any phase is missing (backup, fsync, replace, audit log).
+    \item \textbf{Pass} only if all phases are implemented.
+\end{itemize}
+
+\subsection{Policy \#5: Mutation Rate Limiting and Rollback}
+
+\textbf{Source:} \texttt{Stochastic\_Predictor\_IO.tex} (Rate Limiting and Safety Guardrails)
+
+\textbf{Policy Statement:}
+\begin{itemize}[noitemsep]
+    \item Max 10 mutations per hour
+    \item Min 1000 steps between mutations
+    \item Relative change $\leq$ 50\% (except discrete $\pm$1)
+    \item Rollback if RMSE increases $>$ 30\% within 500 steps
+\end{itemize}
+
+\textbf{Audit Criteria:}
+\begin{itemize}
+    \item \textbf{Fail} if any guardrail is missing or disabled.
+\end{itemize}
+
+\newpage
+
+\section{Validation and Algorithmic Policies}
+
+\subsection{Policy \#6: Walk-Forward Validation (Causal)}
+
+\textbf{Source:} \texttt{Stochastic\_Predictor\_Implementation.tex} and \texttt{Tests\_Python.tex}
+
+\textbf{Policy Statement:}
+K-Fold and random splits are prohibited. Validation must be rolling walk-forward with future-only test windows and step size $H$.
+
+\textbf{Audit Criteria:}
+\begin{itemize}
+    \item \textbf{Fail} if any non-causal split exists.
+    \item \textbf{Pass} only if train/test are strictly ordered and non-overlapping.
+\end{itemize}
+
+\subsection{Policy \#7: CUSUM Dynamic Threshold with Kurtosis}
+
+\textbf{Source:} \texttt{Stochastic\_Predictor\_Implementation.tex} and \texttt{Stochastic\_Predictor\_Python.tex}
+
+\textbf{Policy Statement:}
+CUSUM threshold must be dynamic and kurtosis-adjusted:
+\[
+h_t = k \cdot \sigma_{\text{resid}} \cdot (1 + \ln(\kappa_t/3))
+\]
+with $k \in [3, 5]$ and rolling window size 252.
+
+\textbf{Audit Criteria:}
+\begin{itemize}
+    \item \textbf{Fail} if threshold is constant or missing kurtosis adjustment.
+    \item \textbf{Pass} if dynamic formula and window are enforced.
+\end{itemize}
+
+\subsection{Policy \#8: Signature Depth Constraint (M in [3,5])}
+
+\textbf{Source:} \texttt{Stochastic\_Predictor\_Implementation.tex}
+
+\textbf{Policy Statement:}
+Signature truncation depth $M$ must be in $\{3, 4, 5\}$.
+
+\textbf{Audit Criteria:}
+\begin{itemize}
+    \item \textbf{Fail} if outside range is allowed.
+    \item \textbf{Pass} if range enforced at config validation.
+\end{itemize}
+
+\subsection{Policy \#9: Sinkhorn Epsilon Bounds}
+
+\textbf{Source:} \texttt{Stochastic\_Predictor\_Implementation.tex} and \texttt{Test\_Cases.tex}
+
+\textbf{Policy Statement:}
+Entropic regularization $\varepsilon$ must satisfy $10^{-4} \leq \varepsilon \leq 10^{-1}$ and include underflow protection.
+
+\textbf{Audit Criteria:}
+\begin{itemize}
+    \item \textbf{Fail} if epsilon bounds are not validated.
+\end{itemize}
+
+\subsection{Policy \#10: CFL Condition for PIDE Schemes}
+
+\textbf{Source:} \texttt{Stochastic\_Predictor\_Implementation.tex}
+
+\textbf{Policy Statement:}
+Time step must satisfy the generalized CFL condition:
+\[
+\Delta t \leq \frac{C_{\text{safe}} \cdot (\Delta x)^2}{2 \cdot \sup|\sigma(x)|^2 + \sup|b(x)| \cdot \Delta x}
+\]
+with $C_{\text{safe}} \approx 0.9$.
+
+\textbf{Audit Criteria:}
+\begin{itemize}
+    \item \textbf{Fail} if CFL validation is missing.
+\end{itemize}
+
+\newpage
+
+\section{JAX and Numerical Precision Policies}
+
+\subsection{Policy \#11: 64-bit Precision Enablement}
+
+\textbf{Source:} \texttt{Stochastic\_Predictor\_Python.tex}
+
+\textbf{Policy Statement:}
+\texttt{jax\_enable\_x64} must be enabled for Malliavin and signature computations.
+
+\textbf{Audit Criteria:}
+\begin{itemize}
+    \item \textbf{Fail} if global x64 is not enabled at startup.
+\end{itemize}
+
+\subsection{Policy \#12: Stop-Gradient for Diagnostics}
+
+\textbf{Source:} \texttt{Stochastic\_Predictor\_Python.tex}
+
+\textbf{Policy Statement:}
+All diagnostic and telemetry computations must apply \texttt{jax.lax.stop\_gradient}.
+
+\textbf{Audit Criteria:}
+\begin{itemize}
+    \item \textbf{Fail} if diagnostics do not use \texttt{stop\_gradient}.
+\end{itemize}
+
+\subsection{Policy \#13: Kernel Purity and Statelessness}
+
+\textbf{Source:} \texttt{Stochastic\_Predictor\_Python.tex} (kernels are pure XLA kernels)
+
+\textbf{Policy Statement:}
+Kernels must be pure and stateless functions compatible with JAX transformations.
+
+\textbf{Audit Criteria:}
+\begin{itemize}
+    \item \textbf{Fail} if kernels perform I/O or mutate external state.
+\end{itemize}
+
+\newpage
+
+\section{Robustness and Circuit Breaker Policies}
+
+\subsection{Policy \#14: Frozen Signal Detection and Recovery}
+
+\textbf{Source:} \texttt{Stochastic\_Predictor\_IO.tex}
+
+\textbf{Policy Statement:}
+If $N_{\text{freeze}} \geq 5$ identical values occur, detect frozen signal, emit event, freeze Kernel D, do not update weights, enable degraded mode. Recovery when variance $> 0.1 \cdot \text{Var}_{\text{historical}}$ for 2 steps.
+
+\textbf{Audit Criteria:}
+\begin{itemize}
+    \item \textbf{Fail} if any required action is missing.
+\end{itemize}
+
+\subsection{Policy \#15: Catastrophic Outlier Rejection (20 sigma)}
+
+\textbf{Source:} \texttt{Stochastic\_Predictor\_IO.tex}
+
+\textbf{Policy Statement:}
+If $|y_t| > 20\sigma$, discard input, keep inertial state, emit critical alert.
+
+\subsection{Policy \#16: Minimum Injection Frequency (Nyquist Soft Limit)}
+
+\textbf{Source:} \texttt{Stochastic\_Predictor\_IO.tex} and \texttt{Test\_Cases.tex}
+
+\textbf{Policy Statement:}
+Minimum injection frequency must be enforced based on WTMM scales and $C_{\text{besov}}$. Violation freezes Kernel D and emits alert before Holder error exceeds 10\%.
+
+\subsection{Policy \#17: Staleness Policy and Degraded Mode Recovery (TTL)}
+
+\textbf{Source:} \texttt{Stochastic\_Predictor\_IO.tex} and \texttt{Tests\_Python.tex}
+
+\textbf{Policy Statement:}
+If $\text{TTL}(y_{\text{target}}) > \Delta_{\max}$, cancel JKO update, freeze weights, set degraded mode. Recovery only when $\text{TTL} < 0.8 \cdot \Delta_{\max}$.
+
+\newpage
+
+\section{Security and I/O Policies}
+
+\subsection{Policy \#18: Secret Injection via Environment Variables}
+
+\textbf{Source:} \texttt{Stochastic\_Predictor\_IO.tex}
+
+\textbf{Policy Statement:}
+Credentials must be injected via environment variables. No secrets in source, config, or logs. \texttt{.env} must be gitignored.
+
+\subsection{Policy \#19: Snapshot Integrity (SHA-256) and Validation}
+
+\textbf{Source:} \texttt{Stochastic\_Predictor\_IO.tex} and \texttt{API\_Python.tex}
+
+\textbf{Policy Statement:}
+Snapshots must include SHA-256 hash and validation before load. Corrupt snapshots must be rejected with cold-start fallback.
+
+\subsection{Policy \#20: Non-Blocking Telemetry and I/O}
+
+\textbf{Source:} \texttt{Stochastic\_Predictor\_IO.tex} and \texttt{API\_Python.tex}
+
+\textbf{Policy Statement:}
+Telemetry and snapshot I/O must be non-blocking and decoupled from compute threads.
+
+\subsection{Policy \#21: Hardware Parity Audit Hashes}
+
+\textbf{Source:} \texttt{Stochastic\_Predictor\_IO.tex}
+
+\textbf{Policy Statement:}
+SHA-256 parity hashes of critical state must be logged at configurable intervals using canonical float64 serialization.
+
+\newpage
+
+\section{Adaptive and Emergency Mode Policies}
+
+\subsection{Policy \#22: Emergency Mode on Singularities (Holder Threshold)}
+
+\textbf{Source:} \texttt{Stochastic\_Predictor\_Theory.tex} and \texttt{Tests\_Python.tex}
+
+\textbf{Policy Statement:}
+If Holder exponent falls below $H_{\min}$, force Kernel D weight to 1.0 and switch to Huber cost until recovery hysteresis.
+
+\subsection{Policy \#23: Entropy-Driven Capacity Expansion (DGM)}
+
+\textbf{Source:} \texttt{Stochastic\_Predictor\_Theory.tex} and \texttt{Test\_Cases.tex}
+
+\textbf{Policy Statement:}
+Capacity must scale with entropy ratio $\kappa$ using:
+\[
+\log(WD) \geq \log(W_0D_0) + \beta \log(\kappa), \quad \beta \in [0.5, 1.0]
+\]
+
+\subsection{Policy \#24: Dynamic Sinkhorn Regularization Coupling}
+
+\textbf{Source:} \texttt{Stochastic\_Predictor\_Implementation.tex}
+
+\textbf{Policy Statement:}
+\[
+\varepsilon_t = \max(\varepsilon_{\min}, \varepsilon_0 (1 + \alpha \sigma_t))
+\]
+
+\subsection{Policy \#25: Entropy Window and Learning Rate Scaling (JKO)}
+
+\textbf{Source:} \texttt{Stochastic\_Predictor\_Implementation.tex}
+
+\textbf{Policy Statement:}
+Entropy window and learning rate must scale with volatility:
+\begin{itemize}[noitemsep]
+    \item \texttt{entropy\_window} $\geq c \cdot L^2 / \text{ema\_variance}$
+    \item \texttt{learning\_rate} $< 2 \cdot \text{sinkhorn\_epsilon} \cdot \text{ema\_variance}$
+\end{itemize}
+
+\subsection{Policy \#26: Load Shedding (Kernel D Depth Set)}
+
+\textbf{Source:} \texttt{Stochastic\_Predictor\_API\_Python.tex} and \texttt{Tests\_Python.tex}
+
+\textbf{Policy Statement:}
+Kernel D must support depth set $M \in \{2, 3, 5\}$ with warmup precompile to avoid JIT cache misses.
+
+\newpage
+
+\section{System Configuration Policies}
+
+\subsection{Policy \#27: Deterministic Execution and PRNG Configuration}
+
+\textbf{Source:} \texttt{Stochastic\_Predictor\_API\_Python.tex}
+
+\textbf{Policy Statement:}
+Deterministic PRNG and reduction settings must be configured before importing JAX.
+
+\subsection{Policy \#28: Dependency Pinning (Exact Versions)}
+
+\textbf{Source:} \texttt{Stochastic\_Predictor\_Python.tex}
+
+\textbf{Policy Statement:}
+All dependencies must be pinned to exact versions. Open ranges are forbidden.
+
+\subsection{Policy \#29: Five-Layer Architecture Enforcement}
+
+\textbf{Source:} \texttt{Stochastic\_Predictor\_Python.tex}
+
+\textbf{Policy Statement:}
+Implementations must use the five-layer structure: api, core, kernels, io, tests.
+
+\newpage
+
+\section{Snapshot and Meta-Optimization Policies}
+
+\subsection{Policy \#30: Snapshot Atomicity and Recovery (I/O)}
+
+\textbf{Source:} \texttt{Stochastic\_Predictor\_Tests\_Python.tex}
+
+\textbf{Policy Statement:}
+Snapshots must be written to temp, fsync, and atomically renamed. Recovery must ignore torn temp files and load last valid snapshot.
+
+\subsection{Policy \#31: Meta-Optimization Checkpoint Integrity}
+
+\textbf{Source:} \texttt{Stochastic\_Predictor\_API\_Python.tex} and \texttt{Tests\_Python.tex}
+
+\textbf{Policy Statement:}
+TPE checkpoints must include SHA-256 sidecar validation and fail on mismatch.
+
+\subsection{Policy \#32: TPE Resume Determinism}
+
+\textbf{Source:} \texttt{Stochastic\_Predictor\_Test\_Cases.tex} and \texttt{Tests\_Python.tex}
+
+\textbf{Policy Statement:}
+Checkpoint resume must be bit-exact: best params, objective values, and trial history must match uninterrupted run.
+
+\subsection{Policy \#33: Telemetry Flags and Alerts (Required Fields)}
+
+\textbf{Source:} \texttt{Stochastic\_Predictor\_API\_Python.tex} and \texttt{Stochastic\_Predictor\_IO.tex}
+
+\textbf{Policy Statement:}
+Telemetry must include \texttt{degraded\_inference}, \texttt{emergency\_mode}, \texttt{regime\_change}, and \texttt{mode\_collapse\_warning} flags.
+
+\newpage
+
+\section{XLA and JAX Performance Policies}
+
+\subsection{Policy \#34: XLA No Host-Device Sync in Orchestrator}
+
+\textbf{Source:} \texttt{Stochastic\_Predictor\_Tests\_Python.tex}
+
+\textbf{Policy Statement:}
+Orchestrator outputs must remain on device; no host synchronization in hot path.
+
+\subsection{Policy \#35: Vectorized vmap Parity}
+
+\textbf{Source:} \texttt{Stochastic\_Predictor\_Tests\_Python.tex}
+
+\textbf{Policy Statement:}
+Batched vmap execution must be bit-exact with sequential execution.
+
+\subsection{Policy \#36: JIT Cache Warmup Guarantees}
+
+\textbf{Source:} \texttt{Stochastic\_Predictor\_Tests\_Python.tex}
+
+\textbf{Policy Statement:}
+Load shedding warmup must precompile all depths with cache hit rate $\geq$ 99\%.
+
+\newpage
+
+\section{Audit Rule}
+
+\textbf{Critical Enforcement:}
+
+Any policy violation results in audit failure. Only checks explicitly derived from the specification corpus are permitted.
+
+\subsection{Verification Protocol}
+
+\begin{enumerate}
+    \item Run \texttt{code\_alignement.py} to validate all 36 policies
+    \item Verify 100\% pass rate (36/36)
+    \item Fix VSCode errors before commit
+    \item Update LaTeX docs if public API changes
+    \item Stage, commit, push with meaningful message
+\end{enumerate}
+
+\subsection{Implementation Reference}
+
+All audit logic is implemented in:
+\begin{itemize}[noitemsep]
+    \item \texttt{tests/scripts/code\_alignement.py} - 36 CODE\_AUDIT\_POLICIES
+    \item \texttt{tests/scripts/scope\_discovery.py} - Auto-discovery utilities
+\end{itemize}
+
+\end{document}

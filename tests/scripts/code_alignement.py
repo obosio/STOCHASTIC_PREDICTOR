@@ -9,7 +9,8 @@ If policies change, update policy_checks() directly in this script.
 
 Outputs:
 - Console summary (PASS/FAIL per policy)
-- JSON report: tests/results/code_alignement_YYYY-MM-DD_HH-MM-SS.ffffff.json
+- JSON report: tests/results/code_alignement_last.json
+- Markdown report: tests/reports/code_alignement_last.md
 """
 
 from __future__ import annotations
@@ -20,10 +21,42 @@ import re
 import sys
 from dataclasses import dataclass
 from datetime import datetime
+from pathlib import Path
 from typing import Callable, Dict, List, Tuple
 
-ROOT = os.path.abspath(os.path.join(os.path.dirname(__file__), "../.."))
-REPORT_DIR = os.path.join(ROOT, "tests", "results")
+# Dynamic scope discovery
+try:
+    from scope_discovery import discover_modules, discover_module_files, get_root
+except ImportError:
+    # Fallback if module not found
+    def discover_modules(root: str | Path | None = None) -> List[str]:
+        if root is None:
+            root = os.path.abspath(os.path.join(os.path.dirname(__file__), "../.."))
+        root = Path(root) if isinstance(root, str) else root
+        python_dir = root / "Python"
+        if not python_dir.is_dir():
+            return []
+        return sorted([d.name for d in python_dir.iterdir() 
+                      if d.is_dir() and (d / "__init__.py").is_file()])
+    
+    def discover_module_files(module_name: str, root: str | Path | None = None) -> List[str]:
+        if root is None:
+            root = os.path.abspath(os.path.join(os.path.dirname(__file__), "../.."))
+        root = Path(root) if isinstance(root, str) else root
+        module_dir = root / "Python" / module_name
+        if not module_dir.is_dir():
+            return []
+        return sorted([f.name for f in module_dir.glob("*.py")])
+    
+    def get_root() -> Path:
+        return Path(os.path.abspath(os.path.join(os.path.dirname(__file__), "../..")))
+
+ROOT = str(get_root())
+RESULTS_DIR = os.path.join(ROOT, "tests", "results")
+REPORTS_DIR = os.path.join(ROOT, "tests", "reports")
+
+# Auto-discovered modules (updates dynamically)
+DISCOVERED_MODULES = discover_modules(ROOT)
 
 
 @dataclass(frozen=True)
@@ -68,6 +101,36 @@ def check_dir_exists(dir_path: str) -> Tuple[bool, str]:
     return False, f"Directory not found: {dir_path}"
 
 
+# ═════════════════════════════════════════════════════════════════════════════
+# Dynamic Path Construction (Scope Auto-Discovery)
+# ═════════════════════════════════════════════════════════════════════════════
+
+def module_dir(module: str) -> str:
+    """Get directory path for a module.
+    
+    Example: module_dir('api') -> '/path/to/Python/api'
+    """
+    return os.path.join(ROOT, "Python", module)
+
+
+def module_file(module: str, filename: str) -> str:
+    """Get file path within a module.
+    
+    Example: module_file('api', 'config.py') -> '/path/to/Python/api/config.py'
+    """
+    return os.path.join(module_dir(module), filename)
+
+
+def python_dir() -> str:
+    """Get Python package directory."""
+    return os.path.join(ROOT, "Python")
+
+
+def validate_module_exists(module: str) -> bool:
+    """Check if module exists in discovered modules."""
+    return module in DISCOVERED_MODULES
+
+
 def require_all(patterns: List[str], path: str) -> Tuple[bool, str]:
     missing = [p for p in patterns if not find_in_file(p, path)]
     if missing:
@@ -92,7 +155,7 @@ def policy_checks() -> List[Tuple[int, str, Callable[[], Tuple[bool, str]]]]:
                     r"FIELD_TO_SECTION_MAP",
                     r"Missing required config\.toml entry",
                 ],
-                os.path.join(ROOT, "Python", "api", "config.py"),
+                module_file("api", "config.py"),
             ),
         ),
         (
@@ -112,7 +175,7 @@ def policy_checks() -> List[Tuple[int, str, Callable[[], Tuple[bool, str]]]]:
                     r"checkpoint_path",
                     r"mutation_protocol_version",
                 ],
-                os.path.join(ROOT, "Python", "io", "config_mutation.py"),
+                module_file("io", "config_mutation.py"),
             ),
         ),
         (
@@ -120,7 +183,7 @@ def policy_checks() -> List[Tuple[int, str, Callable[[], Tuple[bool, str]]]]:
             "Validation Schema Enforcement",
             lambda: require_any(
                 [r"validation_schema", r"ConfigMutationError", r"_validate_config"],
-                os.path.join(ROOT, "Python", "io", "config_mutation.py"),
+                module_file("io", "config_mutation.py"),
             ),
         ),
         (
@@ -128,7 +191,7 @@ def policy_checks() -> List[Tuple[int, str, Callable[[], Tuple[bool, str]]]]:
             "Atomic Configuration Mutation Protocol",
             lambda: require_all(
                 [r"O_EXCL", r"fsync", r"os\.replace", r"mutations\.log"],
-                os.path.join(ROOT, "Python", "io", "config_mutation.py"),
+                module_file("io", "config_mutation.py"),
             ),
         ),
         (
@@ -136,7 +199,7 @@ def policy_checks() -> List[Tuple[int, str, Callable[[], Tuple[bool, str]]]]:
             "Mutation Rate Limiting and Rollback",
             lambda: require_any(
                 [r"allowed_mutation_rate_per_hour", r"rollback", r"rmse"],
-                os.path.join(ROOT, "Python", "io", "config_mutation.py"),
+                module_file("io", "config_mutation.py"),
             ),
         ),
         (
@@ -144,51 +207,51 @@ def policy_checks() -> List[Tuple[int, str, Callable[[], Tuple[bool, str]]]]:
             "Walk-Forward Validation (Causal)",
             lambda: require_any(
                 [r"walk_forward", r"WalkForward"],
-                os.path.join(ROOT, "Python", "core", "meta_optimizer.py"),
+                module_file("core", "meta_optimizer.py"),
             ),
         ),
         (
             7,
             "CUSUM Dynamic Threshold with Kurtosis",
-            lambda: find_in_dir(r"kurtosis|kappa|ln.*kappa", os.path.join(ROOT, "Python")),
+            lambda: find_in_dir(r"kurtosis|kappa|ln.*kappa", python_dir()),
         ),
         (
             8,
             "Signature Depth Constraint (M in [3,5])",
-            lambda: find_in_dir(r"log_sig_depth|kernel_d_depth", os.path.join(ROOT, "Python")),
+            lambda: find_in_dir(r"log_sig_depth|kernel_d_depth", python_dir()),
         ),
         (
             9,
             "Sinkhorn Epsilon Bounds",
             lambda: require_any(
                 [r"sinkhorn_epsilon_min", r"epsilon_min", r"1e-4"],
-                os.path.join(ROOT, "Python", "core", "sinkhorn.py"),
+                module_file("core", "sinkhorn.py"),
             ),
         ),
         (
             10,
             "CFL Condition for PIDE Schemes",
-            lambda: find_in_dir(r"CFL|courant|c_safe", os.path.join(ROOT, "Python")),
+            lambda: find_in_dir(r"CFL|courant|c_safe", python_dir()),
         ),
         (
             11,
             "64-bit Precision Enablement",
             lambda: require_any(
                 [r"jax_enable_x64", r"float64"],
-                os.path.join(ROOT, "Python", "api", "config.py"),
+                module_file("api", "config.py"),
             ),
         ),
         (
             12,
             "Stop-Gradient for Diagnostics",
-            lambda: find_in_dir(r"stop_gradient", os.path.join(ROOT, "Python")),
+            lambda: find_in_dir(r"stop_gradient", python_dir()),
         ),
         (
             13,
             "Kernel Purity and Statelessness",
             lambda: (
-                not find_in_dir(r"\bprint\(|\bopen\(", os.path.join(ROOT, "Python", "kernels"))[0],
-                "No I/O in kernels" if not find_in_dir(r"\bprint\(|\bopen\(", os.path.join(ROOT, "Python", "kernels"))[0] else "I/O found in kernels",
+                not find_in_dir(r"\bprint\(|\bopen\(", module_dir("kernels"))[0],
+                "No I/O in kernels" if not find_in_dir(r"\bprint\(|\bopen\(", module_dir("kernels"))[0] else "I/O found in kernels",
             ),
         ),
         (
@@ -196,7 +259,7 @@ def policy_checks() -> List[Tuple[int, str, Callable[[], Tuple[bool, str]]]]:
             "Frozen Signal Detection and Recovery",
             lambda: require_all(
                 [r"detect_frozen_signal", r"FrozenSignal"],
-                os.path.join(ROOT, "Python", "io", "validators.py"),
+                module_file("io", "validators.py"),
             ),
         ),
         (
@@ -204,7 +267,7 @@ def policy_checks() -> List[Tuple[int, str, Callable[[], Tuple[bool, str]]]]:
             "Catastrophic Outlier Rejection (20 sigma)",
             lambda: require_all(
                 [r"detect_catastrophic_outlier", r"sigma_bound"],
-                os.path.join(ROOT, "Python", "io", "validators.py"),
+                module_file("io", "validators.py"),
             ),
         ),
         (
@@ -212,7 +275,7 @@ def policy_checks() -> List[Tuple[int, str, Callable[[], Tuple[bool, str]]]]:
             "Minimum Injection Frequency (Nyquist Soft Limit)",
             lambda: require_any(
                 [r"besov_nyquist_interval", r"nyquist"],
-                os.path.join(ROOT, "Python", "io", "validators.py"),
+                module_file("io", "validators.py"),
             ),
         ),
         (
@@ -220,7 +283,7 @@ def policy_checks() -> List[Tuple[int, str, Callable[[], Tuple[bool, str]]]]:
             "Staleness Policy and Degraded Mode Recovery (TTL)",
             lambda: require_any(
                 [r"staleness_ttl", r"degraded", r"TTL"],
-                os.path.join(ROOT, "Python", "core", "orchestrator.py"),
+                module_file("core", "orchestrator.py"),
             ),
         ),
         (
@@ -228,7 +291,7 @@ def policy_checks() -> List[Tuple[int, str, Callable[[], Tuple[bool, str]]]]:
             "Secret Injection via Environment Variables",
             lambda: require_any(
                 [r"getenv", r"MissingCredentialError"],
-                os.path.join(ROOT, "Python", "io", "credentials.py"),
+                module_file("io", "credentials.py"),
             ),
         ),
         (
@@ -236,7 +299,7 @@ def policy_checks() -> List[Tuple[int, str, Callable[[], Tuple[bool, str]]]]:
             "Snapshot Integrity (SHA-256) and Validation",
             lambda: require_any(
                 [r"sha256", r"SHA256"],
-                os.path.join(ROOT, "Python", "io", "snapshots.py"),
+                module_file("io", "snapshots.py"),
             ),
         ),
         (
@@ -244,7 +307,7 @@ def policy_checks() -> List[Tuple[int, str, Callable[[], Tuple[bool, str]]]]:
             "Non-Blocking Telemetry and I/O",
             lambda: require_any(
                 [r"Thread", r"queue", r"deque"],
-                os.path.join(ROOT, "Python", "io", "telemetry.py"),
+                module_file("io", "telemetry.py"),
             ),
         ),
         (
@@ -252,7 +315,7 @@ def policy_checks() -> List[Tuple[int, str, Callable[[], Tuple[bool, str]]]]:
             "Hardware Parity Audit Hashes",
             lambda: require_any(
                 [r"telemetry_hash_interval", r"parity"],
-                os.path.join(ROOT, "Python", "io", "telemetry.py"),
+                module_file("io", "telemetry.py"),
             ),
         ),
         (
@@ -260,7 +323,7 @@ def policy_checks() -> List[Tuple[int, str, Callable[[], Tuple[bool, str]]]]:
             "Emergency Mode on Singularities (Holder Threshold)",
             lambda: require_any(
                 [r"holder_threshold", r"Huber", r"robust"],
-                os.path.join(ROOT, "Python", "core", "orchestrator.py"),
+                module_file("core", "orchestrator.py"),
             ),
         ),
         (
@@ -268,7 +331,7 @@ def policy_checks() -> List[Tuple[int, str, Callable[[], Tuple[bool, str]]]]:
             "Entropy-Driven Capacity Expansion (DGM)",
             lambda: require_any(
                 [r"entropy", r"capacity", r"dgm_max_capacity"],
-                os.path.join(ROOT, "Python", "core", "orchestrator.py"),
+                module_file("core", "orchestrator.py"),
             ),
         ),
         (
@@ -276,7 +339,7 @@ def policy_checks() -> List[Tuple[int, str, Callable[[], Tuple[bool, str]]]]:
             "Dynamic Sinkhorn Regularization Coupling",
             lambda: require_any(
                 [r"epsilon_t", r"sigma_t", r"sinkhorn"],
-                os.path.join(ROOT, "Python", "core", "sinkhorn.py"),
+                module_file("core", "sinkhorn.py"),
             ),
         ),
         (
@@ -284,7 +347,7 @@ def policy_checks() -> List[Tuple[int, str, Callable[[], Tuple[bool, str]]]]:
             "Entropy Window and Learning Rate Scaling (JKO)",
             lambda: require_any(
                 [r"entropy_window", r"learning_rate"],
-                os.path.join(ROOT, "Python", "core", "orchestrator.py"),
+                module_file("core", "orchestrator.py"),
             ),
         ),
         (
@@ -292,7 +355,7 @@ def policy_checks() -> List[Tuple[int, str, Callable[[], Tuple[bool, str]]]]:
             "Load Shedding (Kernel D Depth Set)",
             lambda: require_any(
                 [r"warmup_kernel_d_load_shedding", r"kernel_d_load_shedding_depths"],
-                os.path.join(ROOT, "Python", "api", "warmup.py"),
+                module_file("api", "warmup.py"),
             ),
         ),
         (
@@ -313,13 +376,13 @@ def policy_checks() -> List[Tuple[int, str, Callable[[], Tuple[bool, str]]]]:
             "Five-Layer Architecture Enforcement",
             lambda: (
                 all(
-                    os.path.isdir(os.path.join(ROOT, "Python", name))
-                    for name in ("api", "core", "kernels", "io")
+                    os.path.isdir(module_dir(name))
+                    for name in DISCOVERED_MODULES
                 )
                 and os.path.isdir(os.path.join(ROOT, "tests")),
                 "OK" if all(
-                    os.path.isdir(os.path.join(ROOT, "Python", name))
-                    for name in ("api", "core", "kernels", "io")
+                    os.path.isdir(module_dir(name))
+                    for name in DISCOVERED_MODULES
                 ) else "Missing required layer directories",
             ),
         ),
@@ -328,7 +391,7 @@ def policy_checks() -> List[Tuple[int, str, Callable[[], Tuple[bool, str]]]]:
             "Snapshot Atomicity and Recovery (I/O)",
             lambda: require_any(
                 [r"\.tmp", r"os\.replace", r"fsync"],
-                os.path.join(ROOT, "Python", "io", "snapshots.py"),
+                module_file("io", "snapshots.py"),
             ),
         ),
         (
@@ -336,7 +399,7 @@ def policy_checks() -> List[Tuple[int, str, Callable[[], Tuple[bool, str]]]]:
             "Meta-Optimization Checkpoint Integrity",
             lambda: require_any(
                 [r"sha256", r"\.sha256"],
-                os.path.join(ROOT, "Python", "core", "meta_optimizer.py"),
+                module_file("core", "meta_optimizer.py"),
             ),
         ),
         (
@@ -344,7 +407,7 @@ def policy_checks() -> List[Tuple[int, str, Callable[[], Tuple[bool, str]]]]:
             "TPE Resume Determinism",
             lambda: require_any(
                 [r"rng_state", r"resume", r"trial_history"],
-                os.path.join(ROOT, "Python", "core", "meta_optimizer.py"),
+                module_file("core", "meta_optimizer.py"),
             ),
         ),
         (
@@ -352,7 +415,7 @@ def policy_checks() -> List[Tuple[int, str, Callable[[], Tuple[bool, str]]]]:
             "Telemetry Flags and Alerts (Required Fields)",
             lambda: require_any(
                 [r"degraded", r"emergency", r"regime_change", r"mode_collapse"],
-                os.path.join(ROOT, "Python", "api", "schemas.py"),
+                module_file("api", "schemas.py"),
             ),
         ),
 
@@ -360,21 +423,21 @@ def policy_checks() -> List[Tuple[int, str, Callable[[], Tuple[bool, str]]]]:
             36,
             "XLA No Host-Device Sync in Orchestrator",
             lambda: (
-                not find_in_file(r"\.item\(\)", os.path.join(ROOT, "Python", "core", "orchestrator.py")),
-                "OK" if not find_in_file(r"\.item\(\)", os.path.join(ROOT, "Python", "core", "orchestrator.py")) else "Host sync found in orchestrator",
+                not find_in_file(r"\.item\(\)", module_file("core", "orchestrator.py")),
+                "OK" if not find_in_file(r"\.item\(\)", module_file("core", "orchestrator.py")) else "Host sync found in orchestrator",
             ),
         ),
         (
             37,
             "Vectorized vmap Parity",
-            lambda: find_in_dir(r"vmap", os.path.join(ROOT, "Python")),
+            lambda: find_in_dir(r"vmap", python_dir()),
         ),
         (
             38,
             "JIT Cache Warmup Guarantees",
             lambda: require_any(
                 [r"warmup_kernel_d_load_shedding"],
-                os.path.join(ROOT, "Python", "api", "warmup.py"),
+                module_file("api", "warmup.py"),
             ),
         ),
 
@@ -393,15 +456,23 @@ def run_checks() -> List[PolicyResult]:
     return results
 
 
-def write_report(results: List[PolicyResult]) -> str:
-    os.makedirs(REPORT_DIR, exist_ok=True)
-    timestamp = datetime.utcnow().strftime("%Y-%m-%d_%H-%M-%S.%f")
-    report_path = os.path.join(REPORT_DIR, f"code_alignement_{timestamp}.json")
+def write_reports(results: List[PolicyResult]) -> Tuple[str, str]:
+    """Write JSON and Markdown reports (without timestamp in filenames)."""
+    os.makedirs(RESULTS_DIR, exist_ok=True)
+    os.makedirs(REPORTS_DIR, exist_ok=True)
+    
+    timestamp = datetime.utcnow().strftime("%Y-%m-%d %H:%M:%S UTC")
+    passed = sum(1 for r in results if r.passed)
+    failed = sum(1 for r in results if not r.passed)
+    total = len(results)
+    
+    # JSON report
+    json_path = os.path.join(RESULTS_DIR, "code_alignement_last.json")
     payload = {
         "timestamp_utc": timestamp,
-        "policy_count": len(results),
-        "passed": sum(1 for r in results if r.passed),
-        "failed": sum(1 for r in results if not r.passed),
+        "policy_count": total,
+        "passed": passed,
+        "failed": failed,
         "results": [
             {
                 "id": r.policy_id,
@@ -412,9 +483,69 @@ def write_report(results: List[PolicyResult]) -> str:
             for r in results
         ],
     }
-    with open(report_path, "w", encoding="utf-8") as handle:
+    with open(json_path, "w", encoding="utf-8") as handle:
         json.dump(payload, handle, indent=2)
-    return report_path
+    
+    # Markdown report
+    md_path = os.path.join(REPORTS_DIR, "code_alignement_last.md")
+    with open(md_path, "w", encoding="utf-8") as f:
+        # Header
+        f.write("# 📋 Code Audit Policies Report\n\n")
+        f.write(f"**Generated:** {timestamp}\n\n")
+        
+        # Executive Summary
+        f.write("## 📊 Executive Summary\n\n")
+        success_rate = (passed / total * 100) if total > 0 else 0
+        status_icon = "✅" if failed == 0 else "⚠️"
+        f.write(f"{status_icon} **Overall Status:** {'PASS' if failed == 0 else 'FAIL'}\n\n")
+        f.write("| Metric | Value |\n")
+        f.write("| --- | --- |\n")
+        f.write(f"| Total Policies | {total} |\n")
+        f.write(f"| Passed | {passed} ({success_rate:.1f}%) |\n")
+        f.write(f"| Failed | {failed} ({100-success_rate:.1f}%) |\n")
+        f.write("\n---\n\n")
+        
+        # Group by status
+        passed_policies = [r for r in results if r.passed]
+        failed_policies = [r for r in results if not r.passed]
+        
+        # Failed policies section (if any)
+        if failed_policies:
+            f.write(f"## ❌ Failed Policies ({len(failed_policies)})\n\n")
+            f.write("⚠️ **Action Required:** The following policies need immediate attention:\n\n")
+            for r in failed_policies:
+                f.write(f"### Policy #{r.policy_id}: {r.name}\n\n")
+                f.write(f"**Status:** `FAIL`\n\n")
+                f.write("**Details:**\n\n")
+                f.write("```\n")
+                f.write(f"{r.details}\n")
+                f.write("```\n\n")
+                f.write("---\n\n")
+        
+        # Passed policies section
+        if passed_policies:
+            f.write(f"## ✅ Passed Policies ({len(passed_policies)})\n\n")
+            if failed_policies:
+                f.write("<details>\n<summary>Click to expand list of passing policies</summary>\n\n")
+            for r in passed_policies:
+                f.write(f"- **Policy #{r.policy_id}:** {r.name}\n")
+            if failed_policies:
+                f.write("\n</details>\n")
+        
+        # Final Summary
+        f.write("\n---\n\n")
+        f.write("## 🎯 Final Summary\n\n")
+        if failed == 0:
+            f.write("✅ **All policies passed!** The codebase is fully compliant.\n\n")
+        else:
+            f.write(f"⚠️ **{failed} policy violation(s) detected.**\n\n")
+            f.write("**Recommended Actions:**\n\n")
+            for idx, r in enumerate(failed_policies, 1):
+                f.write(f"{idx}. Fix Policy #{r.policy_id}: {r.name}\n")
+            f.write("\n")
+        f.write(f"**Report generated at:** {timestamp}\n")
+    
+    return json_path, md_path
 
 
 def main() -> int:
@@ -426,14 +557,15 @@ def main() -> int:
         if not result.passed:
             print(f"  - {result.details}")
 
-    report_path = write_report(results)
+    json_path, md_path = write_reports(results)
     passed = sum(1 for r in results if r.passed)
     failed = sum(1 for r in results if not r.passed)
     total = len(results)
     print("")
     print("SUMMARY")
     print(f"Total: {total} | Passed: {passed} | Failed: {failed}")
-    print(f"Report: {report_path}")
+    print(f"JSON Report: {json_path}")
+    print(f"Markdown Report: {md_path}")
 
     return 0 if failed == 0 else 1
 

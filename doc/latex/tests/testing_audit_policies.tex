@@ -1,0 +1,926 @@
+\documentclass[11pt,a4paper]{article}
+\usepackage[utf8]{inputenc}
+\usepackage[english]{babel}
+\usepackage{amsmath,amssymb,amsthm}
+\usepackage{geometry}
+\usepackage[hidelinks]{hyperref}
+\usepackage{enumitem}
+\usepackage{fancyhdr}
+\usepackage{booktabs}
+\usepackage{longtable}
+
+\geometry{margin=1in}
+\pagestyle{fancy}
+\fancyhf{}
+\lhead{USP Testing Audit Policies}
+\rhead{v1.0 | 2026-02-20}
+\cfoot{\thepage}
+
+\title{\textbf{Testing Audit Policies Specification}\\[0.5em]\large Universal Stochastic Predictor (USP)}
+\author{Adaptive Meta-Prediction Development Consortium}
+\date{Document Version: 1.0 \\ Last Updated: 2026-02-20}
+
+\begin{document}
+
+\maketitle
+\thispagestyle{fancy}
+
+\begin{abstract}
+\noindent This document defines the complete set of 45 testing policies derived from the authoritative specification corpus. All policies are strict, verifiable, and aligned with mathematical guarantees specified in the theory and implementation documents.
+
+\vspace{1em}
+\noindent\textbf{Source Documents:}
+\begin{itemize}[noitemsep]
+    \item \texttt{doc/latex/specification/Stochastic\_Predictor\_Test\_Cases.tex}
+    \item \texttt{doc/latex/specification/Stochastic\_Predictor\_Tests\_Python.tex}
+\end{itemize}
+\end{abstract}
+
+\tableofcontents
+\newpage
+
+\section{Unit Tests: Kernels and Fundamental Algorithms}
+
+\subsection{Category: Entropy and Random Variable Generation}
+
+\subsubsection{TESTING POLICY \#1: Validation of $\alpha$-Stable Distributions (CMS Algorithm)}
+
+\textbf{Source:} \texttt{Stochastic\_Predictor\_Test\_Cases.tex}, Lines 32-38
+
+\textbf{Statement:}
+Validate that the Chambers-Mallows-Stuck (CMS) algorithm generates $\alpha$-stable random variables with parameters $(\alpha, \beta, \gamma, \delta)$ matching theoretical distributions on large sample sizes.
+
+\textbf{Criteria:}
+\begin{itemize}[noitemsep]
+    \item Sample size $N \geq 10^4$
+    \item Empirical moments must match theoretical properties within 95\% confidence interval
+    \item No NaN or Inf values detected
+    \item For $\alpha \geq 1.8$, variance must not exceed expected variance $\times 1.5$
+    \item For $|\beta| < 0.9$, empirical mean must be within $3\sigma/\sqrt{N}$
+\end{itemize}
+
+\subsubsection{TESTING POLICY \#2: Mersenne Twister/PCG64 Integrity}
+
+\textbf{Source:} \texttt{Stochastic\_Predictor\_Test\_Cases.tex}, Lines 40-48
+
+\textbf{Statement:}
+Verify the pseudo-random number generator (PRNG) has no serial correlations and meets long period guarantees.
+
+\textbf{Criteria:}
+\begin{itemize}[noitemsep]
+    \item Apply standard statistical test batteries (TestU01, Diehard)
+    \item No randomness tests fail
+    \item Generator period $\geq 2^{127}$ (Mersenne Twister) or $2^{128}$ (PCG64)
+    \item Zero serial correlations detected
+    \item Deterministic seed initialization guarantees reproducibility
+\end{itemize}
+
+\subsubsection{TESTING POLICY \#3: WTMM Validation (Hölder Exponent Detection)}
+
+\textbf{Source:} \texttt{Stochastic\_Predictor\_Test\_Cases.tex}, Lines 52-60
+
+\textbf{Statement:}
+Use synthetic signals with known Hölder exponent $H$ to validate that the Wavelet Transform Modulus Maxima (WTMM) algorithm recovers singularity spectrum $D(h)$ accurately.
+
+\textbf{Criteria:}
+\begin{itemize}[noitemsep]
+    \item Estimated Hölder exponent error: $|\hat{H} - H_0| < 0.05 \times H_0$ (5\% relative error)
+    \item Singularity spectrum recovered with $< 5\%$ error
+    \item Multiscale analysis performs correctly across all scales
+\end{itemize}
+
+\subsubsection{TESTING POLICY \#4: Cone of Influence (Besov Influence Radius)}
+
+\textbf{Source:} \texttt{Stochastic\_Predictor\_Test\_Cases.tex}, Lines 62-71
+
+\textbf{Statement:}
+Verify that maxima linking in scale space respects the influence radius defined by Besov constant $C_{\text{besov}}$.
+
+\textbf{Criteria:}
+\begin{itemize}[noitemsep]
+    \item For consecutive maxima at scales $s_1 < s_2$, temporal positions satisfy: $|t_2 - t_1| \leq C_{\text{besov}} \times (s_2 - s_1)$
+    \item Temporal coherence preserved across scales
+    \item No spurious linkages beyond Besov radius
+\end{itemize}
+
+\subsubsection{TESTING POLICY \#5: Soft Nyquist Limit Validation (Multifractal Aliasing)}
+
+\textbf{Source:} \texttt{Stochastic\_Predictor\_Test\_Cases.tex}, Lines 73-136
+
+\textbf{Statement:}
+Gradually reduce sampling frequency and validate system detects Nyquist undersampling before irreversible spectrum degradation, triggering \texttt{FreezingTopologicalBranchEvent}.
+
+\textbf{Criteria:}
+\begin{itemize}[noitemsep]
+    \item Preventive detection: Emit \texttt{FreezingTopologicalBranchEvent} when relative error $\varepsilon_k > 0.05$ (5\%)
+    \item Acceptance criterion: Holder error $< 10\%$ at moment of freezing
+    \item Critical frequency formula: $f_{\min} \geq (10/s_{\min}) \times (1 + H_{\min}^{-1})$
+    \item Corrective action: Freeze topological branch weight $w_C \to w_C^{\text{frozen}}$ with no dynamic updates
+\end{itemize}
+
+\subsection{Category: Algebraic Structures (Branch D)}
+
+\subsubsection{TESTING POLICY \#6: Signature Concatenation (Chen Identity)}
+
+\textbf{Source:} \texttt{Stochastic\_Predictor\_Test\_Cases.tex}, Lines 140-150
+
+\textbf{Statement:}
+Validate that concatenating signatures of two path segments via tensor product equals signature of full path (Chen's identity).
+
+\textbf{Criteria:}
+\begin{itemize}[noitemsep]
+    \item For paths $\gamma_1, \gamma_2$: $\text{Sig}(\gamma_1 \star \gamma_2) = \text{Sig}(\gamma_1) \otimes \text{Sig}(\gamma_2)$
+    \item Numerical error $< 10^{-6}$ in Euclidean norm
+    \item Identity holds for all path lengths and dimensions
+\end{itemize}
+
+\subsubsection{TESTING POLICY \#7: Temporal Reparametrization Invariance}
+
+\textbf{Source:} \texttt{Stochastic\_Predictor\_Test\_Cases.tex}, Lines 152-161
+
+\textbf{Statement:}
+Check that level-$M$ truncated signature is invariant under strictly increasing time reparametrization.
+
+\textbf{Criteria:}
+\begin{itemize}[noitemsep]
+    \item For strictly increasing $\varphi: [0,1] \to [0,1]$ with $\varphi(0)=0, \varphi(1)=1$
+    \item $\text{Sig}^{(M)}(\gamma) = \text{Sig}^{(M)}(\gamma \circ \varphi)$
+    \item Error $< 10^{-8}$ for all reparametrizations
+    \item Negative control: Non-monotone reparametrizations must show different signatures
+\end{itemize}
+
+\newpage
+
+\section{Integration Tests and Stochastic Convergence}
+
+\subsection{Category: Stochastic Differential Equation (SDE) Solvers}
+
+\subsubsection{TESTING POLICY \#8: Euler-Maruyama vs Milstein Convergence}
+
+\textbf{Source:} \texttt{Stochastic\_Predictor\_Test\_Cases.tex}, Lines 167-184
+
+\textbf{Statement:}
+For diffusion with non-constant volatility, verify Milstein achieves strong convergence order 1.0 versus 0.5 for Euler-Maruyama.
+
+\textbf{Criteria:}
+\begin{itemize}[noitemsep]
+    \item Euler-Maruyama error: $\mathbb{E}[|X_T - X_T^{EM}|^2] = O(\Delta t^{0.5})$
+    \item Milstein error: $\mathbb{E}[|X_T - X_T^M|^2] = O(\Delta t^{1.0})$
+    \item Convergence rates verified across multiple time step sequences
+    \item Method order determined empirically from error decay rates
+\end{itemize}
+
+\subsubsection{TESTING POLICY \#9: CFL Condition Violation (Mixed CFL Stability)}
+
+\textbf{Source:} \texttt{Stochastic\_Predictor\_Test\_Cases.tex}, Lines 186-200
+
+\textbf{Statement:}
+Force time step $\Delta t$ violating Courant-Friedrichs-Lewy restriction and confirm numerical instability as expected behavior.
+
+\textbf{Criteria:}
+\begin{itemize}[noitemsep]
+    \item $\Delta t > 10 \times C$ where $C =$ CFL bound
+    \item Divergence detection: NaN or Inf emergence in trajectories
+    \item Instability alert emitted by safety module
+    \item System gracefully halts rather than silently diverging
+\end{itemize}
+
+\subsection{Category: Transport Optimization (Orchestrator)}
+
+\subsubsection{TESTING POLICY \#10: Sinkhorn Algorithm Stability (Log-Domain Convergence)}
+
+\textbf{Source:} \texttt{Stochastic\_Predictor\_Test\_Cases.tex}, Lines 204-215
+
+\textbf{Statement:}
+Evaluate Sinkhorn convergence in log domain with decreasing regularization $\varepsilon$, ensuring no underflow down to $\varepsilon \geq 10^{-4}$.
+
+\textbf{Criteria:}
+\begin{itemize}[noitemsep]
+    \item Convergence guaranteed when $\varepsilon \geq 10^{-4}$
+    \item System detects underflow risk and emits warning for $\varepsilon < 10^{-4}$
+    \item Convergence measured by: $\|K \text{diag}(u) K^T \text{diag}(v) - \mu\|_1 < 10^{-6}$
+    \item Log-domain arithmetic prevents numerical underflow
+\end{itemize}
+
+\subsubsection{TESTING POLICY \#11: Probabilistic Mass Conservation (Simplex Normalization)}
+
+\textbf{Source:} \texttt{Stochastic\_Predictor\_Test\_Cases.tex}, Lines 217-230
+
+\textbf{Statement:}
+Confirm that after JKO update, sum of kernel weights is strictly 1.0 (probability simplex constraint).
+
+\textbf{Criteria:}
+\begin{itemize}[noitemsep]
+    \item After JKO iteration: $\sum_i \rho_i^{(n+1)} = 1.0$
+    \item All weights $\rho_i^{(n+1)} \geq 0$
+    \item Numerical tolerance: $|\sum_i \rho_i^{(n+1)} - 1.0| < 10^{-10}$
+    \item Simplex projection automatic in Sinkhorn algorithm
+\end{itemize}
+
+\subsection{Category: HJB Solution via DGM (Branch B)}
+
+\subsubsection{TESTING POLICY \#12: Gradient Stability (Gradient Explosion Under Volatility)}
+
+\textbf{Source:} \texttt{Stochastic\_Predictor\_Test\_Cases.tex}, Lines 236-268
+
+\textbf{Statement:}
+Monitor gradient norms during PDE training to detect and mitigate gradient explosions in high-volatility regimes.
+
+\textbf{Criteria:}
+\begin{itemize}[noitemsep]
+    \item Monitor loss gradient norm: $\|\nabla_\theta L_{DGM}(\theta)\|_2$
+    \item Gradient clipping threshold: $C_{\text{clip}} = 10.0$
+    \item In high-volatility ($\sigma > 2\sigma_0$): if clipping occurs $\geq 5$ consecutive iterations $\to$ emit \texttt{GradientInstabilityEvent}
+    \item Adaptive learning rate reduction: $\eta \to 0.5\eta$
+    \item Stabilization required within next 20 epochs
+\end{itemize}
+
+\subsubsection{TESTING POLICY \#13: Crandall-Lions Comparison Principle (Viscosity Solution Validation)}
+
+\textbf{Source:} \texttt{Stochastic\_Predictor\_Test\_Cases.tex}, Lines 270-306
+
+\textbf{Statement:}
+Validate neural solution respects comparison principle for viscosity solutions, ensuring uniqueness and consistency for non-linear PDEs.
+
+\textbf{Criteria:}
+\begin{itemize}[noitemsep]
+    \item Time monotonicity for finite horizon (non-negative costs): $V(x,t_1) \geq V(x,t_2)$ for $t_1 < t_2$
+    \item Sub/supersolution constraints: $\|\text{PDE}[V_\theta]\|_{L^\infty} \leq 10^{-3}$
+    \item Compare with reference solution: $\|V_\theta - V_{\text{ref}}\|_{L^\infty} < 0.05 \times \|V_{\text{ref}}\|_{L^\infty}$ (5\% error)
+    \item Comparison principle verifies uniqueness
+\end{itemize}
+
+\subsubsection{TESTING POLICY \#14: Mode Collapse Detection (Training Entropy Test)}
+
+\textbf{Source:} \texttt{Stochastic\_Predictor\_Test\_Cases.tex}, Lines 308-355
+
+\textbf{Statement:}
+Verify neural network does not collapse to trivial constant solutions during DGM training.
+
+\textbf{Criteria:}
+\begin{itemize}[noitemsep]
+    \item Variance ratio: $\kappa_{\text{low}} \leq \text{Var}_x[V_\theta(x,t)] / \text{Var}[g(\xi)] \leq \kappa_{\text{high}}$ with $\kappa_{\text{low}} = 0.3$, $\kappa_{\text{high}} = 1.2$
+    \item Acceptance: Variance ratio in range for $\geq 90\%$ of $t \in [0,T]$
+    \item Differential entropy: $H[V_\theta] > H_{\min}$
+    \item Spatial gradient norm: $\mathbb{E}_x[\|\nabla_x V_\theta\|_2] > \varepsilon_{\text{grad}} > 0$
+    \item False positives avoided: only activate mode collapse alert on sustained variance loss
+\end{itemize}
+
+\subsubsection{TESTING POLICY \#15: Mesh Refinement Convergence (DGM Consistency)}
+
+\textbf{Source:} \texttt{Stochastic\_Predictor\_Test\_Cases.tex}, Lines 357-374
+
+\textbf{Statement:}
+Verify DGM solution converges to exact solution as collocation point density increases.
+
+\textbf{Criteria:}
+\begin{itemize}[noitemsep]
+    \item Convergence required across nested meshes with densities $N_1 < N_2 < N_3$
+    \item Error at mesh $k$: $e_k = \|V_{\theta_k} - V_{\text{ref}}\|_{L^2}$
+    \item Monotone convergence: $e_1 > e_2 > e_3$
+    \item Empirical convergence rate: $r \geq 0.5$ (order $N^{-0.5}$)
+    \item DGM loss $< 10^{-4}$ at convergence
+\end{itemize}
+
+\subsubsection{TESTING POLICY \#16: Minimum Variance Threshold (Mode Collapse Alternative)}
+
+\textbf{Source:} \texttt{Stochastic\_Predictor\_Test\_Cases.tex}, Lines 376-407
+
+\textbf{Statement:}
+Complement entropy monitoring with direct variance ratio check to detect mode collapse.
+
+\textbf{Criteria:}
+\begin{itemize}[noitemsep]
+    \item Minimum variance ratio: $R_{\text{var}}(t) \geq 0.10$ for all $t \in [0, 0.9T]$ (failure if $< 0.10$)
+    \item Median variance ratio: $\text{median}_t R_{\text{var}}(t) \geq 0.50$
+    \item Variance scaling captures $\geq 10\%$ of true variability
+    \item If $R_{\text{var}} < 0.10$: interrupt training and adjust hyperparameters
+    \item Warning levels: $R_{\text{var}} < 0.10$ (critical), 0.10-0.30 (warning), $\geq 0.50$ (normal)
+\end{itemize}
+
+\newpage
+
+\section{Robustness Tests and Circuit Breakers}
+
+\subsection{Category: Outlier and Regime Handling}
+
+\subsubsection{TESTING POLICY \#17: Outlier Injection (Extreme Values)}
+
+\textbf{Source:} \texttt{Stochastic\_Predictor\_Test\_Cases.tex}, Lines 415-428
+
+\textbf{Statement:}
+Inject extreme values ($> 20\sigma$) and verify system rejects point, emits alert, and preserves weights.
+
+\textbf{Criteria:}
+\begin{itemize}[noitemsep]
+    \item Detect observations with $|y_t - \mu_t| > 10\sigma_t$
+    \item Reject observation: NOT update meta-state $\Xi_t$
+    \item Emit \texttt{OutlierDetectedEvent} with rejection metadata
+    \item Keep weights $\{w_i\}_{i=A}^D$ unchanged
+    \item Preserve system state integrity
+\end{itemize}
+
+\subsubsection{TESTING POLICY \#18: CUSUM Change Detection (Regime Change)}
+
+\textbf{Source:} \texttt{Stochastic\_Predictor\_Test\_Cases.tex}, Lines 430-442
+
+\textbf{Statement:}
+Simulate regime change (structural drift) and validate change event emitted exactly when $G_t^+$ exceeds threshold $h$.
+
+\textbf{Criteria:}
+\begin{itemize}[noitemsep]
+    \item CUSUM accumulation: $G_t^+ = \max(0, G_{t-1}^+ + (y_t - \mu_0) - k)$
+    \item When $G_t^+ > h$: emit \texttt{RegimeChangedEvent}
+    \item Reset $G_t^+ = 0$ after detection
+    \item Detection delay $\leq \tau$ observations from true change point
+    \item False positive control in stationary regimes
+\end{itemize}
+
+\subsubsection{TESTING POLICY \#19: Emergency Mode Activation (Critical Singularity)}
+
+\textbf{Source:} \texttt{Stochastic\_Predictor\_Test\_Cases.tex}, Lines 447-462
+
+\textbf{Statement:}
+When Hölder exponent drops below $H_{\min}$, force $w_D \to 1.0$ and switch cost to Huber metric.
+
+\textbf{Criteria:}
+\begin{itemize}[noitemsep]
+    \item Activation condition: $\hat{H}_t < H_{\min}$ (typically $H_{\min} = 0.25$)
+    \item Kernel weights: $w_A = w_B = w_C = 0$, $w_D = 1.0$
+    \item Cost function switch: Wasserstein $\to$ Huber with $\delta =$ default
+    \item Emit \texttt{CriticalSingularityEvent}
+    \item Maintain state until $\hat{H}_t > H_{\min} + \varepsilon_{\text{hysteresis}}$
+    \item Hysteresis prevents oscillation
+\end{itemize}
+
+\newpage
+
+\section{I/O and Persistence Tests}
+
+\subsection{Category: Snapshot Protocol and Atomicity}
+
+\subsubsection{TESTING POLICY \#20: Hot-Start State Continuity}
+
+\textbf{Source:} \texttt{Stochastic\_Predictor\_Test\_Cases.tex}, Lines 469-485
+
+\textbf{Statement:}
+Serialize meta-state $\Xi_t$, restart system, load it. First prediction post-restart must match uninterrupted prediction.
+
+\textbf{Criteria:}
+\begin{itemize}[noitemsep]
+    \item Full state capture: $\{w_i\}$, $\{\theta_i^*\}$, $H_t$, $\text{Sig}_t$, $G_t^\pm$, $\mu_t$, $\sigma_t^2$
+    \item Prediction parity: $|\hat{y}_{\text{original}} - \hat{y}_{\text{restored}}| < 10^{-12}$
+    \item Bit-exact agreement on all state variables
+    \item No numerical drift from save/load cycle
+\end{itemize}
+
+\subsubsection{TESTING POLICY \#21: Checksum Validation (Cryptographic Integrity)}
+
+\textbf{Source:} \texttt{Stochastic\_Predictor\_Test\_Cases.tex}, Lines 487-500
+
+\textbf{Statement:}
+Corrupt snapshot file bit and verify SHA-256 validation rejects load, forcing cold start.
+
+\textbf{Criteria:}
+\begin{itemize}[noitemsep]
+    \item Each snapshot includes SHA-256 hash
+    \item Load: compute $H' = \text{SHA256}(\text{content})$, compare to stored $H$
+    \item If $H' \neq H$: reject load, emit \texttt{CorruptedSnapshotEvent}, cold start
+    \item Single bit corruption reliably detected
+    \item No false negatives in integrity check
+\end{itemize}
+
+\subsubsection{TESTING POLICY \#22: Write Interruption (Atomicity via Write-Then-Rename)}
+
+\textbf{Source:} \texttt{Stochastic\_Predictor\_Test\_Cases.tex}, Lines 510-547
+
+\textbf{Statement:}
+Simulate power loss during snapshot serialization and verify partially written files handled safely.
+
+\textbf{Criteria:}
+\begin{itemize}[noitemsep]
+    \item Three-step protocol: write to temp $\to$ \texttt{fsync()} $\to$ rename
+    \item Atomic rename: \texttt{snapshot\_\{timestamp\}.tmp} $\to$ \texttt{snapshot\_\{timestamp\}.bin}
+    \item Interruption handling at progress $p \in \{0.1, 0.3, 0.5, 0.7, 0.9\}$
+    \item Recovery: detect missing \texttt{.bin}, ignore corrupted \texttt{.tmp}, load previous valid
+    \item Recovery time $< 30$ seconds
+    \item No infinite restart loops
+\end{itemize}
+
+\subsubsection{TESTING POLICY \#23: Silent Disk Corruption Detection}
+
+\textbf{Source:} \texttt{Stochastic\_Predictor\_Test\_Cases.tex}, Lines 549-577
+
+\textbf{Statement:}
+Detect and handle silent data corruption (bit rot) between snapshot write and read.
+
+\textbf{Criteria:}
+\begin{itemize}[noitemsep]
+    \item Verification metadata: SHA-256 hash, creation timestamp, format version, CRC32
+    \item Double-check: CRC32 if available, then full SHA-256
+    \item Fallback: if current corrupt, search for previous valid snapshots
+    \item Retention: keep last $N=5$ valid snapshots
+    \item Automatic recovery from $t_{-k}$ if $t_0$ corrupt
+\end{itemize}
+
+\subsubsection{TESTING POLICY \#24: Disk Space Exhaustion Handling}
+
+\textbf{Source:} \texttt{Stochastic\_Predictor\_Test\_Cases.tex}, Lines 579-605
+
+\textbf{Statement:}
+Validate behavior when storage full during snapshot write.
+
+\textbf{Criteria:}
+\begin{itemize}[noitemsep]
+    \item Pre-check free space: $\text{FreeSpace} \geq 2 \times \text{EstimatedSize}(\Xi_t)$
+    \item If insufficient: emit \texttt{InsufficientStorageEvent}, don't write
+    \item Continue operation in memory until space available
+    \item Mid-write failure: catch I/O exception, delete temp, preserve last valid
+    \item Graceful degradation vs crash
+\end{itemize}
+
+\newpage
+
+\section{Adaptive and Topological Robustness}
+
+\subsection{Category: Dynamic Regularization and Level 4 Autonomy}
+
+\subsubsection{TESTING POLICY \#25: Dynamic Regularization Under Volatility Shocks}
+
+\textbf{Source:} \texttt{Stochastic\_Predictor\_Test\_Cases.tex}, Lines 613-658
+
+\textbf{Statement:}
+Validate dynamic regularization equation: $\varepsilon_t = \max(\varepsilon_{\min}, \varepsilon_0(1 + \alpha \sigma_t))$.
+
+\textbf{Criteria:}
+\begin{itemize}[noitemsep]
+    \item Baseline volatility $\sigma_0 = 0.01$, then shock $\sigma_t = 100 \times \sigma_0$
+    \item Convergence without divergence to NaN/Inf
+    \item Wasserstein distance stability: $W_2(\mu,\nu) \leq C \times (1 + \sigma_t)$
+    \item Log-domain arithmetic throughout
+    \item Regularization lower bound: $\varepsilon_t \geq \varepsilon_{\min}$ at all iterations
+\end{itemize}
+
+\subsubsection{TESTING POLICY \#26: Kurtosis-Coupled CUSUM Adaptive Threshold}
+
+\textbf{Source:} \texttt{Stochastic\_Predictor\_Test\_Cases.tex}, Lines 667-729
+
+\textbf{Statement:}
+Validate Adaptive Threshold Lemma: $h_t = h_0 \times (1 + \beta \times (\kappa_t - 3)/(\kappa_0 - 3))$ adapts correctly.
+
+\textbf{Criteria:}
+\begin{itemize}[noitemsep]
+    \item Phase 1 (Gaussian): $\kappa \approx 3$, $h_t \approx h_0$
+    \item Phase 2 (Student-t $\nu=3$): $\kappa \approx 9$, $h_t \approx 2h_0$
+    \item Type I Error constancy: $|\text{FPR}_{\text{Phase1}} - \text{FPR}_{\text{Phase2}}| < 0.05$
+    \item Threshold scaling: $h_{t=1500}/h_{t=500} \in [1.5, 2.5]$ for $\beta=0.5$
+    \item No spurious alarms during distribution shifts
+    \item Grace period between threshold adaptations
+\end{itemize}
+
+\subsubsection{TESTING POLICY \#27: Entropy-Driven Capacity Expansion (DGM Architecture Scaling)}
+
+\textbf{Source:} \texttt{Stochastic\_Predictor\_Test\_Cases.tex}, Lines 731-787
+
+\textbf{Statement:}
+Validate Entropy-Topology Coupling: $\log(W \times D) \geq \log(W_0 \times D_0) + \beta \times \log(\kappa)$.
+
+\textbf{Criteria:}
+\begin{itemize}[noitemsep]
+    \item Mode collapse with fixed architecture ($W=64$, $D=4$): entropy loss $< \gamma \times H[g]$
+    \item Entropy preservation with adaptive: $H_{\text{solution}} \geq 0.9 \times H[g']$
+    \item Capacity scaling: $W_{\text{new}} \times D_{\text{new}} \geq (W_0 \times D_0) \times \kappa^\beta$ with $\beta \in [0.5, 1.0]$
+    \item XLA recompilation budget: $\leq 1$ per regime transition
+    \item Cache hit rate $> 95\%$ after warmup
+\end{itemize}
+
+\subsubsection{TESTING POLICY \#28: Meta-Optimization Determinism (TPE Checkpoint Persistence)}
+
+\textbf{Source:} \texttt{Stochastic\_Predictor\_Test\_Cases.tex}, Lines 792-856
+
+\textbf{Statement:}
+Validate TPE State Persistence ensuring bit-exact resumption after interruption.
+
+\textbf{Criteria:}
+\begin{itemize}[noitemsep]
+    \item Uninterrupted run 50 trials $\to$ best parameters $\theta^*_A$, best objective $f^*_A$
+    \item Interrupted run: save at trial 25, resume $\to$ best $\theta^*_B$, $f^*_B$
+    \item Bit-exact equivalence: $\theta^*_A = \theta^*_B$ (all 14 hyperparameters)
+    \item Objective parity: $|f^*_A - f^*_B| < 10^{-12}$
+    \item Trial history identical: all 50 trials match
+    \item PRNG state preserved: trial 26 identical after resumption
+    \item SHA-256 integrity verification
+    \item Failure modes: hash mismatch, missing sidecar, study name mismatch
+\end{itemize}
+
+\newpage
+
+\section{Hardware Parity and Cross-Platform Tests}
+
+\subsection{Category: Bit-Consistency and Numerical Parity}
+
+\subsubsection{TESTING POLICY \#29: Multi-Architecture Equivalence (CPU/GPU/FPGA)}
+
+\textbf{Source:} \texttt{Stochastic\_Predictor\_Test\_Cases.tex}, Lines 867-880
+
+\textbf{Statement:}
+Verify critical algorithms produce equivalent results across architectures within precision limits.
+
+\textbf{Criteria:}
+\begin{itemize}[noitemsep]
+    \item Platforms: CPU (IEEE 754 64-bit), GPU (32/64-bit), FPGA (fixed-point)
+    \item Relative difference bounds: $\varepsilon_{\text{GPU}} = 10^{-6}$, $\varepsilon_{\text{FPGA}} =$ quantization error
+    \item Components tested: random generation, signatures, SDE integration
+    \item Error metrics: $(\|x_{\text{CPU}} - x_{\text{GPU}}\|_2) / \|x_{\text{CPU}}\|_2$
+\end{itemize}
+
+\subsubsection{TESTING POLICY \#30: Fixed-Point Error Accumulation (Branch D FPGA)}
+
+\textbf{Source:} \texttt{Stochastic\_Predictor\_Test\_Cases.tex}, Lines 888-941
+
+\textbf{Statement:}
+Compare Branch D signatures on FPGA (fixed-point) vs CPU (64-bit floating-point).
+
+\textbf{Criteria:}
+\begin{itemize}[noitemsep]
+    \item Primary: $\Delta_{\text{accum}} \leq N \times \varepsilon_{\text{quant}}$ after 10,000 iterations
+    \item Norm preservation: relative error $< 1\%$
+    \item Sign preservation: $\text{sgn}(s_i^{(k)}, \text{CPU}) = \text{sgn}(s_i^{(k)}, \text{FPGA})$ for all $i,k$
+    \item Angular distance: $\cos(\theta) > 0.9999$ ($< 0.81^\circ$ deviation)
+    \item Relative error per level: $\tau_k = 0.05 \times k$
+    \item Topological properties preserved
+\end{itemize}
+
+\subsubsection{TESTING POLICY \#31: Deterministic Reproducibility (Controlled Seed Initialization)}
+
+\textbf{Source:} \texttt{Stochastic\_Predictor\_Test\_Cases.tex}, Lines 943-950
+
+\textbf{Statement:}
+Guarantee identical state sequences across platforms given same PRNG seed.
+
+\textbf{Criteria:}
+\begin{itemize}[noitemsep]
+    \item Seed $s_0$ initialization
+    \item 1,000 simulation steps
+    \item Bit-for-bit equality for same-representation platforms
+    \item Fixed-point to float conversion for FPGA comparison
+\end{itemize}
+
+\subsubsection{TESTING POLICY \#32: Cross-Platform Performance Benchmark}
+
+\textbf{Source:} \texttt{Stochastic\_Predictor\_Test\_Cases.tex}, Lines 952-968
+
+\textbf{Statement:}
+Measure execution time and throughput across architectures to identify bottlenecks.
+
+\textbf{Criteria:}
+\begin{itemize}[noitemsep]
+    \item GPU performance: $T_{\text{GPU}} < 0.3 \times T_{\text{CPU}}$
+    \item FPGA performance: $T_{\text{FPGA}} < 0.1 \times T_{\text{CPU}}$
+    \item Throughput measurement: predictions/second
+    \item Batch size $N = 1{,}000$
+\end{itemize}
+
+\newpage
+
+\section{Final Validation Protocol (Causality)}
+
+\subsection{Category: Generalization and Temporal Integrity}
+
+\subsubsection{TESTING POLICY \#33: Rolling Walk-Forward (Zero Look-Ahead Bias)}
+
+\textbf{Source:} \texttt{Stochastic\_Predictor\_Test\_Cases.tex}, Lines 975-990
+
+\textbf{Statement:}
+Ensure training uses only data strictly prior to test horizon.
+
+\textbf{Criteria:}
+\begin{itemize}[noitemsep]
+    \item For each test window $T_k$, train only with $D_{\text{train}}^k = \{(t_i, y_i) : t_i < t_{nk}\}$
+    \item Rolling window advancement
+    \item No future data used at time $t$
+    \item Out-of-sample metrics aggregation (RMSE, MAE, Sharpe)
+\end{itemize}
+
+\subsubsection{TESTING POLICY \#34: Bayesian Optimization Efficiency}
+
+\textbf{Source:} \texttt{Stochastic\_Predictor\_Test\_Cases.tex}, Lines 992-1004
+
+\textbf{Statement:}
+Iterative hyperparameter improvement via Gaussian Process must beat random search.
+
+\textbf{Criteria:}
+\begin{itemize}[noitemsep]
+    \item Expected Improvement (EI) vs random sampling
+    \item Acceptance: $\min_i L(\theta_i^{\text{BO}}) < \min_i L(\theta_i^{\text{random}})$
+    \item Significance: Mann-Whitney $p$-value $< 0.05$
+\end{itemize}
+
+\subsubsection{TESTING POLICY \#35: Temporal Integrity (TTL Staleness Metric)}
+
+\textbf{Source:} \texttt{Stochastic\_Predictor\_Test\_Cases.tex}, Lines 1006-1018
+
+\textbf{Statement:}
+Cancel JKO update if target signal delay exceeds $\Delta_{\max}$.
+
+\textbf{Criteria:}
+\begin{itemize}[noitemsep]
+    \item Time-to-live: $\text{TTL}(y_t) = t_{\text{current}} - t$
+    \item If $\text{TTL}(y_t) > \Delta_{\max}$: discard signal
+    \item NOT perform JKO update
+    \item Emit \texttt{StaleDataEvent}
+    \item Typical $\Delta_{\max} = 5$ seconds
+\end{itemize}
+
+\subsubsection{TESTING POLICY \#36: Degraded Inference Mode (Lag Injection)}
+
+\textbf{Source:} \texttt{Stochastic\_Predictor\_Test\_Cases.tex}, Lines 1020-1063
+
+\textbf{Statement:}
+Artificially delay $y_{\text{target}}$ beyond $\Delta_{\max}$ and validate degraded mode activation and JKO suspension.
+
+\textbf{Criteria:}
+\begin{itemize}[noitemsep]
+    \item TTL injection: $\text{TTL}(\tilde{y}_t) = \Delta_{\max} + \delta$ ($\delta > 0$)
+    \item Detect TTL violation
+    \item Activate \texttt{DegradedInferenceMode} = True
+    \item Suspend JKO transport
+    \item Freeze orchestrator weights at last valid value
+    \item Emit \texttt{StaleDataEvent} + \texttt{DegradedInferenceModeActivated}
+    \item Detection time $< 100$ ms
+    \item Predictions continue with frozen configuration
+    \item Recovery: restore when $\text{TTL} < 0.8 \times \Delta_{\max}$
+\end{itemize}
+
+\newpage
+
+\section{Edge Cases and Operational Limits}
+
+\subsection{Category: Boundary Conditions and Extreme Scenarios}
+
+\subsubsection{TESTING POLICY \#37: CUSUM Adaptive Dynamic Threshold (Volatility Adaptation)}
+
+\textbf{Source:} \texttt{Stochastic\_Predictor\_Test\_Cases.tex}, Lines 1071-1104
+
+\textbf{Statement:}
+Validate CUSUM threshold adapts correctly to low/high volatility via $h_t = k \times \sigma_{\text{resid},t}$.
+
+\textbf{Criteria:}
+\begin{itemize}[noitemsep]
+    \item Low volatility: $h = k \times 0.01$, detects small drifts
+    \item High volatility: $h = k \times 0.50$, threshold scales proportionally
+    \item Transition: smooth rolling window adaptation
+    \item No spurious activations during volatility shifts
+    \item Threshold ratio matches volatility ratio within 10\%
+\end{itemize}
+
+\subsubsection{TESTING POLICY \#38: Maximum Entropy Convergence (Uniform Weights)}
+
+\textbf{Source:} \texttt{Stochastic\_Predictor\_Test\_Cases.tex}, Lines 1106-1131
+
+\textbf{Statement:}
+Confirm convergence to uniform weights $[0.25, 0.25, 0.25, 0.25]$ as Sinkhorn $\varepsilon \to \infty$.
+
+\textbf{Criteria:}
+\begin{itemize}[noitemsep]
+    \item Entropy regularization: $\varepsilon_k = 10^k$ for $k \in \{0,1,2,3,4\}$
+    \item Limit: $\lim_{\varepsilon \to \infty} \{w_i\} = \{0.25, 0.25, 0.25, 0.25\}$
+    \item Numerical criterion $\varepsilon=10^4$: $\max_i |w_i - 0.25| < 0.01$
+    \item Reflects maximum uncertainty principle (Jaynes)
+\end{itemize}
+
+\subsubsection{TESTING POLICY \#39: Path Reparametrization Invariance (Time Warping)}
+
+\textbf{Source:} \texttt{Stochastic\_Predictor\_Test\_Cases.tex}, Lines 1133-1161
+
+\textbf{Statement:}
+Test signal and time-stretched variants; rough path signature must be identical under reparametrizations.
+
+\textbf{Criteria:}
+\begin{itemize}[noitemsep]
+    \item Reparametrization functions: $\varphi_1(t)=t^2$, $\varphi_2(t)=\sqrt{t}$, $\varphi_3(t)=\frac{1}{2}(1-\cos(\pi t))$
+    \item Signature invariance: $\|S_i - S_0\|_2 < 10^{-8}$
+    \item Negative control: non-monotone $\varphi$ produces different signature
+    \item Captures intrinsic path geometry independent of execution speed
+\end{itemize}
+
+\subsubsection{TESTING POLICY \#40: Extreme Kurtosis Handling (Kurtosis $> 20$)}
+
+\textbf{Source:} \texttt{Stochastic\_Predictor\_Tests\_Python.tex}, Lines 1480-1510
+
+\textbf{Statement:}
+Kurtosis $> 20$ must generate critical alert and trigger adaptive threshold elevation.
+
+\textbf{Criteria:}
+\begin{itemize}[noitemsep]
+    \item Detection: $\kappa > 15.0$
+    \item Emit critical alert
+    \item Adaptive threshold elevated: $h_{\text{adapt}} > 2.0 \times h_{\text{fixed}}$
+    \item CUSUM remains calibrated despite heavy tails
+    \item False positive control maintained
+\end{itemize}
+
+\subsubsection{TESTING POLICY \#41: Degraded Mode with TTL Violation (Operational Limits)}
+
+\textbf{Source:} \texttt{Stochastic\_Predictor\_Tests\_Python.tex}, Lines 1424-1463
+
+\textbf{Statement:}
+TTL counter exceeds limit $\to$ activate degraded mode, freeze weights, suspend JKO.
+
+\textbf{Criteria:}
+\begin{itemize}[noitemsep]
+    \item Degraded mode flag: True when staleness detected
+    \item JKO transport: SUSPENDED
+    \item Weights: frozen at last valid value
+    \item Hysteresis recovery: $0.8 \times \text{TTL}_{\max}$ threshold for reactivation
+    \item Predictions continue using frozen configuration
+\end{itemize}
+
+\newpage
+
+\section{XLA VRAM and JIT Cache Assertions}
+
+\subsection{Category: JAX Compilation and Asynchronous Dispatch}
+
+\subsubsection{TESTING POLICY \#42: Prevention of Host-Device Synchronization}
+
+\textbf{Source:} \texttt{Stochastic\_Predictor\_Tests\_Python.tex}, Lines 1885-1950
+
+\textbf{Statement:}
+Ensure orchestration returns unbacked DeviceArray objects without forcing host synchronization.
+
+\textbf{Criteria:}
+\begin{itemize}[noitemsep]
+    \item Prediction type: \texttt{jax.Array} or \texttt{jnp.ndarray} (never Python \texttt{float})
+    \item Valid \texttt{.device()} attribute indicating XLA backend placement
+    \item No explicit/implicit conversion to host types (\texttt{float()}, \texttt{.item()}, \texttt{.tolist()})
+    \item Telemetry uses \texttt{jax.lax.stop\_gradient()} on diagnostic metrics
+    \item Performance impact avoidance: prevents 100-500ms latency spikes per sync
+\end{itemize}
+
+\subsubsection{TESTING POLICY \#43: Vectorized Multi-Tenancy Bit-Exactness}
+
+\textbf{Source:} \texttt{Stochastic\_Predictor\_Tests\_Python.tex}, Lines 1956-2022
+
+\textbf{Statement:}
+Validate batched \texttt{jax.vmap} execution bit-exact to sequential loop execution for multi-tenant workloads.
+
+\textbf{Criteria:}
+\begin{itemize}[noitemsep]
+    \item Sequential vs vectorized batch size $N=128$
+    \item Bit-exact prediction parity: \texttt{numpy.array\_equal()}
+    \item State update equivalence across all clients
+    \item PRNG state advancement consistency
+    \item Memory scaling sub-linear (config sharing prevents $N$-fold duplication)
+    \item Compilation time: first call may be slow, subsequent $< 5$ms
+\end{itemize}
+
+\subsubsection{TESTING POLICY \#44: Load Shedding Without XLA Recompilation}
+
+\textbf{Source:} \texttt{Stochastic\_Predictor\_Tests\_Python.tex}, Lines 2030-2079
+
+\textbf{Statement:}
+Swapping Kernel D signature depths ($M \in \{2,3,5\}$) executes in $O(1)$ without cache miss.
+
+\textbf{Criteria:}
+\begin{itemize}[noitemsep]
+    \item Warmup phase precompiles all depths $M \in \{2,3,5\}$
+    \item Load shedding execution: $< 10$ms (cached)
+    \item No recompilation (avoids 200ms stall)
+    \item Cache hit rate $\geq 99\%$ after warmup
+    \item Memory overhead: $\leq 3$ entries per variant
+    \item Failure mode test: verify early warmup prevents latency spikes
+\end{itemize}
+
+\subsubsection{TESTING POLICY \#45: Atomic TOML Mutation (POSIX Guarantees)}
+
+\textbf{Source:} \texttt{Stochastic\_Predictor\_Tests\_Python.tex}, Lines 2084-2136
+
+\textbf{Statement:}
+Ensure config mutation compliance with POSIX atomic write semantics.
+
+\textbf{Criteria:}
+\begin{itemize}[noitemsep]
+    \item Three-step protocol: write tmp $\to$ \texttt{fsync()} $\to$ \texttt{os.replace()}
+    \item \texttt{os.replace()} called with temp file as arg 1, target as arg 2
+    \item Concurrent mutations detected and rejected (temp exists)
+    \item Audit trail in \texttt{io/mutations.log} (JSON Lines format)
+    \item Rollback capability: \texttt{config.toml.bak} backup created
+    \item POSIX atomicity prevents partial config visibility
+\end{itemize}
+
+\newpage
+
+\section{Summary Matrix}
+
+\subsection{Test Classification and Coverage}
+
+\begin{longtable}{llll}
+\toprule
+\textbf{Category} & \textbf{Count} & \textbf{Test Type} & \textbf{Coverage Target} \\
+\midrule
+Random Generation \& Entropy & 2 & Unit & 95\% \\
+Wavelet Analysis (WTMM) & 4 & Unit & 92\% \\
+Algebraic Structures (Branch D) & 2 & Unit & 90\% \\
+SDE Solvers & 2 & Integration & 91\% \\
+Transport \& Orchestration & 2 & Integration & 93\% \\
+DGM/HJB & 5 & Integration & 88\% \\
+Robustness \& Circuit Breaking & 3 & Robustness & 89\% \\
+I/O \& Persistence & 5 & I/O & 97\% \\
+Dynamic Adaptation & 4 & Feature & 91\% \\
+Hardware Parity & 4 & Cross-platform & 85\% \\
+Causality \& Validation & 4 & Acceptance & 92\% \\
+Operational Limits & 3 & Edge Case & 88\% \\
+XLA/JAX Specific & 4 & Performance & 89\% \\
+\midrule
+\textbf{TOTAL} & \textbf{45} & \textbf{Mixed} & \textbf{91\%} \\
+\bottomrule
+\end{longtable}
+
+\subsection{Acceptance Criteria Summary}
+
+\subsubsection{Global Requirements}
+
+\begin{itemize}[noitemsep]
+    \item \textbf{Code Coverage:} $\geq 90\%$ in all critical modules
+    \item \textbf{Pass Rate:} 100\% before merge
+    \item \textbf{Performance:} Full suite $< 5$ minutes (no GPU, no Optuna)
+    \item \textbf{Reproducibility:} Fixed-seed tests produce identical results
+    \item \textbf{Numerical Parity:} CPU vs GPU error $< 10^{-5}$ (float32)
+\end{itemize}
+
+\subsubsection{Mathematical Guarantees}
+
+\begin{itemize}[noitemsep]
+    \item \textbf{Convergence:} Proven for all SDE and optimization schemes
+    \item \textbf{Stability:} No NaN/Inf propagation under stress
+    \item \textbf{Causality:} Zero look-ahead bias verified
+    \item \textbf{Atomicity:} I/O operations POSIX-atomic
+    \item \textbf{Determinism:} Bit-exact reproducible with fixed seed
+\end{itemize}
+
+\subsubsection{Operational SLAs}
+
+\begin{itemize}[noitemsep]
+    \item \textbf{Latency (p99):} $< 50$ms per prediction
+    \item \textbf{Throughput:} $\geq 1{,}000$ predictions/second
+    \item \textbf{Reliability:} 99.95\% uptime
+    \item \textbf{Recovery Time:} $< 30$ seconds from any failure
+    \item \textbf{Data Integrity:} 100\% snapshot fidelity
+\end{itemize}
+
+\newpage
+
+\section{Policy Application Workflow}
+
+\subsection{Phase 1: Pre-Merge Validation}
+
+\begin{enumerate}
+    \item Run unit tests (fast, $< 1$ min)
+    \item Check 90\% coverage threshold
+    \item Fix VSCode errors
+    \item Commit with policy reference codes
+\end{enumerate}
+
+\subsection{Phase 2: Integration Testing}
+
+\begin{enumerate}
+    \item Run integration tests (3-5 min)
+    \item Validate cross-platform parity
+    \item Confirm causality invariants
+    \item Generate coverage reports
+\end{enumerate}
+
+\subsection{Phase 3: Production Deployment}
+
+\begin{enumerate}
+    \item Full walk-forward validation
+    \item Hardware parity confirmation
+    \item Snapshots integrity check
+    \item Meta-optimizer determinism verify
+\end{enumerate}
+
+\section{Documentation References}
+
+\textbf{Related Specifications:}
+\begin{itemize}[noitemsep]
+    \item \texttt{doc/latex/tests/code\_audit\_policies.tex} (36 policies)
+    \item Mathematical specification: \texttt{doc/latex/specification/}
+    \item Implementation guide: \texttt{Python/}
+\end{itemize}
+
+\textbf{Key Theorems Underlying Tests:}
+\begin{itemize}[noitemsep]
+    \item Chen's identity (algebra)
+    \item Crandall-Lions viscosity theory (PDE)
+    \item Universal approximation (neural networks)
+    \item Jaynes maximum entropy principle
+    \item POSIX atomic operations specification
+\end{itemize}
+
+\vspace{2em}
+\noindent\textbf{Document Approved For:} Implementation \\
+\textbf{Last Updated:} 2026-02-20 \\
+\textbf{Maintainer:} Adaptive Meta-Prediction Development Consortium
+
+\end{document}
