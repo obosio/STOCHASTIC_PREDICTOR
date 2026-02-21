@@ -89,13 +89,13 @@ class KernelOutputSchema(BaseModel):
 
     Attributes:
         probability_density: Estimated probability density (summable to ~1.0)
-        kernel_id: Which kernel produced this output ("A", "B", "C", or "D")
+        kernel_id: Which kernel produced this output (0=A, 1=B, 2=C, 3=D)
         computation_time_us: Execution time in microseconds
         numerics_flags: Diagnostic flags (NaN, Inf, stiffness warnings)
     """
 
     probability_density: Float[ArrayLike, "n_targets"]
-    kernel_id: str = Field(description="Kernel identifier (A|B|C|D)")
+    kernel_id: int = Field(description="Kernel identifier: 0=A, 1=B, 2=C, 3=D")
     computation_time_us: float = Field(ge=0, description="Execution time in microseconds")
     numerics_flags: Dict[str, bool] = Field(
         default_factory=dict,
@@ -110,8 +110,8 @@ class KernelOutputSchema(BaseModel):
     @classmethod
     def validate_kernel_id(cls, value):
         """Ensure kernel_id is a valid kernel."""
-        if value not in ("A", "B", "C", "D"):
-            raise ValueError(f"Invalid kernel_id: {value}")
+        if value not in (0, 1, 2, 3):
+            raise ValueError(f"Invalid kernel_id: {value} (must be 0=A, 1=B, 2=C, or 3=D)")
         return value
 
 

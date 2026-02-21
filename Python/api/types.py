@@ -11,7 +11,7 @@ References:
 
 from dataclasses import dataclass
 from datetime import datetime, timezone
-from typing import Optional, Union
+from typing import NamedTuple, Optional, Union
 
 import jax.numpy as jnp
 from jaxtyping import Array, Float, PRNGKeyArray
@@ -525,17 +525,22 @@ class PredictionResult:
 # ═══════════════════════════════════════════════════════════════════════════
 
 
-@dataclass(frozen=True)
-class KernelOutput:
+class KernelOutput(NamedTuple):
     """
     API-facing kernel output contract.
+    
+    Note: kernel_id is int to be JAX JIT-compatible: 0=A, 1=B, 2=C, 3=D
+    Uses NamedTuple to be JAX PyTree-compatible automatically.
     """
 
+    prediction: Float[Array, "..."]
+    confidence: Float[Array, "..."]
+    entropy: Float[Array, "..."]
     probability_density: Float[Array, "n_targets"]
-    kernel_id: str
+    kernel_id: int  # 0=A, 1=B, 2=C, 3=D (JAX JIT requires non-string types)
     computation_time_us: float
     numerics_flags: dict
-    entropy: Optional[Float[Array, ""]] = None
+    metadata: dict
 
 
 @dataclass

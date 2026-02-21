@@ -388,7 +388,6 @@ def kernel_b_predict(
 
     # Diagnostics
     diagnostics = {
-        "kernel_type": "B_DGM_Fokker_Planck",
         "value_function": value,
         "entropy_dgm": entropy_dgm,  # V-MAJ-8: Already blocked by stop_gradient above
         "entropy_threshold_adaptive": entropy_threshold_adaptive,  # V-MAJ-1: Diagnostic (also stopped)
@@ -421,7 +420,7 @@ def kernel_b_predict(
         confidence=confidence,
         entropy=entropy,
         probability_density=probability_density,
-        kernel_id="B",
+        kernel_id=1,  # 1=B (JAX JIT compatible)
         computation_time_us=jnp.array(config.kernel_output_time_us),
         numerics_flags=numerics_flags,
         metadata=diagnostics,

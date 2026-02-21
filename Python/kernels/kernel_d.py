@@ -217,7 +217,6 @@ def kernel_d_predict(signal: Float[Array, "n"], key: Array, config) -> KernelOut
 
     # Diagnostics
     diagnostics = {
-        "kernel_type": "D_Signature_Rough_Paths",
         "signature_depth": config.kernel_d_depth,
         "signature_dim": logsig.shape[0],
         "signature_norm": jnp.linalg.norm(logsig),
@@ -248,7 +247,7 @@ def kernel_d_predict(signal: Float[Array, "n"], key: Array, config) -> KernelOut
         confidence=confidence,
         entropy=entropy,
         probability_density=probability_density,
-        kernel_id="D",
+        kernel_id=3,  # 3=D (JAX JIT compatible)
         computation_time_us=jnp.array(config.kernel_output_time_us),
         numerics_flags=numerics_flags,
         metadata=diagnostics,

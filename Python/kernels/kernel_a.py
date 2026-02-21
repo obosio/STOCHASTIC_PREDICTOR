@@ -16,6 +16,7 @@ Mathematical Foundation:
 from functools import partial
 
 import jax
+import jax.lax as lax
 import jax.numpy as jnp
 from jaxtyping import Array, Float
 
@@ -358,16 +359,15 @@ def extract_holder_exponent_wtmm(signal: Float[Array, "n"], config) -> Float[Arr
         - Theory.tex §2.1: Multifractal Analysis via WTMM
         - Python.tex §2.2.1: Complete WTMM Pipeline
     """
-    n = signal.shape[0]
-
     # Define scales: logarithmically spaced from smallest to largest
-    # Use config.wtmm_buffer_size as upper scale limit
+    # Use config.wtmm_buffer_size as upper scale limit (must be validated in config)
     scales = jnp.logspace(
         jnp.log10(config.wtmm_scale_min),
         jnp.log10(config.wtmm_buffer_size),
         config.wtmm_num_scales,
     )
-    scales = jnp.clip(scales, config.wtmm_scale_min, n // 2)  # Ensure valid scale range
+    # Note: scales are already bounded by config parameters.
+    # Removed dynamic clip with n // 2 to avoid JAX ConcretizationTypeError in JIT context.
 
     # Step 1: Continuous Wavelet Transform
     def wavelet_fn(t):
@@ -492,7 +492,7 @@ def compute_paley_wiener_integral(
     return jnp.sum(integrand) * delta
 
 
-@jax.jit
+@partial(jax.jit, static_argnums=(1,))  # order must be static for dynamic_slice
 def compute_wiener_hopf_filter(signal: Float[Array, "n"], order: int, epsilon: float) -> Float[Array, "order"]:
     """
     Solve Wiener-Hopf equations for optimal linear predictor filter.
@@ -515,7 +515,8 @@ def compute_wiener_hopf_filter(signal: Float[Array, "n"], order: int, epsilon: f
     signal_centered = signal - jnp.mean(signal)
     n = signal_centered.shape[0]
     autocorr_full = jnp.correlate(signal_centered, signal_centered, mode="full")
-    autocorr = autocorr_full[n - 1 : n - 1 + order + 1] / n
+    # Use lax.dynamic_slice instead of Python slicing for JIT compatibility
+    autocorr = lax.dynamic_slice(autocorr_full, start_indices=(n - 1,), slice_sizes=(order + 1,)) / n
 
     r = autocorr[:order]
     p = autocorr[1 : order + 1]
@@ -809,7 +810,7 @@ def kernel_a_predict(signal: Float[Array, "n"], key: Array, config) -> KernelOut
         sig_stats = compute_signal_statistics(sig)
         sig_embed = create_embedding(sig_norm, config)
         sig_train = sig_embed[:-1]
-        sig_targets = sig_norm[config.kernel_a_embedding_dim : -1]
+        sig_targets = sig_norm[config.kernel_a_embedding_dim :]  # Fixed: removed -1 to match dimensions
         sig_test = sig_embed[-1:]
         sig_pred_norm, _ = kernel_ridge_regression(sig_train, sig_targets, sig_test, config)
         return sig_pred_norm[0] * sig_stats["std"] + sig_stats["mean"]
@@ -822,13 +823,12 @@ def kernel_a_predict(signal: Float[Array, "n"], key: Array, config) -> KernelOut
     )
 
     diagnostics = {
-        "kernel_type": "A_Hilbert_RKHS",
         "bandwidth": config.kernel_a_bandwidth,
         "embedding_dim": config.kernel_a_embedding_dim,
         "n_training_points": X_train.shape[0],
         "signal_mean": stats["mean"],
         "signal_std": stats["std"],
-        "holder_exponent": float(holder_exponent_estimate),  # P2.1: Full WTMM, not placeholder
+        "holder_exponent": holder_exponent_estimate,  # P2.1: Full WTMM (JAX array, not float)
         "koopman_freqs": koopman_freqs,
         "koopman_powers": koopman_powers,
         "paley_wiener_integral": paley_wiener_integral,
@@ -860,7 +860,7 @@ def kernel_a_predict(signal: Float[Array, "n"], key: Array, config) -> KernelOut
         confidence=confidence,
         entropy=entropy,
         probability_density=probability_density,
-        kernel_id="A",
+        kernel_id=0,  # 0=A (JAX JIT compatible)
         computation_time_us=jnp.array(config.kernel_output_time_us),
         numerics_flags=numerics_flags,
         metadata=diagnostics,

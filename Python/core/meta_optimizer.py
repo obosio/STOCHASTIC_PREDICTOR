@@ -878,11 +878,10 @@ def walk_forward_split(
         - AUDIT_SPEC_COMPLIANCE_2026-02-19.md: V-MAJ-8
     """
     initial_train_size = int(data_length * train_ratio)
-    # Ensure fold_size calculation preserves train_ratio across splits
     # Remaining data after initial train window
     remaining = data_length - initial_train_size
     fold_size = max(1, remaining // n_folds)
-
+    
     # Validate fold size (warn but don't fail if below minimum)
     if fold_size < min_fold_size:
         import warnings

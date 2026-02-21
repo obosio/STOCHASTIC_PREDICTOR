@@ -351,7 +351,6 @@ def kernel_c_predict(signal: Float[Array, "n"], key: Array, config) -> KernelOut
     )
 
     diagnostics = {
-        "kernel_type": "C_Ito_Levy_SDE",
         "mu": mu,
         "alpha": alpha,
         "beta": beta,
@@ -390,7 +389,7 @@ def kernel_c_predict(signal: Float[Array, "n"], key: Array, config) -> KernelOut
         confidence=confidence,
         entropy=entropy,
         probability_density=probability_density,
-        kernel_id="C",
+        kernel_id=2,  # 2=C (JAX JIT compatible)
         computation_time_us=jnp.array(config.kernel_output_time_us),
         numerics_flags=numerics_flags,
         metadata=diagnostics,

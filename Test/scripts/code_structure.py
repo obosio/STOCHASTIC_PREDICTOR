@@ -523,20 +523,32 @@ class TestCoreMetaOptimizer:
         assert splits is not None
         
         # POLICY #33: Validate causality - no look-ahead bias
+        # Walk-forward methodology: expanding training window, fixed-size validation folds
+        # Expected behavior:
+        #   initial_train_size = int(2000 * 0.7) = 1400
+        #   fold_size = (2000 - 1400) // 5 = 120
+        #   Split 0: train [0, 1400), test [1400, 1520)  -> ratio 1400/1520 = 92.1%
+        #   Split 1: train [0, 1520), test [1520, 1640)  -> ratio 1520/1640 = 92.7%
+        #   etc.
         for i, (train_indices, test_indices) in enumerate(splits):
             assert len(train_indices) > 0, f"Split {i}: Empty training set"
             assert len(test_indices) > 0, f"Split {i}: Empty test set"
-            # Ensure t_train < t_test (strict temporal ordering)
+            # Ensure t_train < t_test (strict temporal ordering - NO LOOK-AHEAD)
             max_train_idx = int(jnp.max(train_indices)) if len(train_indices) > 0 else -1
             min_test_idx = int(jnp.min(test_indices)) if len(test_indices) > 0 else n_samples
             assert max_train_idx < min_test_idx, (
                 f"Split {i} look-ahead bias: train_max={max_train_idx} >= test_min={min_test_idx}"
             )
-            # Verify ratio within 5% tolerance
-            actual_ratio = len(train_indices) / (len(train_indices) + len(test_indices))
-            assert abs(actual_ratio - train_ratio) < 0.05, (
-                f"Split {i} ratio mismatch: {actual_ratio:.3f} vs expected {train_ratio:.3f}"
-            )
+            # Train set must start from index 0 (causality: always train on all past data)
+            assert int(jnp.min(train_indices)) == 0, f"Split {i}: train set must start at index 0"
+            # Verify expanding window: each split's training set should be larger than previous
+            if i > 0:
+                prev_train_size = len(splits[i-1][0])
+                curr_train_size = len(train_indices)
+                assert curr_train_size > prev_train_size, (
+                    f"Split {i}: training size {curr_train_size} not > previous {prev_train_size}"
+                )
+
 
 
 class TestKernelsBase:

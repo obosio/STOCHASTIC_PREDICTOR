@@ -17,39 +17,16 @@ Design Principles:
 """
 
 from functools import partial
-from typing import NamedTuple, Protocol
+from typing import Protocol
 
 import jax
 import jax.numpy as jnp
 from jaxtyping import Array, Float
 
+from ..api.types import KernelOutput  # Centralized definition (JAX JIT compatible)
 
-class KernelOutput(NamedTuple):
-    """
-    Standardized output from all prediction kernels.
 
-    Fields:
-        prediction: Predicted next value or trajectory
-        confidence: Uncertainty estimate (standard deviation)
-        entropy: Diagnostic entropy estimate
-        probability_density: Discrete PDF over a standardized grid
-        kernel_id: Kernel identifier (A|B|C|D)
-        computation_time_us: Execution time in microseconds
-        numerics_flags: Diagnostic numerical flags
-        metadata: Kernel-specific diagnostic information
-
-    References:
-        - API_Python.tex §2.1: KernelOutput schema
-    """
-
-    prediction: Float[Array, "..."]
-    confidence: Float[Array, "..."]
-    entropy: Float[Array, "..."]
-    probability_density: Float[Array, "n_targets"]
-    kernel_id: str
-    computation_time_us: Float[Array, ""]
-    numerics_flags: dict
-    metadata: dict
+# Removed duplicate KernelOutput definition - now imported from api.types
 
 
 def build_pdf_grid(
