@@ -58,6 +58,12 @@ This document records the Bootstrap phase of the Universal Stochastic Predictor 
 
 \textbf{Version Context}: This Bootstrap foundation supports the complete implementation through v2.1.0, which includes Level 4 Autonomy compliance with adaptive architecture and configuration mutation safety mechanisms.
 
+\section{Quality Assurance Alignment}
+
+Bootstrap aligns with the project test framework in \texttt{Test/}. Automated checks include \texttt{flake8}, \texttt{black},
+\texttt{isort}, and \texttt{mypy}, plus dependency validation that compares imports to requirements and the active virtual
+environment. Auto-generated smoke tests are synchronized by \texttt{Test/framework/generator.py}.
+
 \section{Tag Information}
 
 \begin{table}[h]

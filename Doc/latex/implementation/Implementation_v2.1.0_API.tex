@@ -72,6 +72,13 @@ Phase 1 covers:
     \item \textbf{Schema Definitions} (\texttt{schemas.py}): Pydantic models for API contracts
 \end{itemize}
 
+\section{Quality Assurance Alignment}
+
+This phase is validated via the project test framework in \texttt{Test/}. Automated checks include \texttt{flake8},
+\texttt{black}, \texttt{isort}, and \texttt{mypy}, plus dependency validation that compares imports to requirements and the
+active virtual environment. Auto-generated smoke tests are synchronized by
+\texttt{Test/framework/generator.py}. See \texttt{doc/latex/specification/Stochastic\_Predictor\_Tests\_Python.tex} for details.
+
 \section{Design Principles}
 
 \begin{itemize}

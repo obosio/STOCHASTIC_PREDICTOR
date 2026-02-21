@@ -10,6 +10,239 @@
 \usepackage{booktabs}
 \usepackage{enumitem}
 \usepackage{amsthm}
+
+\usepackage[english]{babel}
+
+% Environments
+\newtheorem{testcase}{Test Case}[chapter]
+\newtheorem{implementation}{Implementation}[chapter]
+\newtheorem{criterion}{Criterion}[chapter]
+
+% --- HYPERREF (must be last) ---
+\usepackage[hidelinks]{hyperref}
+
+\title{\textbf{Python Test Policies \\ for the Universal Stochastic Predictor}}
+\author{Adaptive Meta-Prediction Development Consortium}
+\date{\today}
+
+\begin{document}
+
+\maketitle
+
+\tableofcontents
+
+\chapter{Purpose and Scope}
+
+\section{Objective}
+
+The test suite must validate that the system is correct, stable, reproducible, and safe under the operational conditions
+defined by the specification. The objective is to prevent regressions, protect numerical integrity, and enforce strict
+quality policies across all layers.
+
+\section{Scope}
+
+Tests must cover the API, Core, Kernel, and I/O layers, including integration boundaries and cross-layer contracts.
+Coverage includes deterministic functionality, numerical invariants, error handling, and operational edge cases.
+
+\chapter{Quality Expectations}
+
+\section{Code Quality}
+
+All production and test code must follow consistent formatting, linting rules, and type safety constraints. The test
+policy requires deterministic behavior, explicit error handling, and no unused or dead code in critical paths.
+
+\section{Configuration Discipline}
+
+No hardcoded parameters are allowed in production logic. All tunable values must be driven by configuration. Tests must
+verify configuration loading, validation, and propagation, including defaults and boundary constraints.
+
+\section{No Fallback Policy}
+
+Silent fallbacks are forbidden. If a dependency, configuration, or invariant is missing or invalid, the system must fail
+fast with an explicit, actionable error. Tests must assert this behavior.
+
+\section{Security and Secrets}
+
+No secrets or credentials may be hardcoded. Tests must verify that secret material is injected only through authorized
+channels and never appears in logs, reports, or snapshots.
+
+\chapter{Completeness Criteria}
+
+\section{Coverage}
+
+Each layer must have unit tests for core logic, integration tests for inter-layer contracts, and robustness tests for
+stress conditions. The test suite must include negative cases for invalid inputs and explicit failure modes.
+
+\section{Public API Surface}
+
+All public callables must have at least one validation path that confirms correct execution and error handling. Public
+contracts must be verified for input validation, output structure, and invariants.
+
+\chapter{Performance and Robustness}
+
+\section{Performance Targets}
+
+Performance-sensitive components must meet documented latency and throughput thresholds under controlled inputs. Tests
+must report measured values and enforce explicit acceptance thresholds.
+
+\section{Robustness Targets}
+
+The system must remain stable under heavy tails, outliers, regime shifts, and numerical stress. Tests must quantify
+false-positive and false-negative rates for detectors and enforce stability criteria.
+
+\section{Determinism and Reproducibility}
+
+All tests must be deterministic under fixed seeds and configuration. Each run must record configuration, environment
+metadata, and timing so that results can be reproduced.
+
+\chapter{Execution Policies}
+
+\section{Isolation}
+
+Tests must run in an isolated environment with locked dependencies. No system-wide packages may influence results.
+The environment must be reproducible across supported platforms.
+
+\section{Tiered Execution}
+
+Unit, integration, robustness, I/O, hardware, validation, and edge-case tiers must be independently executable.
+Each tier must define clear entry and exit criteria.
+
+\chapter{Reporting Requirements}
+
+Reports must summarize pass/fail status by tier, list missing dependencies, and provide lint and type statistics.
+Reports must be structured, versioned, and reproducible.
+
+\chapter{Acceptance Criteria}
+
+The suite is accepted when:
+\begin{itemize}
+    \item All required tiers pass in the baseline environment
+    \item No blocking issues remain in formatting, linting, or type checks
+    \item Dependency validation reports zero missing required packages
+    \item Critical numerical invariants meet documented thresholds
+    \item Performance targets meet or exceed acceptance thresholds
+\end{itemize}
+
+\end{document}\documentclass[11pt, a4paper]{report}
+
+% --- PREAMBLE ---
+\usepackage[a4paper, top=2.5cm, bottom=2.5cm, left=2cm, right=2cm]{geometry}
+\usepackage{fontspec}
+\usepackage{amsmath}
+\usepackage{amssymb}
+\usepackage{amsfonts}
+\usepackage{mathtools}
+\usepackage{booktabs}
+\usepackage{enumitem}
+\usepackage{amsthm}
+
+\usepackage[english]{babel}
+
+% Environments
+\newtheorem{testcase}{Test Case}[chapter]
+\newtheorem{implementation}{Implementation}[chapter]
+\newtheorem{criterion}{Criterion}[chapter]
+
+% --- HYPERREF (must be last) ---
+\usepackage[hidelinks]{hyperref}
+
+\title{\textbf{Python Test Suite Policies \\ for the Universal Stochastic Predictor}}
+\author{Adaptive Meta-Prediction Development Consortium}
+\date{\today}
+
+\begin{document}
+
+\maketitle
+
+\tableofcontents
+
+\chapter{Testing Environment Setup}
+
+\section{Dependency Governance}
+
+The test environment must define a locked dependency set with exact versions.
+Dependencies are separated by layer (production vs testing) and must be installed in an isolated environment.
+All test utilities and diagnostics required for execution must be declared in the test dependency set.
+
+\section{Environment Isolation}
+
+Tests must run in an isolated environment with no reliance on system-wide packages.
+The environment must be reproducible across supported platforms.
+
+\section{Tooling-Neutral Checks}
+
+The test workflow must include:
+\begin{itemize}
+    \item Formatting validation
+    \item Linting and static analysis
+    \item Type checking
+    \item Dependency validation against the installed environment
+\end{itemize}
+
+\chapter{Test Taxonomy and Coverage}
+
+\section{Unit Tests}
+
+Unit tests validate deterministic behavior of isolated algorithms and must not rely on global system state.
+They must include numerical invariants, boundary conditions, and error handling.
+
+\section{Integration Tests}
+
+Integration tests validate cross-module interactions and data flow contracts.
+They must include end-to-end execution of kernel orchestration with controlled inputs.
+
+\section{Robustness Tests}
+
+Robustness tests validate stability under heavy tails, outliers, regime shifts, and numerical stress.
+They must include false-positive and false-negative analysis for detectors.
+
+\section{I/O Tests}
+
+I/O tests validate snapshot persistence, telemetry integrity, and recovery procedures.
+They must include atomicity and corruption-resistance criteria.
+
+\section{Hardware Consistency Tests}
+
+Hardware tests validate numerical parity across supported devices.
+They must quantify tolerated drift and enforce reproducibility within defined thresholds.
+
+\section{Validation and Edge Cases}
+
+Validation tests enforce causal correctness, windowed evaluation policies, and degraded-mode recovery.
+Edge-case tests must exercise time-to-live violations, degenerate inputs, and mode-collapse detection.
+
+\chapter{Execution Policies}
+
+All test executions must be deterministic under fixed seeds and must log configuration, environment, and timing.
+Tests may be skipped only when explicitly justified by unavailable optional resources.
+
+\chapter{Reporting Requirements}
+
+Reports must summarize pass/fail status by tier, list missing dependencies, and provide lint/type statistics.
+Reports must be generated in a structured, versioned format and must be reproducible.
+
+\chapter{Acceptance Criteria}
+
+The test suite is accepted when:
+\begin{itemize}
+    \item All required tiers pass in the baseline environment
+    \item No blocking issues remain in lint or static analysis
+    \item Dependency validation reports zero missing required packages
+    \item Critical numerical invariants meet documented thresholds
+\end{itemize}
+
+\end{document}\documentclass[11pt, a4paper]{report}
+
+% --- PREAMBLE ---
+\usepackage[a4paper, top=2.5cm, bottom=2.5cm, left=2cm, right=2cm]{geometry}
+\usepackage{fontspec}
+\usepackage{amsmath}
+\usepackage{amssymb}
+\usepackage{amsfonts}
+\usepackage{mathtools}
+\usepackage{booktabs}
+\usepackage{enumitem}
+\usepackage{amsthm}
 \usepackage{listings}
 \usepackage{xcolor}
 
@@ -62,608 +295,80 @@
 
 \chapter{Testing Environment Setup}
 
-\section{Dependencies and Tools}
+\section{Dependency Governance}
 
-\begin{lstlisting}
-# requirements-test.txt
-pytest>=7.4.0
-pytest-cov>=4.1.0
-pytest-xdist>=3.3.0  # Test parallelization
-hypothesis>=6.82.0   # Property-based testing
-jax[cpu]>=0.4.13     # CPU tests
-jax[cuda12]>=0.4.13  # GPU tests (optional)
-numpy>=1.24.0
-scipy>=1.11.0
-PyWavelets>=1.4.1
-msgpack>=1.0.5
-optuna>=3.2.0
+The test environment must define a locked dependency set with exact versions.
+Dependencies are separated by layer (production vs testing) and must be installed in an isolated environment.
+All test utilities and diagnostics required for execution must be declared in the test dependency set.
 
-# Validation tools
-flake8>=6.0.0
-mypy>=1.4.0
-black>=23.7.0
-\end{lstlisting}
+\section{Directory Structure Policy}
 
-\section{Directory Structure}
+The test hierarchy must separate unit, integration, robustness, I/O, hardware, validation, and edge-case coverage.
+Each category must be independently executable and must not rely on implicit ordering.
 
-\begin{lstlisting}[language=bash]
-tests/
-├── __init__.py
-├── conftest.py                    # Shared fixtures
-├── test_unit/
-│   ├── test_cms_levy.py          # Stable variable generation
-│   ├── test_wtmm.py              # Multifractal analysis
-│   ├── test_malliavin.py         # Sensitivity computations
-│   ├── test_signatures.py        # Branch D
-│   └── test_entropy.py           # DGM entropy
-├── test_integration/
-│   ├── test_sde_solvers.py       # Euler-Maruyama, Milstein
-│   ├── test_sinkhorn.py          # Optimal transport
-│   ├── test_dgm.py               # Deep Galerkin Method
-│   └── test_orchestrator.py     # Full JKO
-├── test_robustness/
-│   ├── test_cusum.py             # Change detection
-│   ├── test_cusum_kurtosis.py    # CUSUM with kurtosis
-│   ├── test_circuit_breaker.py   # Singularities
-│   └── test_outliers.py          # Extreme values
-├── test_io/
-│   ├── test_snapshotting.py      # Persistence
-│   └── test_recovery.py          # Atomic recovery
-├── test_hardware/
-│   ├── test_cpu_gpu_parity.py    # Numerical consistency
-│   └── test_numerical_drift.py   # Fixed-point drift
-├── test_validation/
-│   ├── test_walk_forward.py      # Causal validation
-│   └── test_optuna_tuning.py     # Meta-optimization
-└── test_edge_cases/
-    ├── test_ttl_degraded_mode.py # Degraded mode
-    ├── test_mode_collapse.py     # DGM collapse
-    └── test_extreme_kurtosis.py  # Kurtosis > 20
-\end{lstlisting}
+\section{Shared Fixtures Policy}
 
-\section{Shared Fixtures (conftest.py)}
+Shared fixtures must be centralized, deterministic, and reusable across all test tiers.
+Fixtures must avoid hidden state and must document any randomness or external dependencies.
 
-\begin{lstlisting}
-import pytest
-import jax
-import jax.numpy as jnp
-import numpy as np
+\section{Dependency and Static Analysis Policies}
 
-@pytest.fixture
-def rng_key():
-    """Deterministic PRN key for reproducibility."""
-    return jax.random.PRNGKey(42)
+Dependency validation compares imported modules against declared requirements and the installed environment.
+Static analysis enforces consistent formatting, linting rules, and type checking.
 
-@pytest.fixture
-def synthetic_brownian():
-    """Generate a synthetic Brownian trajectory for tests."""
-    np.random.seed(123)
-    T = 1.0
-    N = 1000
-    dt = T / N
-    dW = np.random.randn(N) * np.sqrt(dt)
-    X = np.cumsum(dW)
-    return X, dt
+\chapter{Test Taxonomy and Coverage}
 
-@pytest.fixture
-def synthetic_levy_stable():
-    """Generate a stable Levy process sample."""
-    from scipy.stats import levy_stable
-    np.random.seed(456)
-    alpha = 1.5
-    beta = 0.0
-    samples = levy_stable.rvs(alpha, beta, size=1000)
-    return samples, alpha
+\section{Unit Tests}
 
-@pytest.fixture
-def mock_market_data():
-    """Synthetic market data with regime change."""
-    np.random.seed(789)
-    regime1 = np.random.randn(500) * 0.01 + 100
-    regime2 = np.random.randn(500) * 0.05 + 105
-    data = np.concatenate([regime1, regime2])
-    return data
+Unit tests validate deterministic behavior of isolated algorithms and must not rely on global system state.
+They must include numerical invariants, boundary conditions, and error handling.
 
-@pytest.fixture
-def dgm_reference_solution():
-    """Reference solution for DGM validation."""
-    def bs_call(S, K, T, r, sigma):
-        from scipy.stats import norm
-        d1 = (np.log(S/K) + (r + 0.5*sigma**2)*T) / (sigma * np.sqrt(T))
-        d2 = d1 - sigma * np.sqrt(T)
-        return S * norm.cdf(d1) - K * np.exp(-r*T) * norm.cdf(d2)
+\section{Integration Tests}
 
-    return bs_call
+Integration tests validate cross-module interactions and data flow contracts.
+They must include end-to-end execution of kernel orchestration with controlled inputs.
 
-@pytest.fixture(params=['cpu', 'gpu'])
-def device(request):
-    """Device parameterization for parity tests."""
-    device_name = request.param
-    if device_name == 'gpu' and not jax.devices('gpu'):
-        pytest.skip("GPU not available")
-    return device_name
-\end{lstlisting}
+\section{Robustness Tests}
 
-\chapter{Unit Tests: Generation and Analysis}
+Robustness tests validate stability under heavy tails, outliers, regime shifts, and numerical stress.
+They must include false-positive and false-negative analysis for detectors.
 
-\section{Stable Variable Generation (Chambers-Mallows-Stuck)}
+\section{I/O Tests}
 
-\begin{lstlisting}
-# tests/test_unit/test_cms_levy.py
-import pytest
-import numpy as np
-from scipy.stats import levy_stable, kstest
-from Python.integrators.levy import generate_levy_stable
+I/O tests validate snapshot persistence, telemetry integrity, and recovery procedures.
+They must include atomicity and corruption-resistance criteria.
 
-def test_cms_parameter_recovery(rng_key):
-    """
-    Test: Validate CMS produces distributions with the desired parameters.
-    """
-    alpha = 1.5
-    beta = 0.5
-    gamma = 1.0
-    delta = 0.0
-    N = 10000
+\section{Hardware Consistency Tests}
 
-    samples = generate_levy_stable(rng_key, alpha, beta, gamma, delta, N)
-    samples_np = np.array(samples)
+Hardware tests validate numerical parity across supported devices.
+They must quantify tolerated drift and enforce reproducibility within defined thresholds.
 
-    statistic, pvalue = kstest(
-        samples_np,
-        lambda x: levy_stable.cdf(x, alpha, beta, loc=delta, scale=gamma)
-    )
+\section{Validation and Edge Cases}
 
-    assert pvalue > 0.05, f"KS test failed: p={pvalue:.4f}"
-    assert not np.any(np.isnan(samples_np)), "NaN values detected"
-    assert not np.any(np.isinf(samples_np)), "Inf values detected"
+Validation tests enforce causal correctness, windowed evaluation policies, and degraded-mode recovery.
+Edge-case tests must exercise time-to-live violations, degenerate inputs, and mode-collapse detection.
 
-def test_cms_symmetry():
-    """
-    Test: Validate symmetry when beta = 0.
-    """
-    alpha = 1.8
-    beta = 0.0
-    N = 5000
+\chapter{Execution Policies}
 
-    samples = generate_levy_stable(
-        jax.random.PRNGKey(999), alpha, beta, 1.0, 0.0, N
-    )
-    samples_np = np.array(samples)
+All test executions must be deterministic under fixed seeds and must log configuration, environment, and timing.
+Tests may be skipped only when explicitly justified by unavailable optional resources.
 
-    median = np.median(samples_np)
-    assert abs(median) < 0.1, f"Asymmetry detected: median={median:.4f}"
-\end{lstlisting}
+\chapter{Reporting Requirements}
 
-\section{WTMM Test (Wavelet Transform Modulus Maxima)}
+Reports must summarize pass/fail status by tier, list missing dependencies, and provide lint/type statistics.
+Reports must be generated in a structured, versioned format and must be reproducible.
 
-\begin{lstlisting}
-# tests/test_unit/test_wtmm.py
-import pytest
-import numpy as np
-import jax.numpy as jnp
-from Python.sia.wtmm import estimate_holder_exponent
+\chapter{Acceptance Criteria}
 
-def test_wtmm_brownian_motion(synthetic_brownian):
-    """
-    Test: WTMM recovers H ≈ 0.5 for Brownian motion.
-    """
-    signal, dt = synthetic_brownian
+The test suite is accepted when:
+\begin{itemize}
+    \item All required tiers pass in the baseline environment
+    \item No blocking issues remain in lint or static analysis
+    \item Dependency validation reports zero missing required packages
+    \item Critical numerical invariants meet documented thresholds
+\end{itemize}
 
-    H_estimated = estimate_holder_exponent(jnp.array(signal), besov_c=1.5)
-    assert abs(float(H_estimated) - 0.5) < 0.05, \
-        f"Holder exponent estimation failed: H={H_estimated:.3f}"
-
-def test_wtmm_fractional_brownian():
-    """
-    Test: WTMM with fBm of known Hurst exponent.
-    """
-    from fbm import FBM
-
-    H_true = 0.7
-    n = 1024
-    fbm_gen = FBM(n=n, hurst=H_true, length=1, method='daviesharte')
-    signal = fbm_gen.fbm()
-
-    H_estimated = estimate_holder_exponent(jnp.array(signal), besov_c=2.0)
-    error_rel = abs(float(H_estimated) - H_true) / H_true
-    assert error_rel < 0.10, \
-        f"fBm Holder estimation error: H_true={H_true}, H_est={H_estimated:.3f}"
-
-def test_wtmm_cone_influence():
-    """
-    Test: Verify the Besov cone of influence is respected.
-    """
-    signal = np.concatenate([
-        np.ones(500),
-        np.ones(500) * 3.0
-    ])
-
-    H_estimated = estimate_holder_exponent(jnp.array(signal), besov_c=1.0)
-    assert float(H_estimated) < 0.3, \
-        f"Jump detection failed: H={H_estimated:.3f} (expected < 0.3)"
-\end{lstlisting}
-
-\section{DGM Entropy Test (Mode Collapse Detection)}
-
-\begin{lstlisting}
-# tests/test_unit/test_entropy.py
-import pytest
-import jax
-import jax.numpy as jnp
-from Python.kernels.kernel_b import compute_entropy_dgm
-
-def test_entropy_uniform_distribution():
-    """
-    Test: Entropy of a uniform distribution should be maximal.
-    """
-    samples = jnp.linspace(0, 1, 1000)
-
-    class MockModel:
-        def __call__(self, t, x):
-            return x[0]
-
-    model = MockModel()
-    entropy = compute_entropy_dgm(model, t=0.5, x_samples=samples[:, None])
-    assert entropy > -0.5, f"Entropy too low: {entropy:.3f}"
-
-def test_entropy_collapsed_solution():
-    """
-    Test: Detect collapsed (constant) solution.
-    """
-    class CollapsedModel:
-        def __call__(self, t, x):
-            return 1.0
-
-    model = CollapsedModel()
-    samples = jnp.linspace(-1, 1, 500)
-
-    entropy = compute_entropy_dgm(model, t=0.5, x_samples=samples[:, None])
-    assert entropy < -3.0, \
-        f"Collapsed solution not detected: H={entropy:.3f}"
-
-def test_mode_collapse_criterion():
-    """
-    Test: Validate criterion H_DGM >= gamma * H[g].
-    """
-    from Python.kernels.kernel_b import check_mode_collapse
-
-    class NormalModel:
-        def __call__(self, t, x):
-            return jnp.sin(x[0])
-
-    model = NormalModel()
-    t_eval = jnp.linspace(0, 0.9, 20)
-    x_samples = jnp.linspace(-3, 3, 100)[:, None]
-
-    H_terminal = 1.5
-    gamma = 0.5
-
-    collapsed, avg_entropy = check_mode_collapse(
-        model, t_eval, x_samples, H_terminal, gamma
-    )
-
-    assert not collapsed, \
-        f"False positive collapse detection: H_avg={avg_entropy:.3f}"
-\end{lstlisting}
-
-\section{Property-Based Testing (Hypothesis)}
-
-This section implements property-based fuzzing to generate extreme CMS parameters and validate mathematical invariants.
-
-\begin{lstlisting}
-# tests/test_unit/test_levy_fuzzing.py
-import pytest
-from hypothesis import given, strategies as st, settings, HealthCheck
-import jax.numpy as jnp
-from Python.integrators.levy import stable_variate_cms
-
-@settings(
-    max_examples=500,
-    suppress_health_check=[HealthCheck.too_slow, HealthCheck.filter_too_much]
-)
-@given(
-    alpha=st.floats(min_value=0.5, max_value=2.0),
-    beta=st.floats(min_value=-1.0, max_value=1.0),
-    sigma=st.floats(min_value=0.1, max_value=10.0),
-    num_samples=st.integers(min_value=100, max_value=5000)
-)
-def test_levy_cms_basic_properties(alpha, beta, sigma, num_samples):
-    """
-    Property Test 1: CMS generator must satisfy basic invariants.
-    """
-    samples = jnp.array([
-        stable_variate_cms(alpha, beta, sigma)
-        for _ in range(num_samples)
-    ])
-
-    assert jnp.all(jnp.isfinite(samples)), \
-        f"NaN/Inf detected for alpha={alpha}, beta={beta}, sigma={sigma}"
-
-    if alpha >= 1.8:
-        empirical_var = jnp.var(samples)
-        expected_var = (sigma ** 2) * 1.5
-        assert empirical_var < expected_var * 1.5, \
-            f"Variance too high: {empirical_var:.2e} vs expected {expected_var:.2e}"
-
-    empirical_mean = jnp.mean(samples)
-    if abs(beta) < 0.9:
-        assert abs(empirical_mean) < 3 * sigma / jnp.sqrt(num_samples), \
-            f"Mean drift detected: {empirical_mean:.2e}"
-
-@settings(max_examples=300)
-@given(
-    alpha=st.floats(min_value=0.5, max_value=2.0),
-    beta=st.floats(min_value=-1.0, max_value=1.0),
-    sigma=st.floats(min_value=0.1, max_value=10.0)
-)
-def test_levy_cms_stability_under_extreme_params(alpha, beta, sigma):
-    """
-    Property Test 2: CMS must be stable under extreme parameters.
-    """
-    samples = jnp.array([
-        stable_variate_cms(alpha, beta, sigma)
-        for _ in range(100)
-    ])
-
-    log_abs = jnp.log(jnp.abs(samples) + 1e-8)
-    assert jnp.all(jnp.isfinite(log_abs)), \
-        f"Log transform produced NaN: alpha={alpha}, beta={beta}"
-
-    log_var = jnp.var(log_abs)
-    assert log_var < 50.0, \
-        f"Excessive log-variance: {log_var:.2e} for alpha={alpha}"
-
-@settings(max_examples=200)
-@given(
-    alpha1=st.floats(min_value=0.5, max_value=2.0),
-    alpha2=st.floats(min_value=0.5, max_value=2.0)
-)
-def test_levy_cms_characteristic_exponent(alpha1, alpha2):
-    """
-    Property Test 3: Infinite divisibility properties.
-    """
-    np.random.seed(123)
-
-    sigma1, sigma2 = 1.0, 1.5
-
-    samples1 = jnp.array([stable_variate_cms(alpha1, 0.0, sigma1) for _ in range(500)])
-    samples2 = jnp.array([stable_variate_cms(alpha1, 0.0, sigma2) for _ in range(500)])
-
-    sum_samples = samples1 + samples2
-
-    kurt_sum = jnp.mean((sum_samples - jnp.mean(sum_samples)) ** 4) / (jnp.var(sum_samples) ** 2)
-    kurt1 = jnp.mean((samples1 - jnp.mean(samples1)) ** 4) / (jnp.var(samples1) ** 2 + 1e-8)
-
-    assert jnp.isfinite(kurt_sum), "Kurtosis diverges in Levy sum"
-\end{lstlisting}
-
-\chapter{Robustness Tests: CUSUM and Circuit Breakers}
-
-\section{Standard CUSUM Test}
-
-\begin{lstlisting}
-# tests/test_robustness/test_cusum.py
-import pytest
-import numpy as np
-import jax.numpy as jnp
-from Python.orchestrator.cusum import CUSUM
-
-def test_cusum_no_change(mock_market_data):
-    """
-    Test: CUSUM should not trigger on stationary data.
-    """
-    data = mock_market_data[:500]
-
-    cusum = CUSUM(h=5.0, k=0.5, alpha_var=0.1)
-    alarms = []
-
-    for obs in data:
-        alarm = cusum.update(obs)
-        alarms.append(alarm)
-
-    num_alarms = np.sum(alarms)
-    assert num_alarms == 0, \
-        f"False positives detected: {num_alarms} alarms in stable regime"
-
-def test_cusum_detects_change(mock_market_data):
-    """
-    Test: CUSUM should detect abrupt regime change.
-    """
-    data = mock_market_data
-
-    cusum = CUSUM(h=3.0, k=0.5, alpha_var=0.05)
-    alarms = []
-
-    for obs in data:
-        alarm = cusum.update(obs)
-        alarms.append(alarm)
-
-    alarm_indices = np.where(alarms)[0]
-    assert len(alarm_indices) > 0, "Change point not detected"
-
-    first_alarm = alarm_indices[0]
-    assert 480 < first_alarm < 550, \
-        f"Change detected too far from true point: {first_alarm} vs 500"
-\end{lstlisting}
-
-\section{CUSUM with Adaptive Kurtosis}
-
-\begin{lstlisting}
-# tests/test_robustness/test_cusum_kurtosis.py
-import pytest
-import numpy as np
-import jax.numpy as jnp
-from Python.orchestrator.cusum import CUSUMWithKurtosis
-
-def test_kurtosis_calculation():
-    """
-    Test: Validate empirical kurtosis calculation.
-    """
-    np.random.seed(111)
-    gaussian_data = np.random.randn(10000)
-
-    cusum = CUSUMWithKurtosis(h=5.0, k=0.5, window_size=252)
-
-    for obs in gaussian_data[:1000]:
-        _ = cusum.update(obs)
-
-    kurtosis = cusum.get_kurtosis()
-
-    assert 2.5 < kurtosis < 3.5, \
-        f"Gaussian kurtosis estimation failed: kappa={kurtosis:.2f}"
-
-def test_adaptive_threshold_heavy_tails():
-    """
-    Test: Adaptive threshold increases under heavy tails.
-    """
-    from scipy.stats import t
-    np.random.seed(222)
-    heavy_tail_data = t.rvs(df=3, size=1000) * 2.0
-
-    cusum = CUSUMWithKurtosis(h=5.0, k=0.5, window_size=100)
-
-    h_values = []
-    kurtosis_values = []
-
-    for obs in heavy_tail_data:
-        _, kappa, h_adapt = cusum.update_with_kurtosis(obs)
-        h_values.append(h_adapt)
-        kurtosis_values.append(kappa)
-
-    final_kappa = kurtosis_values[-1]
-    final_h = h_values[-1]
-
-    assert final_kappa > 5.0, \
-        f"Heavy tail kurtosis not detected: kappa={final_kappa:.2f}"
-
-    h_fixed = 5.0
-    assert final_h > h_fixed, \
-        f"Adaptive threshold not increased: h_adapt={final_h:.2f} vs h_fixed={h_fixed}"
-
-def test_false_positive_reduction():
-    """
-    Test: Adaptive CUSUM reduces false positives in high kurtosis.
-    """
-    np.random.seed(333)
-    from scipy.stats import t
-    stable_heavy = t.rvs(df=4, size=1000) * 3.0
-
-    cusum_std = CUSUM(h=3.0, k=0.5, alpha_var=0.1)
-    alarms_std = [cusum_std.update(obs) for obs in stable_heavy]
-
-    cusum_adapt = CUSUMWithKurtosis(h=3.0, k=0.5, window_size=100)
-    alarms_adapt = []
-    for obs in stable_heavy:
-        alarm, _, _ = cusum_adapt.update_with_kurtosis(obs)
-        alarms_adapt.append(alarm)
-
-    num_alarms_std = np.sum(alarms_std[-500:])
-    num_alarms_adapt = np.sum(alarms_adapt[-500:])
-
-    assert num_alarms_adapt < num_alarms_std, \
-        f"Adaptive CUSUM did not reduce false positives: " \
-        f"{num_alarms_adapt} vs {num_alarms_std}"
-\end{lstlisting}
-
-\section{Circuit Breaker Test (Singularity)}
-
-\begin{lstlisting}
-# tests/test_robustness/test_circuit_breaker.py
-import pytest
-import jax.numpy as jnp
-from Python.predictor import UniversalPredictor
-from Python.config import PredictorConfig
-
-def test_circuit_breaker_activation():
-    """
-    Test: Circuit breaker must activate when H_t < H_min.
-    """
-    config = PredictorConfig(holder_threshold=0.4)
-    predictor = UniversalPredictor(config)
-
-    signal_with_jump = jnp.concatenate([
-        jnp.ones(100) * 50.0,
-        jnp.ones(100) * 100.0
-    ])
-
-    for i, obs in enumerate(signal_with_jump):
-        result = predictor.step_with_telemetry(obs, previous_target=obs)
-
-        if i >= 105:
-            if result.holder_exponent < config.holder_threshold:
-                assert result.emergency_mode, \
-                    "Emergency mode not activated despite low Holder"
-
-                assert result.weights[3] > 0.95, \
-                    f"Kernel D not forced: weights={result.weights}"
-
-                assert result.mode == "Emergency", \
-                    f"Robust loss not activated: mode={result.mode}"
-
-                break
-\end{lstlisting}
-
-\chapter{Integration Tests: DGM and Orchestrator}
-
-\section{Deep Galerkin Method Test}
-
-\begin{lstlisting}
-# tests/test_integration/test_dgm.py
-import pytest
-import jax
-import jax.numpy as jnp
-from Python.kernels.kernel_b import DGM_HJB_Solver, loss_hjb
-
-def test_dgm_black_scholes(dgm_reference_solution):
-    """
-    Test: Validate DGM against Black-Scholes analytical solution.
-    """
-    S0 = 100.0
-    K = 100.0
-    T = 1.0
-    r = 0.05
-    sigma = 0.2
-
-    bs_price = dgm_reference_solution(S0, K, T, r, sigma)
-
-    key = jax.random.PRNGKey(42)
-    model = DGM_HJB_Solver(in_size=2, key=key)
-
-    def hamiltonian_bs(x, v_x, v_xx):
-        S = x[0]
-        return r*S*v_x[0] + 0.5*sigma**2*S**2*v_xx[0,0] - r
-
-    def terminal_cond(x):
-        return jnp.maximum(x[0] - K, 0.0)
-
-    t_batch = jnp.linspace(0, T, 100)
-    S_batch = jnp.linspace(80, 120, 100)[:, None]
-
-    loss = loss_hjb(
-        model, t_batch, S_batch,
-        hamiltonian_bs, terminal_cond,
-        boundary_cond_fn=None, T=T
-    )
-
-    V_dgm = model(0.0, jnp.array([S0]))
-    error_rel = abs(float(V_dgm) - bs_price) / bs_price
-
-    assert loss < 1.0, f"DGM loss too high (untrained): {loss:.4f}"
-\end{lstlisting}
-
-\section{Sinkhorn and JKO Test}
-
-\begin{lstlisting}
-# tests/test_integration/test_orchestrator.py
-import pytest
-import jax.numpy as jnp
-from Python.orchestrator.jko import JKO_Discreto
-
-def test_sinkhorn_convergence():
-    """
-    Test: Sinkhorn should converge for epsilon >= 1e-4.
-    """
-    jko = JKO_Discreto(epsilon=1e-3)
+\end{document}
 
     weights_prev = jnp.array([0.25, 0.25, 0.25, 0.25])
     gradients = jnp.array([0.1, -0.2, 0.05, -0.1])
