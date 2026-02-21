@@ -14,14 +14,14 @@ import pickle
 from concurrent.futures import Future, ThreadPoolExecutor
 from dataclasses import dataclass, fields
 from pathlib import Path
-from typing import Any, Callable, Dict, Optional
+from typing import Any, Callable, Dict, List, Optional
 
 import numpy as np
 
 try:
     import tomllib  # Python 3.11+
 except ImportError:
-    import tomli as tomllib  # Fallback for Python < 3.11
+    import tomli as tomllib  # type: ignore[no-redef]
 
 try:
     import optuna  # type: ignore[import-not-found]

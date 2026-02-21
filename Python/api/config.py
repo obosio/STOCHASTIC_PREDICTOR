@@ -21,7 +21,7 @@ from typing import TYPE_CHECKING, Any, Dict, Optional
 try:
     import tomllib  # Python 3.11+
 except ImportError:
-    import tomli as tomllib  # Fallback for Python < 3.11
+    import tomli as tomllib  # type: ignore[no-redef]
 
 import jax
 

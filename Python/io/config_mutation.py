@@ -194,7 +194,7 @@ def validate_config_mutation(
 
         # Constraint checks
         if "constraint" in rules:
-            if rules["constraint"] == "power_of_2" and not _is_power_of_2(new_value):
+            if rules["constraint"] == "power_of_2" and not _is_power_of_2(int(new_value)):
                 raise ConfigMutationError(f"Parameter '{param_key}' must be power of 2, got {new_value}")
 
     # Cross-parameter constraints

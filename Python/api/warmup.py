@@ -288,7 +288,7 @@ def warmup_all_kernels(
     if key is None:
         key = initialize_jax_prng(seed=config.prng_seed)
 
-    timings = {}
+    timings: dict[str, float | dict[int, float]] = {}
 
     # Split key for each kernel (deterministic warm-up)
     keys = split_key(key, num=config.prng_split_count)
