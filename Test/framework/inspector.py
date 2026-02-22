@@ -12,7 +12,7 @@ import ast
 import importlib.util
 import inspect
 from pathlib import Path
-from typing import Any, Dict, List, Optional, Union
+from typing import Any, Dict, List, Optional, Union, cast
 
 
 def analyze_function_signature(
@@ -47,9 +47,7 @@ def analyze_function_signature(
     # Extract arguments
     if func_node.args:
         # Regular args
-        signature["args"] = [
-            arg.arg for arg in func_node.args.args if arg.arg != "self"
-        ]
+        signature["args"] = [arg.arg for arg in func_node.args.args if arg.arg != "self"]
         signature["defaults"] = len(func_node.args.defaults)
         signature["has_varargs"] = func_node.args.vararg is not None
         signature["has_kwargs"] = func_node.args.kwarg is not None
@@ -71,7 +69,7 @@ def analyze_class(class_node: ast.ClassDef) -> Dict[str, Any]:
         - bases: List of base class names
         - docstring: First line of docstring (if any)
     """
-    class_info = {
+    class_info: Dict[str, Any] = {
         "name": class_node.name,
         "methods": [],
         "bases": [base.id for base in class_node.bases if isinstance(base, ast.Name)],
@@ -81,7 +79,8 @@ def analyze_class(class_node: ast.ClassDef) -> Dict[str, Any]:
     # Extract methods
     for node in class_node.body:
         if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef)):
-            class_info["methods"].append(analyze_function_signature(node))
+            methods = cast(List[Dict[str, Any]], class_info["methods"])
+            methods.append(analyze_function_signature(node))
 
     return class_info
 
@@ -106,20 +105,24 @@ def extract_module_callables(module_path: Path) -> Dict[str, Any]:
 
     tree = ast.parse(source, filename=str(module_path))
 
-    module_info = {"functions": [], "classes": [], "imports": []}
+    module_info: Dict[str, Any] = {"functions": [], "classes": [], "imports": []}
 
     # Extract top-level functions and classes
     for node in tree.body:
         if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef)):
-            module_info["functions"].append(analyze_function_signature(node))
+            functions = cast(List[Dict[str, Any]], module_info["functions"])
+            functions.append(analyze_function_signature(node))
         elif isinstance(node, ast.ClassDef):
-            module_info["classes"].append(analyze_class(node))
+            classes = cast(List[Dict[str, Any]], module_info["classes"])
+            classes.append(analyze_class(node))
         elif isinstance(node, (ast.Import, ast.ImportFrom)):
             if isinstance(node, ast.Import):
-                module_info["imports"].extend([alias.name for alias in node.names])
+                imports = cast(List[str], module_info["imports"])
+                imports.extend([alias.name for alias in node.names])
             else:
                 if node.module:
-                    module_info["imports"].append(node.module)
+                    imports = cast(List[str], module_info["imports"])
+                    imports.append(node.module)
 
     return module_info
 
@@ -144,6 +147,8 @@ def load_module_dynamically(module_path: Path, module_name: str) -> Optional[Any
     except Exception as e:
         print(f"Failed to load {module_name}: {e}")
         return None
+
+    return None
 
 
 def get_callable_object(module, callable_name: str) -> Optional[Any]:
@@ -181,16 +186,10 @@ def inspect_callable_signature_runtime(callable_obj) -> Dict[str, Any]:
                 name
                 for name, param in sig.parameters.items()
                 if param.default == inspect.Parameter.empty
-                and param.kind
-                not in (inspect.Parameter.VAR_POSITIONAL, inspect.Parameter.VAR_KEYWORD)
+                and param.kind not in (inspect.Parameter.VAR_POSITIONAL, inspect.Parameter.VAR_KEYWORD)
             ],
-            "has_varargs": any(
-                p.kind == inspect.Parameter.VAR_POSITIONAL
-                for p in sig.parameters.values()
-            ),
-            "has_kwargs": any(
-                p.kind == inspect.Parameter.VAR_KEYWORD for p in sig.parameters.values()
-            ),
+            "has_varargs": any(p.kind == inspect.Parameter.VAR_POSITIONAL for p in sig.parameters.values()),
+            "has_kwargs": any(p.kind == inspect.Parameter.VAR_KEYWORD for p in sig.parameters.values()),
             "return_annotation": sig.return_annotation,
             "docstring": inspect.getdoc(callable_obj) or "",
         }
@@ -213,7 +212,7 @@ def categorize_callables_by_type(module_info: Dict[str, Any]) -> Dict[str, List[
         - dataclasses: Classes with no methods or only __init__
         - utilities: Classes with helper methods
     """
-    categories = {
+    categories: Dict[str, List[str]] = {
         "validators": [],
         "constructors": [],
         "computations": [],
@@ -260,7 +259,7 @@ if __name__ == "__main__":
         print(f"  - {cls['name']}")
 
     categories = categorize_callables_by_type(info)
-    print(f"\nCategories:")
+    print("\nCategories:")
     for cat, items in categories.items():
         if items:
             print(f"  {cat}: {items}")

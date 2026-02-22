@@ -2,9 +2,9 @@
 
 This framework provides:
 - Auto-discovery of modules and tests
-- Configurable fixtures with caching
 - Change detection for incremental testing
 - Extensible test generation
+- Markdown report rendering
 
 Usage in another project:
     1. Copy Test/framework/ to your project
@@ -14,12 +14,13 @@ Usage in another project:
 
 Framework modules:
     - discovery: Auto-discover modules, files, and changes
-    - fixtures: Factory for creating project-specific fixtures
-    - markers: Dynamic pytest marker generation
+    - generator: Test generation support
+    - inspector: Callable inspection utilities
+    - reports: Markdown report rendering
 """
 
 __version__ = "2.1.0"
 
-from . import discovery, generator, inspector
+from . import discovery, generator, inspector, reports
 
-__all__ = ["discovery", "generator", "inspector"]
+__all__ = ["discovery", "generator", "inspector", "reports"]

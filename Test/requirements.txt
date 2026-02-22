@@ -11,10 +11,16 @@
 pytest==9.0.2
 pytest-cov==7.0.0
 
+# ==================== Configuration ==================== #
+# YAML loader for test_config.yaml
+PyYAML==6.0.3
+types-PyYAML==6.0.12.20250915
+
 # ==================== Code Quality Tools ==================== #
 # Style enforcement and type checking
 black==26.1.0
 flake8==7.3.0
+flake8-pyproject==1.2.3
 mypy==1.19.1
 isort==8.0.0
 

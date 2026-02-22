@@ -421,7 +421,7 @@ def kernel_b_predict(
         entropy=entropy,
         probability_density=probability_density,
         kernel_id=1,  # 1=B (JAX JIT compatible)
-        computation_time_us=jnp.array(config.kernel_output_time_us),
+        computation_time_us=float(config.kernel_output_time_us),
         numerics_flags=numerics_flags,
         metadata=diagnostics,
     )

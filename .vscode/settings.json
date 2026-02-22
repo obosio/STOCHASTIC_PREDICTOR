@@ -33,6 +33,7 @@
   "chat.tools.terminal.autoApprove": {
     ".venv/bin/isort": true,
     ".venv/bin/mypy": true,
-    ".venv/bin/flake8": true
+    ".venv/bin/flake8": true,
+    "/Users/obosio/Library/CloudStorage/Dropbox/OCTA/Projects/STOCHASTIC_PREDICTOR/.venv/bin/python": true
   }
 }

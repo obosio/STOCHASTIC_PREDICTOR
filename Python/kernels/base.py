@@ -25,7 +25,6 @@ from jaxtyping import Array, Float
 
 from ..api.types import KernelOutput  # Centralized definition (JAX JIT compatible)
 
-
 # Removed duplicate KernelOutput definition - now imported from api.types
 
 

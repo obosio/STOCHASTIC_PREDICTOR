@@ -1,148 +1,79 @@
-# Test Framework Configuration
-# 
-# This file contains the minimal configuration needed to run tests.
-# All settings have sensible defaults - uncomment and modify as needed.
+# ====================================================================
+# Test Framework Configuration (v2.1.0)
+# ====================================================================
+#
+# CRITICAL: All parameters used by the test orchestrator MUST be defined here.
+# No fallbacks or defaults are allowed - missing parameters cause blocking errors.
+#
+# Configuration follows execution order:
+#   1. GATE 1: Dependencies validation
+#   2. GATE 2: Code Quality (format → lint → types)
+#
+# Issue Classification (3 levels):
+#   BLOCKING: Prevents code execution (syntax errors, undefined names)
+#   ERROR:    Code executes but has logic/quality issues (unused vars, type errors)
+#   WARNING:  Style/formatting issues (whitespace, import order)
+#
+# Current implementation status (in execution order):
+#   ✅ quality_gates.dependencies.block_on_warnings - GATE 1 strictness
+#   ✅ quality_gates.autofix                        - GATE 2 global auto-fix toggle
+#   ✅ quality_gates.format.block_on_errors         - GATE 2A ERROR blocking
+#   ✅ quality_gates.format.block_on_warnings       - GATE 2A WARNING blocking
+#   ✅ quality_gates.lint.block_on_errors           - GATE 2B ERROR blocking
+#   ✅ quality_gates.lint.block_on_warnings         - GATE 2B WARNING blocking
+#   ✅ quality_gates.types.block_on_errors          - GATE 2C ERROR blocking
+#   ✅ quality_gates.types.block_on_warnings        - GATE 2C WARNING blocking
 
 # ====================================================================
-# Test Discovery & Execution
+# Quality Gates (Execution Order: GATE 1 → GATE 2)
 # ====================================================================
 
-test:
-  # Source directory containing modules to test
-  source_dir: "Python"
+quality_gates:
+  # ──────────────────────────────────────────────────────────────────
+  # GATE 1: Dependency Validation (BLOCKING - runs first)
+  # ──────────────────────────────────────────────────────────────────
+  dependencies:
+    # [REQUIRED] Treat warnings as blocking errors
+    # - true: Missing extras/unused deps block (strict CI/CD)
+    # - false: Only critical issues block (development)
+    block_on_warnings: false
   
-  # Output directory for generated tests
-  output_dir: "Test/tests"
+  # ──────────────────────────────────────────────────────────────────
+  # GATE 2: Code Quality (format → lint → types)
+  # ──────────────────────────────────────────────────────────────────
   
-  # Auto-regenerate tests before running (recommended)
-  # If false, you must manually run: python Test/scripts/regenerate_tests.py
-  auto_generate: true
+  # [GLOBAL] Auto-fix formatting before checking
+  # - true: Run black/isort to fix, then check remaining
+  # - false: Only report, don't auto-fix
+  autofix: true
   
-  # Pytest markers to run (run all if empty)
-  # Examples:
-  #   - api        # Only API layer tests
-  #   - core       # Only Core layer tests
-  #   - "not slow" # All except slow tests
-  markers: []
+  # ──────────────────────────────────────────────────────────────────
+  # GATE 2A: Formatting (black + isort)
+  # ──────────────────────────────────────────────────────────────────
+  format:
+    # [REQUIRED] Block on ERROR issues (none - all formatting is WARNING)
+    block_on_errors: false
+    
+    # [REQUIRED] Block on WARNING issues (unformatted code, unsorted imports)
+    block_on_warnings: false
   
-  # Fail on first error (fast feedback)
-  fail_fast: true
+  # ──────────────────────────────────────────────────────────────────
+  # GATE 2B: Linting (flake8)
+  # ──────────────────────────────────────────────────────────────────
+  lint:
+    # [REQUIRED] Block on ERROR issues (F841 unused var, F401 unused import, etc)
+    # Note: BLOCKING always fails (E999 syntax, F821 undefined)
+    block_on_errors: false
+    
+    # [REQUIRED] Block on WARNING issues (W-class whitespace/style)
+    block_on_warnings: false
   
-  # Show local variables in tracebacks
-  show_locals: true
-  
-  # Verbosity: quiet, normal, verbose, extra
-  verbosity: "verbose"
-
-# ====================================================================
-# Coverage Settings
-# ====================================================================
-
-coverage:
-  # Enable coverage reporting
-  enabled: false
-  
-  # Module to measure coverage for
-  module: "Python"
-  
-  # Minimum coverage % (optional, 0 to disable)
-  min_percentage: 0
-  
-  # Output format: terminal, html, json
-  format: "terminal"
-
-# ====================================================================
-# Cache Settings
-# ====================================================================
-
-cache:
-  # Enable change detection (only run tests for modified files)
-  enabled: true
-  
-  # Cache file location
-  file: "Test/.scope_cache.json"
-  
-  # Force full run (ignore cache)
-  force_all: false
-
-# ====================================================================
-# Performance & Timing
-# ====================================================================
-
-performance:
-  # Timeout for individual tests (seconds, 0 = no timeout)
-  test_timeout: 0
-  
-  # Show durations of slowest N tests
-  show_durations: 5
-  
-  # Maximum parallel workers (0 = sequential)
-  max_workers: 1
-
-# ====================================================================
-# Fixtures & Setup
-# ====================================================================
-
-fixtures:
-  # Enable session-scoped fixtures (recommended for performance)
-  session_fixtures: true
-  
-  # Seed for PRNG fixtures (for reproducibility)
-  prng_seed: 42
-  
-  # Path to pytest-ini for configuration
-  pytest_ini: "Test/pytest.ini"
-
-# ====================================================================
-# Framework Integration
-# ====================================================================
-
-framework:
-  # Version of test framework
-  version: "2.1.0"
-  
-  # Auto-marker categorization
-  # true: automatically mark tests by module (api, core, io, kernels)
-  # false: no auto-marking
-  auto_markers: true
-  
-  # Ignore patterns (relative to project root)
-  ignore_patterns:
-    - "__pycache__"
-    - "*.pyc"
-    - ".venv"
-    - ".git"
-
-# ====================================================================
-# Output & Reporting
-# ====================================================================
-
-output:
-  # Report directory
-  reports_dir: "Test/reports"
-  
-  # Save JSON report
-  save_json: true
-  
-  # Save Markdown report
-  save_markdown: true
-  
-  # Print progress bar
-  progress_bar: true
-
-# ====================================================================
-# Debugging
-# ====================================================================
-
-debug:
-  # Enable debug output
-  enabled: false
-  
-  # Print discovered modules
-  print_modules: false
-  
-  # Print generated test file paths
-  print_generated_tests: false
-  
-  # Dry run (plan what would happen, don't execute)
-  dry_run: false
+  # ──────────────────────────────────────────────────────────────────
+  # GATE 2C: Type Checking (mypy)
+  # ──────────────────────────────────────────────────────────────────
+  types:
+    # [REQUIRED] Block on ERROR issues (type mismatches, missing annotations)
+    block_on_errors: false
+    
+    # [REQUIRED] Block on WARNING issues (none - all mypy is ERROR currently)
+    block_on_warnings: false

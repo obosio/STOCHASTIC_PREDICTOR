@@ -1,66 +1,142 @@
-# Dependency Report
+# Dependency Check Report
 
-## Introduction
+## Metadata
 
-This report inventories all project dependencies across production, testing, and documentation layers. It verifies requirements consistency and tracks package versions pinned by the project.
+| Field | Value |
+| --- | --- |
+| Report ID | dependency_check |
+| Timestamp (UTC) | 2026-02-22T00:42:41.953046+00:00 |
+| Status | PASS |
+| Source | Test/scripts/dependency_check.py |
+| Framework Version | 2.1.0 |
+| Notes | Requirements vs imports and installed packages (3-level: BLOCKING/ERROR/WARNING) |
 
 ## Execution Summary
 
-| Metric | Count |
-| ------ | ----- |
-| Total Unique Packages | 22 |
-| Status | ✅ PASS |
+| Metric | Value |
+| --- | --- |
+| Total Unique Packages | 30 |
+| Blocking Issues | 0 |
+| Error Issues | 0 |
+| Warning Issues | 2 |
+| Missing in Production | 0 |
+| Missing in Testing | 0 |
+| Version Mismatches | 0 |
+| Unresolved Imports | 0 |
 
-## Requirements Details
+## Scope
 
-### Production Layer
+### Folders
 
-**Requirement File:** `Python/requirements.txt`
+- Python
+- Test
 
-**Package Count:** 14
+### Files
 
-**Packages:**
+- Python/requirements.txt
+- Test/requirements.txt
 
-- `PyWavelets`
-- `diffrax`
-- `equinox`
-- `jax`
-- `jaxlib`
-- `jaxtyping`
-- `numpy`
-- `optax`
-- `ott-jax`
-- `pandas`
-- `pydantic`
-- `scipy`
-- `signax`
-- `tomli`
+### Modules
 
-### Testing Layer
+- brotli
+- equinox
+- google_crc32c
+- jax
+- jaxtyping
+- msgpack
+- numpy
+- optuna
+- ott
+- pydantic
+- pytest
+- signax
+- toml
+- tomli
+- yaml
 
-**Requirement File:** `Test/requirements.txt`
+### Functions
 
-**Package Count:** 8
+- None
 
-**Packages:**
+### Classes
 
-- `black`
-- `flake8`
-- `isort`
-- `matplotlib`
-- `mypy`
-- `pytest`
-- `pytest-cov`
-- `seaborn`
+- None
 
-### Documentation Layer
+## Details
 
-**Requirement File:** `Doc/requirements.txt`
+| Layer | Package Count |
+| --- | --- |
+| Production | 19 |
+| Testing | 30 |
 
-**Package Count:** 0
+## Issues & Warnings
 
-No packages.
+### Blocking Issues
 
-## Debug Information
+- No blocking issues
 
-All requirements files found and parsed successfully. No conflicts detected.
+### Error Issues
+
+- No error issues
+
+### Warning Issues
+
+- [dependency] extra_in_production_requirements: 6
+- [dependency] extra_in_testing_requirements: 15
+
+## Extras
+
+### Missing In Production Requirements
+
+- No findings
+
+### Missing In Testing Requirements
+
+- No findings
+
+### Extra In Production Requirements
+
+- diffrax
+- jaxlib
+- optax
+- pandas
+- pywavelets
+- scipy
+
+### Extra In Testing Requirements
+
+- black
+- diffrax
+- flake8
+- flake8-pyproject
+- isort
+- jaxlib
+- matplotlib
+- mypy
+- optax
+- pandas
+- pytest-cov
+- pywavelets
+- scipy
+- seaborn
+- types-pyyaml
+
+### Not Installed Production
+
+- No findings
+
+### Not Installed Testing
+
+- No findings
+
+### Unresolved Production Imports
+
+- No findings
+
+### Unresolved Testing Imports
+
+- No findings
+
+### Version Mismatches
+
+- No findings

@@ -143,7 +143,7 @@ def pytest_configure(config):
 def pytest_collection_modifyitems(config, items):
     """Auto-mark tests based on their file path.
 
-    Tests in Test/tests/api/ automatically get @pytest.mark.api
+    Tests in Test/tests/*/api/ automatically get @pytest.mark.api
     This allows running subset of tests without manual marking:
         pytest -m api
     """
@@ -151,12 +151,19 @@ def pytest_collection_modifyitems(config, items):
         # Extract module path from test file
         test_file = Path(item.fspath)
 
-        # Auto-mark based on directory structure
-        if "tests/api" in str(test_file):
+        # Auto-mark based on directory structure (agnostic to test type folder)
+        parts = [part.lower() for part in test_file.parts]
+        if "tests" in parts:
+            test_index = parts.index("tests")
+            relative_parts = parts[test_index + 1 :]
+        else:
+            relative_parts = parts
+
+        if "api" in relative_parts:
             item.add_marker(pytest.mark.api)
-        elif "tests/core" in str(test_file):
+        elif "core" in relative_parts:
             item.add_marker(pytest.mark.core)
-        elif "tests/kernels" in str(test_file):
+        elif "kernels" in relative_parts:
             item.add_marker(pytest.mark.kernels)
-        elif "tests/io" in str(test_file):
+        elif "io" in relative_parts:
             item.add_marker(pytest.mark.io)

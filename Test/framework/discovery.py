@@ -95,9 +95,7 @@ def discover_python_modules(source_path: Path | str | None = None) -> List[str]:
     return sorted(modules)
 
 
-def discover_module_files(
-    module_name: str, root: Path | str | None = None, source_dir: str = "Python"
-) -> List[str]:
+def discover_module_files(module_name: str, root: Path | str | None = None, source_dir: str = "Python") -> List[str]:
     """Get all .py files in a specific module.
 
     Args:
@@ -260,20 +258,21 @@ def extract_public_symbols(module_file: Path) -> Set[str]:
             for target in node.targets:
                 if isinstance(target, ast.Name) and target.id == "__all__":
                     if isinstance(node.value, (ast.List, ast.Tuple)):
-                        result = set()
+                        result: Set[str] = set()
                         for elt in node.value.elts:
+                            value: object | None = None
                             # Python 3.8+: strings are ast.Constant
-                            if isinstance(elt, ast.Constant) and isinstance(
-                                elt.value, str
-                            ):
-                                result.add(elt.value)
+                            if isinstance(elt, ast.Constant):
+                                value = elt.value
                             # Python <3.8: strings are ast.Str (deprecated)
                             elif isinstance(elt, ast.Str):
-                                result.add(elt.s)
+                                value = elt.s
+                            if isinstance(value, str):
+                                result.add(value)
                         return result
 
     # Fallback: extract all non-private top-level names
-    public_names = set()
+    public_names: Set[str] = set()
     for node in tree.body:
         if isinstance(node, ast.FunctionDef) and not node.name.startswith("_"):
             public_names.add(node.name)

@@ -528,7 +528,7 @@ class PredictionResult:
 class KernelOutput(NamedTuple):
     """
     API-facing kernel output contract.
-    
+
     Note: kernel_id is int to be JAX JIT-compatible: 0=A, 1=B, 2=C, 3=D
     Uses NamedTuple to be JAX PyTree-compatible automatically.
     """

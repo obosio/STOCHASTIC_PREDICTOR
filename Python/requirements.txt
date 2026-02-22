@@ -47,6 +47,8 @@ pydantic==2.12.5
 # ==================== Configuration Management ==================== #
 # TOML parser for config.toml (fallback for Python < 3.11)
 tomli==2.0.1
+# TOML writer for configuration mutation (Python/io/config_mutation.py)
+toml==0.10.2
 
 # ==================== Optimal Transport ==================== #
 # Differentiable optimal transport: JKO algorithm, Sinkhorn with volatility-coupled regularization
@@ -76,6 +78,14 @@ pandas==3.0.1
 # TPE (Tree-structured Parzen Estimator) sampler for structural parameters
 # Optional: System operates without this, but meta-optimization unavailable
 optax==0.2.5
+optuna==4.2.0
+
+# ==================== Compression & Serialization (Optional) ==================== #
+# Advanced compression for snapshots and telemetry
+# Optional: System operates without these, but snapshot compression unavailable
+msgpack==1.1.0
+google-crc32c==1.6.0
+Brotli==1.1.0
 
 # ==================== CONSTRAINTS ==================== #
 # - All versions MUST match Golden Master exactly (== operator required)

@@ -1,485 +1,454 @@
 #!/usr/bin/env python3
-"""Code linting and style enforcement.
+"""Run unified code quality checks (black, isort, flake8, mypy) and generate JSON report.
 
-Linting Scope: Python/ directory (all modules: api, core, kernels, io)
+Scope: Python/ and Test/ directories.
+Output: Test/results/code_lint_last.json
 
-Tools:
-- flake8: Style violations, complexity
-- mypy: Static type checking
-- isort: Import organization
-- black: Code formatting (check mode)
+Classification (3-level):
+- BLOCKING: Code won't execute (E999 syntax, F821 undefined, F823 __all__)
+- ERROR: Code executes but has bugs (F8xx unused/redefined, E4xx imports, mypy)
+- WARNING: Style/formatting (black/isort, W-class whitespace)
 
-Outputs:
-- Console summary (PASS/FAIL per linter)
-- JSON report: Test/results/code_lint_last.json
-- Markdown report: Test/reports/code_lint_last.md
-
-EXIT CODES:
-- 0: All linters passed
-- 1: One or more linters failed
+Usage:
+    python code_lint.py           # Check-only mode
+    python code_lint.py --autofix # Auto-fix formatting before checking
+    python code_lint.py --block-on-lint-errors --block-on-type-errors  # Recommended CI/CD
 """
 
 from __future__ import annotations
 
+import argparse
 import json
-import os
 import subprocess
 import sys
-from dataclasses import asdict, dataclass
 from datetime import datetime, timezone
 from pathlib import Path
-from typing import Dict, List, Tuple
 
-try:
-    from scope_discovery import discover_modules, get_root
-except ImportError:
+from framework.discovery import get_project_root
+from framework.reports import render_report
 
-    def _discover_modules_fallback(root: str | Path | None = None) -> List[str]:
-        if root is None:
-            root = os.path.abspath(os.path.join(os.path.dirname(__file__), "../.."))
-        root = Path(root) if isinstance(root, str) else root
-        python_dir = root / "Python"
-        if not python_dir.is_dir():
-            return []
-        return sorted(
-            [
-                d.name
-                for d in python_dir.iterdir()
-                if d.is_dir() and (d / "__init__.py").is_file()
-            ]
-        )
-
-    def _get_root_fallback() -> Path:
-        return Path(os.path.abspath(os.path.join(os.path.dirname(__file__), "../..")))
-
-    discover_modules = _discover_modules_fallback
-    get_root = _get_root_fallback
+FRAMEWORK_VERSION = "2.1.0"
 
 
-ROOT = str(get_root())
-RESULTS_DIR = os.path.join(ROOT, "Test", "results")
-REPORTS_DIR = os.path.join(ROOT, "Test", "reports")
-PYTHON_DIR = os.path.join(ROOT, "Python")
-VENV_BIN = os.path.join(ROOT, ".venv", "bin")
-
-os.makedirs(RESULTS_DIR, exist_ok=True)
-os.makedirs(REPORTS_DIR, exist_ok=True)
-
-
-@dataclass(frozen=True)
-class LinterResult:
-    """Single linter check result."""
-
-    linter: str
-    passed: bool
-    violations: int
-    details: str
-    output: str = ""
+def _collect_files(roots: list[Path]) -> list[str]:
+    """Collect all Python files from given root directories."""
+    files: list[str] = []
+    for root in roots:
+        if not root.exists():
+            continue
+        for path in root.rglob("*.py"):
+            if "__pycache__" in path.parts:
+                continue
+            files.append(str(path.relative_to(get_project_root())))
+    return sorted(set(files))
 
 
-def run_flake8() -> LinterResult:
-    """Run flake8 for PEP8 style violations."""
-    flake8_path = os.path.join(VENV_BIN, "flake8")
-    try:
-        result = subprocess.run(
-            [
-                flake8_path,
-                PYTHON_DIR,
-                "--max-line-length=120",  # Increased for black compatibility
-                "--show-source",
-                "--ignore=F722,F821,E203,W503",  # F722/F821: jaxtyping syntax, E203/W503: black compat
-            ],
-            capture_output=True,
-            text=True,
-            timeout=60,
-        )
+def _run_black_check(target: Path, root: Path) -> tuple[int, list[str]]:
+    """Run black --check and return (exit_code, files_needing_format)."""
+    cmd = [sys.executable, "-m", "black", "--check", "--quiet", str(target)]
+    result = subprocess.run(cmd, capture_output=True, text=True, cwd=root)
+    files = []
+    for line in result.stdout.split("\n"):
+        if "would reformat" in line:
+            # Extract filename from "would reformat <filename>"
+            parts = line.strip().split()
+            if len(parts) >= 3:
+                files.append(parts[2])
+    return result.returncode, files
 
-        # Count violations (lines of output)
-        output = result.stdout
-        violations = len([l for l in output.split("\n") if l.strip()])
 
-        if result.returncode == 0:
-            return LinterResult(
-                linter="flake8",
-                passed=True,
-                violations=0,
-                details="No style violations found",
-                output=output,
+def _run_black_fix(target: Path, root: Path) -> int:
+    """Run black to auto-format code."""
+    cmd = [sys.executable, "-m", "black", "--quiet", str(target)]
+    result = subprocess.run(cmd, capture_output=True, text=True, cwd=root)
+    return result.returncode
+
+
+def _run_isort_check(target: Path, root: Path) -> tuple[int, list[str]]:
+    """Run isort --check-only and return (exit_code, files_needing_sort)."""
+    cmd = [sys.executable, "-m", "isort", "--check-only", "--quiet", str(target)]
+    result = subprocess.run(cmd, capture_output=True, text=True, cwd=root)
+    files = []
+    for line in result.stderr.split("\n"):
+        if "would be reformatted" in line.lower():
+            files.append(line.strip())
+    return result.returncode, files
+
+
+def _run_isort_fix(target: Path, root: Path) -> int:
+    """Run isort to auto-sort imports."""
+    cmd = [sys.executable, "-m", "isort", "--quiet", str(target)]
+    result = subprocess.run(cmd, capture_output=True, text=True, cwd=root)
+    return result.returncode
+
+
+def _run_flake8(target: Path, root: Path) -> list[dict]:
+    """Run flake8 and return parsed issues."""
+    cmd = [sys.executable, "-m", "flake8", str(target), "--format=default"]
+    result = subprocess.run(cmd, capture_output=True, text=True, cwd=root)
+
+    issues = []
+    for line in result.stdout.strip().split("\n"):
+        if not line.strip() or ":" not in line:
+            continue
+        parts = line.split(":", 3)
+        if len(parts) >= 4:
+            code_msg = parts[3].strip()
+            code = code_msg.split()[0] if code_msg else "UNKNOWN"
+            issues.append(
+                {
+                    "tool": "flake8",
+                    "filename": parts[0].strip(),
+                    "line": parts[1].strip(),
+                    "column": parts[2].strip(),
+                    "code": code,
+                    "text": code_msg,
+                }
             )
-        else:
-            return LinterResult(
-                linter="flake8",
-                passed=False,
-                violations=violations,
-                details=f"Found {violations} style violations",
-                output=output,
+    return issues
+
+
+def _run_mypy(target: Path, root: Path) -> list[dict]:
+    """Run mypy and return parsed issues."""
+    cmd = [sys.executable, "-m", "mypy", str(target), "--no-error-summary"]
+    result = subprocess.run(cmd, capture_output=True, text=True, cwd=root)
+
+    issues = []
+    for line in result.stdout.strip().split("\n"):
+        if not line.strip() or ":" not in line or "error:" not in line.lower():
+            continue
+        # Format: filename.py:line: error: message [code]
+        parts = line.split(":", 3)
+        if len(parts) >= 3:
+            msg_part = parts[2].strip() if len(parts) > 2 else ""
+            # Extract code from [code] if present
+            code = "mypy"
+            if "[" in msg_part and "]" in msg_part:
+                code = msg_part[msg_part.rfind("[") + 1 : msg_part.rfind("]")]
+
+            issues.append(
+                {
+                    "tool": "mypy",
+                    "filename": parts[0].strip(),
+                    "line": parts[1].strip(),
+                    "column": "0",
+                    "code": code,
+                    "text": msg_part,
+                }
             )
-    except FileNotFoundError:
-        return LinterResult(
-            linter="flake8",
-            passed=False,
-            violations=0,
-            details="flake8 not installed",
-            output="ERROR: flake8 not found",
-        )
-    except subprocess.TimeoutExpired:
-        return LinterResult(
-            linter="flake8",
-            passed=False,
-            violations=0,
-            details="flake8 timed out",
-            output="ERROR: Timeout",
-        )
-    except Exception as e:
-        return LinterResult(
-            linter="flake8",
-            passed=False,
-            violations=0,
-            details=f"flake8 error: {str(e)}",
-            output=str(e),
-        )
+    return issues
 
 
-def run_mypy() -> LinterResult:
-    """Run mypy for static type checking."""
-    mypy_path = os.path.join(VENV_BIN, "mypy")
-    try:
-        result = subprocess.run(
-            [
-                mypy_path,
-                PYTHON_DIR,
-                "--ignore-missing-imports",
-                "--follow-imports=silent",
-            ],
-            capture_output=True,
-            text=True,
-            timeout=180,
-        )
+def _classify_issue(issue: dict) -> str:
+    """Classify an issue into BLOCKING, ERROR, or WARNING.
 
-        output = result.stdout + result.stderr
+    Returns:
+        "BLOCKING" - Code that won't execute (syntax errors, undefined names)
+        "ERROR" - Logic errors but code executes (unused vars, type errors)
+        "WARNING" - Style/formatting (whitespace, W-class)
+    """
+    tool = issue.get("tool", "")
+    code = issue.get("code", "")
+    filename = issue.get("filename", "")
 
-        # Count type errors (lines with error keyword)
-        violations = len([l for l in output.split("\n") if "error:" in l.lower()])
+    # ═══════════════════════════════════════════════════════════════
+    # FLAKE8 CLASSIFICATION
+    # ═══════════════════════════════════════════════════════════════
+    if tool == "flake8":
+        # ───────────────────────────────────────────────────────────
+        # BLOCKING: Code that won't execute
+        # ───────────────────────────────────────────────────────────
+        if code == "E999":  # SyntaxError
+            return "BLOCKING"
+        if code == "F821":  # Undefined name
+            return "BLOCKING"
+        if code == "F823":  # Undefined in __all__
+            return "BLOCKING"
 
-        if result.returncode == 0:
-            return LinterResult(
-                linter="mypy",
-                passed=True,
-                violations=0,
-                details="No type checking errors",
-                output=output[:500],  # Truncate long output
-            )
-        else:
-            return LinterResult(
-                linter="mypy",
-                passed=False,
-                violations=violations,
-                details=f"Found {violations} type errors",
-                output=output[:500],
-            )
-    except FileNotFoundError:
-        return LinterResult(
-            linter="mypy",
-            passed=False,
-            violations=0,
-            details="mypy not installed",
-            output="ERROR: mypy not found",
-        )
-    except subprocess.TimeoutExpired:
-        return LinterResult(
-            linter="mypy",
-            passed=False,
-            violations=0,
-            details="mypy timed out",
-            output="ERROR: Timeout",
-        )
-    except Exception as e:
-        return LinterResult(
-            linter="mypy",
-            passed=False,
-            violations=0,
-            details=f"mypy error: {str(e)}",
-            output=str(e),
-        )
+        # ───────────────────────────────────────────────────────────
+        # WARNING: Style/formatting (all W-class)
+        # ───────────────────────────────────────────────────────────
+        if code.startswith("W"):
+            return "WARNING"
+        if code == "E202":  # whitespace before ']'
+            return "WARNING"
 
+        # ───────────────────────────────────────────────────────────
+        # ERROR: Logic errors but code executes
+        # ───────────────────────────────────────────────────────────
+        # Exceptions: Expected issues in specific scripts
+        if code == "F401" and "code_structure.py" in filename:  # Unused imports (introspection)
+            return "WARNING"
+        if code == "E402" and "code_structure.py" in filename:  # Late imports (dynamic)
+            return "WARNING"
+        if code == "F824" and "code_alignment.py" in filename:  # Unused global (technical debt)
+            return "WARNING"
 
-def run_isort() -> LinterResult:
-    """Run isort to check import organization."""
-    isort_path = os.path.join(VENV_BIN, "isort")
-    try:
-        result = subprocess.run(
-            [
-                isort_path,
-                PYTHON_DIR,
-                "--check-only",
-                "--diff",
-                "--profile",
-                "black",
-                "--line-length",
-                "120",
-            ],
-            capture_output=True,
-            text=True,
-            timeout=60,
-        )
+        # All other E/F codes are ERROR
+        if code.startswith(("E", "F")):
+            return "ERROR"
 
-        output = result.stdout + result.stderr
+        # Unknown → ERROR (conservative)
+        return "ERROR"
 
-        if result.returncode == 0:
-            return LinterResult(
-                linter="isort",
-                passed=True,
-                violations=0,
-                details="Import organization is correct",
-                output=output,
-            )
-        else:
-            # Count files with issues
-            violations = len([l for l in output.split("\n") if l.startswith("---")])
-            return LinterResult(
-                linter="isort",
-                passed=False,
-                violations=violations,
-                details=f"Import organization issues in {violations} file(s)",
-                output=output[:500],
-            )
-    except FileNotFoundError:
-        return LinterResult(
-            linter="isort",
-            passed=False,
-            violations=0,
-            details="isort not installed",
-            output="ERROR: isort not found",
-        )
-    except subprocess.TimeoutExpired:
-        return LinterResult(
-            linter="isort",
-            passed=False,
-            violations=0,
-            details="isort timed out",
-            output="ERROR: Timeout",
-        )
-    except Exception as e:
-        return LinterResult(
-            linter="isort",
-            passed=False,
-            violations=0,
-            details=f"isort error: {str(e)}",
-            output=str(e),
-        )
+    # ═══════════════════════════════════════════════════════════════
+    # MYPY CLASSIFICATION
+    # ═══════════════════════════════════════════════════════════════
+    if tool == "mypy":
+        # All mypy errors are ERROR (type hints don't affect runtime)
+        # No BLOCKING category for mypy (Python ignores type hints)
+        return "ERROR"
 
-
-def run_black() -> LinterResult:
-    """Run black to check code formatting."""
-    black_path = os.path.join(VENV_BIN, "black")
-    try:
-        result = subprocess.run(
-            [black_path, PYTHON_DIR, "--check", "--line-length=120"],
-            capture_output=True,
-            text=True,
-            timeout=60,
-        )
-
-        output = result.stdout + result.stderr
-
-        if result.returncode == 0:
-            return LinterResult(
-                linter="black",
-                passed=True,
-                violations=0,
-                details="Code formatting is correct",
-                output=output,
-            )
-        else:
-            # Count files that need reformatting
-            violations = len(
-                [
-                    l
-                    for l in output.split("\n")
-                    if "would be reformatted" in l or "would reformat" in l
-                ]
-            )
-            return LinterResult(
-                linter="black",
-                passed=False,
-                violations=violations,
-                details=f"Code formatting issues in {violations} file(s)",
-                output=output[:500],
-            )
-    except FileNotFoundError:
-        return LinterResult(
-            linter="black",
-            passed=False,
-            violations=0,
-            details="black not installed",
-            output="ERROR: black not found",
-        )
-    except subprocess.TimeoutExpired:
-        return LinterResult(
-            linter="black",
-            passed=False,
-            violations=0,
-            details="black timed out",
-            output="ERROR: Timeout",
-        )
-    except Exception as e:
-        return LinterResult(
-            linter="black",
-            passed=False,
-            violations=0,
-            details=f"black error: {str(e)}",
-            output=str(e),
-        )
-
-
-def run_all_linters() -> List[LinterResult]:
-    """Run all configured linters."""
-    return [
-        run_flake8(),
-        run_mypy(),
-        run_isort(),
-        run_black(),
-    ]
-
-
-def generate_json_report(results: List[LinterResult], filepath: str) -> None:
-    """Generate JSON report."""
-    summary = {
-        "timestamp": datetime.now(timezone.utc).strftime("%Y-%m-%d %H:%M:%S UTC"),
-        "total_linters": len(results),
-        "passed": len([r for r in results if r.passed]),
-        "failed": len([r for r in results if not r.passed]),
-        "linters": [asdict(r) for r in results],
-    }
-
-    with open(filepath, "w", encoding="utf-8") as f:
-        json.dump(summary, f, indent=2)
-
-
-def generate_markdown_report(results: List[LinterResult], filepath: str) -> None:
-    """Generate Markdown report."""
-    timestamp = datetime.now(timezone.utc).strftime("%Y-%m-%d %H:%M:%S UTC")
-    total = len(results)
-    passed = len([r for r in results if r.passed])
-    failed = len([r for r in results if not r.passed])
-    success_rate = (passed / total * 100) if total > 0 else 0
-    status_icon = "✅" if failed == 0 else "❌"
-    status_text = "PASS" if failed == 0 else "FAIL"
-
-    md_lines = [
-        "# 🔍 Code Linting Report",
-        "",
-        f"**Generated:** {timestamp}",
-        "",
-        f"**Scope:** {PYTHON_DIR}",
-        "",
-        "## 📊 Executive Summary",
-        "",
-        f"{status_icon} **Overall Status:** {status_text}",
-        "",
-        "| Metric | Value |",
-        "| --- | --- |",
-        f"| Total Linters | {total} |",
-        f"| Passed | {passed} ({success_rate:.1f}%) |",
-        f"| Failed | {failed} ({100-success_rate:.1f}%) |",
-        "",
-        "---",
-        "",
-        "## 📝 Detailed Results",
-        "",
-    ]
-
-    for result in results:
-        status = "✅ PASS" if result.passed else "❌ FAIL"
-        md_lines.append(f"### {result.linter} {status}")
-        md_lines.append("")
-        md_lines.append(f"**Status:** {result.details}")
-        md_lines.append("")
-        if result.violations > 0:
-            md_lines.append(f"**Violations:** {result.violations}")
-            md_lines.append("")
-        if result.output:
-            md_lines.append("```text")
-            md_lines.append(result.output[:400])
-            md_lines.append("```")
-            md_lines.append("")
-
-    # Final Summary
-    md_lines.append("---")
-    md_lines.append("")
-    md_lines.append("## 🎯 Final Summary")
-    md_lines.append("")
-    if failed == 0:
-        md_lines.append(
-            f"✅ **All {total} linters passed!** Code quality standards met."
-        )
-    else:
-        md_lines.append(f"❌ **{failed} linter(s) failed out of {total}.**")
-        md_lines.append("")
-        md_lines.append("**Recommended Actions:**")
-        md_lines.append("")
-        failed_linters = [r.linter for r in results if not r.passed]
-        for idx, linter in enumerate(failed_linters, 1):
-            md_lines.append(f"{idx}. Fix {linter} violations")
-        md_lines.append("")
-    md_lines.append(f"**Report generated at:** {timestamp}")
-
-    # Remove trailing blank line and add single newline at end
-    while md_lines and md_lines[-1] == "":
-        md_lines.pop()
-
-    with open(filepath, "w", encoding="utf-8") as f:
-        f.write("\n".join(md_lines) + "\n")
-
-
-def print_console_summary(results: List[LinterResult]) -> None:
-    """Print console summary."""
-    print("\n" + "=" * 80)
-    print("CODE LINTING SUMMARY")
-    print("=" * 80)
-
-    for result in results:
-        status = "✅ PASS" if result.passed else "❌ FAIL"
-        print(f"{status}: {result.linter} - {result.details}")
-
-    total = len(results)
-    passed = len([r for r in results if r.passed])
-    failed = len([r for r in results if not r.passed])
-
-    print(f"\nTotal: {total} | Passed: {passed} | Failed: {failed}")
-
-    json_report = os.path.join(RESULTS_DIR, "code_lint_last.json")
-    md_report = os.path.join(REPORTS_DIR, "code_lint_last.md")
-    print(f"JSON Report: {json_report}")
-    print(f"Markdown Report: {md_report}")
-
-    print("=" * 80 + "\n")
+    # ═══════════════════════════════════════════════════════════════
+    # UNKNOWN TOOL → ERROR (conservative)
+    # ═══════════════════════════════════════════════════════════════
+    return "ERROR"
 
 
 def main() -> int:
     """Main entry point."""
-    print("Discovering Python modules...")
-    modules = discover_modules(ROOT)
-    print(f"Found modules: {', '.join(modules)}")
-    print(f"Linting scope: {PYTHON_DIR}\n")
+    parser = argparse.ArgumentParser(description=__doc__)
+    parser.add_argument(
+        "--autofix",
+        action="store_true",
+        help="Auto-fix formatting issues (black/isort) before checking",
+    )
+    parser.add_argument(
+        "--block-on-format-warnings",
+        action="store_true",
+        help="Treat formatting warnings (black/isort) as errors (strict CI/CD mode)",
+    )
+    parser.add_argument(
+        "--block-on-format-errors",
+        action="store_true",
+        help="Treat formatting errors as blocking (currently no format errors exist)",
+    )
+    parser.add_argument(
+        "--block-on-lint-warnings",
+        action="store_true",
+        help="Treat lint style warnings (flake8 W-class) as errors (strict CI/CD mode)",
+    )
+    parser.add_argument(
+        "--block-on-lint-errors",
+        action="store_true",
+        help="Treat lint logic errors (flake8 E/F-class) as blocking (recommended for CI/CD)",
+    )
+    parser.add_argument(
+        "--block-on-type-warnings",
+        action="store_true",
+        help="Treat type warnings (mypy) as errors (strict CI/CD mode)",
+    )
+    parser.add_argument(
+        "--block-on-type-errors",
+        action="store_true",
+        help="Treat type errors (mypy) as blocking (recommended for type-safe CI/CD)",
+    )
+    args = parser.parse_args()
 
-    print("Running linters...\n")
-    results = run_all_linters()
+    root = get_project_root()
+    results_dir = root / "Test" / "results"
+    results_dir.mkdir(exist_ok=True)
 
-    # Generate reports
-    json_file = os.path.join(RESULTS_DIR, "code_lint_last.json")
-    md_file = os.path.join(REPORTS_DIR, "code_lint_last.md")
+    lint_dirs = [root / "Python", root / "Test"]
+    timestamp = datetime.now(timezone.utc).isoformat()
 
-    generate_json_report(results, json_file)
-    generate_markdown_report(results, md_file)
+    # Step 1: Auto-fix formatting if requested
+    if args.autofix:
+        print("🔧 Auto-fixing formatting issues...")
+        for lint_dir in lint_dirs:
+            if not lint_dir.exists():
+                continue
+            _run_black_fix(lint_dir, root)
+            _run_isort_fix(lint_dir, root)
+        print("✅ Auto-fix complete\n")
 
-    # Print console summary
-    print_console_summary(results)
+    # Step 2: Check formatting (black + isort)
+    format_issues = []
+    for lint_dir in lint_dirs:
+        if not lint_dir.exists():
+            continue
 
-    # Return exit code
-    failed_count = len([r for r in results if not r.passed])
-    return 0 if failed_count == 0 else 1
+        # Black check
+        exit_code, black_files = _run_black_check(lint_dir, root)
+        for file in black_files:
+            format_issues.append(f"{file}: needs black formatting")
+
+        # Isort check
+        exit_code, isort_files = _run_isort_check(lint_dir, root)
+        for file in isort_files:
+            format_issues.append(f"{file}: needs isort")
+
+    # Step 3: Run flake8 + mypy
+    all_issues = []
+    for lint_dir in lint_dirs:
+        if not lint_dir.exists():
+            continue
+
+        # Flake8
+        flake8_issues = _run_flake8(lint_dir, root)
+        all_issues.extend(flake8_issues)
+
+        # Mypy
+        mypy_issues = _run_mypy(lint_dir, root)
+        all_issues.extend(mypy_issues)
+
+    # Step 4: Classify issues into categories with tool prefixes
+    blocking_issues = []  # E999, F821, F823 - code won't execute
+    error_issues = []  # F8xx, E4xx, mypy - logic errors but code runs
+    warning_issues = []  # black/isort, W-class, style issues
+
+    # Format issues are always WARNING (with [format] prefix)
+    for issue_text in format_issues:
+        warning_issues.append(f"[format] {issue_text}")
+
+    # Classify flake8/mypy issues (with [lint] or [type] prefix)
+    for issue in all_issues:
+        filename = issue.get("filename", "unknown")
+        # Convert absolute path to relative path
+        try:
+            rel_path = Path(filename).relative_to(root)
+            filename = str(rel_path)
+        except (ValueError, TypeError):
+            pass  # Keep absolute if can't convert
+
+        formatted = f"{filename}:{issue.get('line', '?')} " f"{issue.get('code', 'UNKNOWN')} {issue.get('text', '')}"
+        severity = _classify_issue(issue)
+        tool = issue.get("tool", "")
+
+        if severity == "BLOCKING":
+            if tool == "flake8":
+                blocking_issues.append(f"[lint] {formatted}")
+            elif tool == "mypy":
+                blocking_issues.append(f"[type] {formatted}")
+            else:
+                blocking_issues.append(f"[{tool}] {formatted}")
+        elif severity == "ERROR":
+            if tool == "flake8":
+                error_issues.append(f"[lint] {formatted}")
+            elif tool == "mypy":
+                error_issues.append(f"[type] {formatted}")
+            else:
+                error_issues.append(f"[{tool}] {formatted}")
+        elif severity == "WARNING":
+            if tool == "flake8":
+                warning_issues.append(f"[lint] {formatted}")
+            elif tool == "mypy":
+                warning_issues.append(f"[type] {formatted}")
+            else:
+                warning_issues.append(f"[{tool}] {formatted}")
+
+    blocking_count = len(blocking_issues)
+    error_count = len(error_issues)
+    warning_count = len(warning_issues)
+    total_count = blocking_count + error_count + warning_count
+
+    # Step 5: Generate JSON report
+    payload = {
+        "metadata": {
+            "report_id": "code_quality",
+            "timestamp_utc": timestamp,
+            "status": "FAIL" if (blocking_count > 0 or error_count > 0) else "PASS",
+            "source": "Test/scripts/code_lint.py",
+            "framework_version": FRAMEWORK_VERSION,
+            "notes": "Unified code quality: black, isort, flake8, mypy (3-level: BLOCKING/ERROR/WARNING)",
+            "blocking_count": blocking_count,
+            "error_count": error_count,
+            "warning_count": warning_count,
+            "autofix_enabled": args.autofix,
+            "block_on_format_warnings": args.block_on_format_warnings,
+            "block_on_format_errors": args.block_on_format_errors,
+            "block_on_lint_warnings": args.block_on_lint_warnings,
+            "block_on_lint_errors": args.block_on_lint_errors,
+            "block_on_type_warnings": args.block_on_type_warnings,
+            "block_on_type_errors": args.block_on_type_errors,
+        },
+        "summary": {
+            "title": "Execution Summary",
+            "metrics": [
+                {"label": "Blocking Issues", "value": blocking_count},
+                {"label": "Error Issues", "value": error_count},
+                {"label": "Warning Issues", "value": warning_count},
+                {"label": "Total Issues", "value": total_count},
+                {"label": "Files Scanned", "value": len(_collect_files(lint_dirs))},
+            ],
+        },
+        "scope": {
+            "targets": {
+                "folders": [d.name for d in lint_dirs if d.exists()],
+                "files": _collect_files(lint_dirs),
+                "modules": [],
+                "functions": [],
+                "classes": [],
+            }
+        },
+        "details": {
+            "type": "breakdown",
+            "tools": ["black", "isort", "flake8", "mypy"],
+            "classification": "BLOCKING (won't execute) / ERROR (executes but buggy) / WARNING (style)",
+        },
+        "issues_blocking": {
+            "type": "list",
+            "items": blocking_issues if blocking_issues else ["No blocking issues"],
+        },
+        "issues_errors": {
+            "type": "list",
+            "items": error_issues if error_issues else ["No error issues"],
+        },
+        "issues_warnings": {
+            "type": "list",
+            "items": warning_issues if warning_issues else ["No warnings"],
+        },
+        "extras": [],
+    }
+
+    json_file = results_dir / "code_lint_last.json"
+    json_file.write_text(json.dumps(payload, indent=2), encoding="utf-8")
+    print(f"Code quality report: {json_file.name}")
+
+    # Generate Markdown report
+    reports_dir = root / "Test" / "reports"
+    reports_dir.mkdir(exist_ok=True)
+    md_file = reports_dir / "CODE_LINT_LAST.md"
+    md_content = render_report(payload)
+    md_file.write_text(md_content, encoding="utf-8")
+    print(f"Code quality report MD: {md_file.name}")
+
+    # ═══════════════════════════════════════════════════════════════
+    # EXIT CODE LOGIC (3-level classification)
+    # ═══════════════════════════════════════════════════════════════
+    # BLOCKING issues always fail (code won't execute)
+    if blocking_count > 0:
+        return 1
+
+    # ERROR issues fail based on tool-specific flags
+    # Check error_issues for [format], [lint], [type] prefixes
+    has_format_errors = any(e.startswith("[format]") for e in error_issues)
+    has_lint_errors = any(e.startswith("[lint]") for e in error_issues)
+    has_type_errors = any(e.startswith("[type]") for e in error_issues)
+
+    if has_format_errors and args.block_on_format_errors:
+        return 1
+    if has_lint_errors and args.block_on_lint_errors:
+        return 1
+    if has_type_errors and args.block_on_type_errors:
+        return 1
+
+    # WARNING issues fail based on tool-specific flags
+    # Check warning_issues for [format], [lint], [type] prefixes
+    has_format_warnings = any(w.startswith("[format]") for w in warning_issues)
+    has_lint_warnings = any(w.startswith("[lint]") for w in warning_issues)
+    has_type_warnings = any(w.startswith("[type]") for w in warning_issues)
+
+    if has_format_warnings and args.block_on_format_warnings:
+        return 1
+    if has_lint_warnings and args.block_on_lint_warnings:
+        return 1
+    if has_type_warnings and args.block_on_type_warnings:
+        return 1
+
+    # All checks passed
+    return 0
 
 
 if __name__ == "__main__":
-    sys.exit(main())
+    raise SystemExit(main())
